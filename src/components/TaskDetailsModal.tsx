@@ -1,21 +1,31 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Task } from '../types';
-import { X, Terminal, Paperclip, Trash2 } from 'lucide-react';
+import { X, Terminal, Paperclip, Trash2, Eye, Brain } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
 import { Artifact, db } from '../services/db';
 import ArtifactTree from './ArtifactTree';
+import { cn } from '../lib/utils';
+import { GoogleGenAI } from '@google/genai';
 
 interface TaskDetailsModalProps {
   task: Task | null;
   onClose: () => void;
   tasks: Task[];
   onDeleteTask?: (taskId: string) => void;
+  onAnalyzeArtifact?: (artifactId: number) => void;
 }
 
-export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask }: TaskDetailsModalProps) {
+export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, onAnalyzeArtifact }: TaskDetailsModalProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
+  const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+
+  const selectedArtifact = useLiveQuery(() => 
+    selectedArtifactId ? db.taskArtifacts.get(selectedArtifactId) : Promise.resolve(null)
+  , [selectedArtifactId]);
 
   const availableArtifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
   const taskArtifacts = useLiveQuery(async () => {
@@ -70,6 +80,30 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask }:
     if (onDeleteTask) {
       onDeleteTask(task.id);
       onClose();
+    }
+  };
+
+  const handleAnalyze = async () => {
+    if (!selectedArtifact) return;
+    setIsAnalyzing(true);
+    setAnalysisResult(null);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Analyze the following artifact content from a software task. 
+        Task: ${task.title}
+        Artifact Name: ${selectedArtifact.name}
+        Content:
+        ${selectedArtifact.content}
+        
+        Provide a concise summary of what this artifact is and how it relates to the task.`,
+      });
+      setAnalysisResult(response.text || "No analysis generated.");
+    } catch (err: any) {
+      setAnalysisResult(`Error analyzing artifact: ${err.message}`);
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -150,8 +184,49 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask }:
                     artifacts={taskArtifacts} 
                     tasks={tasks} 
                     onDelete={handleRemoveLink}
+                    onSelect={(a) => setSelectedArtifactId(a.id!)}
                   />
                 </div>
+
+                {selectedArtifact && (
+                  <div className="mt-4 space-y-4">
+                    <div className="bg-neutral-950 rounded-md border border-neutral-800 overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-900 border-b border-neutral-800">
+                        <span className="text-[10px] font-mono text-neutral-400 truncate">{selectedArtifact.name}</span>
+                        <div className="flex items-center space-x-2">
+                          <button 
+                            onClick={handleAnalyze}
+                            disabled={isAnalyzing}
+                            className="text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                            title="Analyze with AI"
+                          >
+                            <Brain className={cn("w-3.5 h-3.5", isAnalyzing && "animate-pulse")} />
+                          </button>
+                          <button onClick={() => setSelectedArtifactId(null)} className="text-neutral-500 hover:text-neutral-300">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-3 max-h-64 overflow-y-auto custom-scrollbar bg-neutral-950">
+                        <pre className="text-[11px] font-mono text-neutral-400 whitespace-pre-wrap leading-relaxed">
+                          {selectedArtifact.content}
+                        </pre>
+                      </div>
+                    </div>
+
+                    {analysisResult && (
+                      <div className="bg-blue-400/5 border border-blue-400/20 rounded-md p-3">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <Brain className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">AI Analysis</span>
+                        </div>
+                        <p className="text-xs text-neutral-300 leading-relaxed italic">
+                          {analysisResult}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

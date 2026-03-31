@@ -21,17 +21,28 @@ export interface ArtifactLink {
   artifactId: number;
 }
 
+export interface JulesSession {
+  id: string;
+  name: string;
+  title: string;
+  taskId: string;
+  status: string;
+  createdAt: number;
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
   taskArtifactLinks!: Table<ArtifactLink>;
+  julesSessions!: Table<JulesSession>;
 
   constructor() {
     super('AgentKanbanDB');
-    this.version(3).stores({
+    this.version(4).stores({
       gitCache: 'path',
       taskArtifacts: '++id, taskId, repoName, branchName',
-      taskArtifactLinks: '++id, taskId, artifactId'
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name'
     });
   }
 }

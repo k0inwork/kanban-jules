@@ -5,32 +5,37 @@ import { julesApi, Source } from '../lib/julesApi';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (endpoint: string, apiKey: string, repoUrl: string, branch: string) => void;
+  onSave: (endpoint: string, apiKey: string, repoUrl: string, branch: string, sourceName: string) => void;
   initialEndpoint: string;
   initialApiKey: string;
   initialRepoUrl: string;
   initialBranch: string;
+  initialSourceName: string;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
-  initialEndpoint, initialApiKey, initialRepoUrl, initialBranch 
+  initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
   const [repoUrl, setRepoUrl] = useState(initialRepoUrl);
   const [branch, setBranch] = useState(initialBranch);
+  const [sourceName, setSourceName] = useState(initialSourceName);
   
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setEndpoint(initialEndpoint);
-    setApiKey(initialApiKey);
-    setRepoUrl(initialRepoUrl);
-    setBranch(initialBranch);
-  }, [initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, isOpen]);
+    if (isOpen) {
+      setEndpoint(initialEndpoint);
+      setApiKey(initialApiKey);
+      setRepoUrl(initialRepoUrl);
+      setBranch(initialBranch);
+      setSourceName(initialSourceName);
+    }
+  }, [isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName]);
 
   useEffect(() => {
     if (isOpen && apiKey) {
@@ -57,11 +62,12 @@ export default function SettingsModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(endpoint, apiKey, repoUrl, branch);
+    onSave(endpoint, apiKey, repoUrl, branch, sourceName);
     onClose();
   };
 
   const selectedSource = sources.find(s => 
+    s.name === sourceName || 
     s.name === repoUrl || 
     (s.githubRepo && `${s.githubRepo.owner}/${s.githubRepo.repo}` === repoUrl)
   );
@@ -112,10 +118,12 @@ export default function SettingsModal({
             <div>
               <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Source (Repository)</label>
               <select
-                value={selectedSource?.name || repoUrl}
+                value={sourceName || repoUrl}
                 onChange={(e) => {
-                  const selected = sources.find(s => s.name === e.target.value);
+                  const val = e.target.value;
+                  const selected = sources.find(s => s.name === val);
                   if (selected) {
+                    setSourceName(selected.name);
                     const repoIdentifier = selected.githubRepo ? `${selected.githubRepo.owner}/${selected.githubRepo.repo}` : selected.name;
                     setRepoUrl(repoIdentifier);
                     if (selected.githubRepo?.defaultBranch?.displayName) {
@@ -124,7 +132,8 @@ export default function SettingsModal({
                       setBranch('');
                     }
                   } else {
-                    setRepoUrl(e.target.value);
+                    setSourceName('');
+                    setRepoUrl(val);
                   }
                 }}
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"

@@ -49,7 +49,7 @@ export default function KanbanColumn({ title, status, tasks, onDrop, onTaskClick
         </span>
       </div>
       
-      <div className="flex-1 p-3 overflow-y-auto space-y-3 custom-scrollbar min-h-0 h-0">
+      <div className="flex-1 p-3 overflow-y-auto space-y-3 custom-scrollbar min-h-0">
         {tasks.map((task) => (
           <TaskCard 
             key={task.id} 

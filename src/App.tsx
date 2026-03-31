@@ -12,6 +12,9 @@ import { julesApi, SessionState } from './lib/julesApi';
 import { inferTaskType, getExecutionLocation } from './services/TaskRouter';
 import { LocalResearcher } from './services/LocalResearcher';
 import { TaskFs } from './services/TaskFs';
+import CollapsiblePane from './components/CollapsiblePane';
+import JulesProcessBrowser from './components/JulesProcessBrowser';
+import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
 import { db } from './services/db';
 import { Bot, Plus, Play, Square, Settings, Folder } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
@@ -32,16 +35,19 @@ export default function App() {
   const [julesApiKey, setJulesApiKey] = useState(() => localStorage.getItem('julesApiKey') || '');
   const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || '');
   const [repoBranch, setRepoBranch] = useState(() => localStorage.getItem('repoBranch') || 'main');
+  const [julesSourceName, setJulesSourceName] = useState(() => localStorage.getItem('julesSourceName') || '');
 
-  const handleSaveSettings = (endpoint: string, apiKey: string, repo: string, branch: string) => {
+  const handleSaveSettings = (endpoint: string, apiKey: string, repo: string, branch: string, sourceName: string) => {
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
     setRepoBranch(branch);
+    setJulesSourceName(sourceName);
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
     localStorage.setItem('repoUrl', repo);
     localStorage.setItem('repoBranch', branch);
+    localStorage.setItem('julesSourceName', sourceName);
   };
 
   // Agent Loop
@@ -119,7 +125,7 @@ export default function App() {
 
       // 1. Create Jules Session
       const sourceContext = {
-        source: repoUrl,
+        source: julesSourceName || repoUrl,
         githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
       };
 
@@ -128,6 +134,16 @@ export default function App() {
         prompt: task.description,
         sourceContext,
         requirePlanApproval: true,
+      });
+
+      // Save session to DB
+      await db.julesSessions.add({
+        id: session.name, // Using session name as ID
+        name: session.name,
+        title: task.title,
+        taskId: task.id,
+        status: session.state,
+        createdAt: Date.now()
       });
 
       console.log("SESSION CREATED:", session);
@@ -146,6 +162,7 @@ export default function App() {
       while (!isDone && pollCount < 100) { // Max 100 polls (approx 5-10 minutes)
         await new Promise(resolve => setTimeout(resolve, 5000)); // Poll every 5 seconds
         pollCount++;
+        await db.julesSessions.update(session.name, { status: currentState });
         appendLog(`> [Polling] Iteration ${pollCount}, State: ${currentState}\n`);
 
         try {
@@ -306,6 +323,15 @@ Otherwise, based on the task description, provide a short, direct answer or inst
   const handleAttachArtifact = async (taskId: string, artifactId: number) => {
     const taskFs = new TaskFs();
     await taskFs.attachArtifact(taskId, artifactId);
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const currentIds = t.artifactIds || [];
+        if (!currentIds.includes(artifactId)) {
+          return { ...t, artifactIds: [...currentIds, artifactId] };
+        }
+      }
+      return t;
+    }));
   };
 
   return (
@@ -376,9 +402,30 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       {/* Main Board */}
       <div className="flex-1 flex overflow-hidden">
         {isRepoBrowserOpen && (
-          <div className="w-64 p-4 border-r border-neutral-800 flex flex-col space-y-8 overflow-y-auto custom-scrollbar">
-            <RepositoryBrowser repoUrl={repoUrl} branch={repoBranch} token={import.meta.env.VITE_GITHUB_TOKEN} />
-            <ArtifactBrowser tasks={tasks} />
+          <div className="w-80 border-r border-neutral-800 flex flex-col bg-neutral-900/30 overflow-y-auto custom-scrollbar">
+            <CollapsiblePane title="Repository" defaultExpanded={true}>
+              <div className="p-4">
+                <RepositoryBrowser repoUrl={repoUrl} branch={repoBranch} token={import.meta.env.VITE_GITHUB_TOKEN} />
+              </div>
+            </CollapsiblePane>
+
+            <CollapsiblePane title="Artifacts" defaultExpanded={true} badge={tasks.reduce((acc, t) => acc + (t.artifactIds?.length || 0), 0)}>
+              <div className="p-2">
+                <ArtifactBrowser tasks={tasks} />
+              </div>
+            </CollapsiblePane>
+
+            <CollapsiblePane title="Jules Processes" defaultExpanded={true}>
+              <JulesProcessBrowser tasks={tasks} />
+            </CollapsiblePane>
+
+            <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
+              <GithubWorkflowMonitor 
+                repoUrl={repoUrl} 
+                branch={repoBranch || 'main'} 
+                token={import.meta.env.VITE_GITHUB_TOKEN || ''} 
+              />
+            </CollapsiblePane>
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col">
@@ -409,6 +456,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialApiKey={julesApiKey}
         initialRepoUrl={repoUrl}
         initialBranch={repoBranch}
+        initialSourceName={julesSourceName}
       />
 
       <TaskDetailsModal
