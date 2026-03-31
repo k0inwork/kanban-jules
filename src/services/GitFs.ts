@@ -1,5 +1,12 @@
 import { db } from './db';
 
+export interface GitFile {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  size: number;
+}
+
 export class GitFs {
   private repoUrl: string;
   private branch: string;
@@ -26,7 +33,13 @@ export class GitFs {
       const parts = url.pathname.split('/').filter(Boolean);
       [owner, repo] = parts;
     } else {
-      [owner, repo] = this.repoUrl.split('/');
+      const parts = this.repoUrl.split('/');
+      if (parts.length >= 2) {
+        [owner, repo] = parts;
+      } else {
+        owner = 'unknown';
+        repo = this.repoUrl;
+      }
     }
     
     const pathSegment = path ? `/${path}` : '';
@@ -60,8 +73,8 @@ export class GitFs {
     return content;
   }
 
-  // List files (simulated for now)
-  async listFiles(path: string = ''): Promise<string[]> {
+  // List files
+  async listFiles(path: string = ''): Promise<GitFile[]> {
     const response = await fetch(this.getApiUrl(path), {
       headers: {
         'Authorization': `token ${this.token}`,
@@ -75,6 +88,12 @@ export class GitFs {
     }
 
     const data = await response.json();
-    return Array.isArray(data) ? data.map(f => f.path) : [data.path];
+    const items = Array.isArray(data) ? data : [data];
+    return items.map(f => ({
+      name: f.name,
+      path: f.path,
+      type: f.type,
+      size: f.size
+    }));
   }
 }

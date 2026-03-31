@@ -1,26 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { X, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { X } from 'lucide-react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
-import { Artifact } from '../services/db';
+import { Artifact, db } from '../services/db';
+import { Task } from '../types';
+import ArtifactTree from './ArtifactTree';
 
 interface NewTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (title: string, description: string, artifactIds: number[]) => void;
+  tasks: Task[];
 }
 
-export default function NewTaskModal({ isOpen, onClose, onSubmit }: NewTaskModalProps) {
+export default function NewTaskModal({ isOpen, onClose, onSubmit, tasks }: NewTaskModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<number[]>([]);
 
-  useEffect(() => {
-    if (isOpen) {
-      const taskFs = new TaskFs();
-      taskFs.getAllArtifacts().then(setArtifacts);
-    }
-  }, [isOpen]);
+  const artifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
 
   if (!isOpen) return null;
 
@@ -34,10 +32,18 @@ export default function NewTaskModal({ isOpen, onClose, onSubmit }: NewTaskModal
     onClose();
   };
 
-  const toggleArtifact = (id: number) => {
-    setSelectedArtifactIds(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
+  const toggleArtifacts = (ids: number[]) => {
+    setSelectedArtifactIds(prev => {
+      const allSelected = ids.every(id => prev.includes(id));
+      if (allSelected) {
+        // Unselect all in the list
+        return prev.filter(id => !ids.includes(id));
+      } else {
+        // Select all missing ones
+        const toAdd = ids.filter(id => !prev.includes(id));
+        return [...prev, ...toAdd];
+      }
+    });
   };
 
   return (
@@ -75,22 +81,14 @@ export default function NewTaskModal({ isOpen, onClose, onSubmit }: NewTaskModal
 
           <div>
             <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Attach Artifacts</label>
-            <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar">
-              {artifacts.map(artifact => (
-                <button
-                  key={artifact.id}
-                  type="button"
-                  onClick={() => toggleArtifact(artifact.id!)}
-                  className={`w-full flex items-center justify-between p-2 rounded text-sm text-left border ${
-                    selectedArtifactIds.includes(artifact.id!) 
-                      ? 'bg-blue-500/10 border-blue-500/50 text-blue-300' 
-                      : 'bg-neutral-950 border-neutral-800 text-neutral-400'
-                  }`}
-                >
-                  {artifact.name}
-                  {selectedArtifactIds.includes(artifact.id!) && <Check className="w-4 h-4" />}
-                </button>
-              ))}
+            <div className="bg-neutral-950 border border-neutral-800 rounded-md p-2 max-h-48 overflow-y-auto custom-scrollbar">
+              <ArtifactTree 
+                artifacts={artifacts} 
+                tasks={tasks} 
+                selectedIds={selectedArtifactIds} 
+                onToggle={toggleArtifacts}
+                showCheckboxes
+              />
             </div>
           </div>
           

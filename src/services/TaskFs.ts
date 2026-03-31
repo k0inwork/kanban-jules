@@ -1,8 +1,8 @@
 import { db, Artifact } from './db';
 
 export class TaskFs {
-  async saveArtifact(taskId: string, name: string, content: string): Promise<number> {
-    return await db.taskArtifacts.add({ taskId, name, content });
+  async saveArtifact(taskId: string, repoName: string, branchName: string, name: string, content: string): Promise<number> {
+    return await db.taskArtifacts.add({ taskId, repoName, branchName, name, content });
   }
 
   async getArtifacts(taskId: string): Promise<Artifact[]> {
@@ -21,9 +21,30 @@ export class TaskFs {
   }
 
   async attachArtifact(targetTaskId: string, artifactId: number): Promise<void> {
-    await db.taskArtifactLinks.add({
+    const existing = await db.taskArtifactLinks.where({
       taskId: targetTaskId,
       artifactId: artifactId
-    });
+    }).first();
+    
+    if (!existing) {
+      await db.taskArtifactLinks.add({
+        taskId: targetTaskId,
+        artifactId: artifactId
+      });
+    }
+  }
+
+  async deleteArtifact(artifactId: number): Promise<void> {
+    await db.taskArtifacts.delete(artifactId);
+    await db.taskArtifactLinks.where('artifactId').equals(artifactId).delete();
+  }
+
+  async removeArtifactLink(taskId: string, artifactId: number): Promise<void> {
+    await db.taskArtifactLinks.where({ taskId, artifactId }).delete();
+  }
+
+  async clearAllArtifacts(): Promise<void> {
+    await db.taskArtifacts.clear();
+    await db.taskArtifactLinks.clear();
   }
 }

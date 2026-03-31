@@ -9,6 +9,8 @@ export interface GitCache {
 export interface Artifact {
   id?: number;
   taskId: string;
+  repoName: string;
+  branchName: string;
   name: string;
   content: string;
 }
@@ -26,9 +28,9 @@ export class MyDatabase extends Dexie {
 
   constructor() {
     super('AgentKanbanDB');
-    this.version(2).stores({
+    this.version(3).stores({
       gitCache: 'path',
-      taskArtifacts: '++id, taskId',
+      taskArtifacts: '++id, taskId, repoName, branchName',
       taskArtifactLinks: '++id, taskId, artifactId'
     });
   }

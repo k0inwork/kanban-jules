@@ -61,7 +61,10 @@ export default function SettingsModal({
     onClose();
   };
 
-  const selectedSource = sources.find(s => s.name === repoUrl);
+  const selectedSource = sources.find(s => 
+    s.name === repoUrl || 
+    (s.githubRepo && `${s.githubRepo.owner}/${s.githubRepo.repo}` === repoUrl)
+  );
   const branches = selectedSource?.githubRepo?.branches || [];
 
   return (
@@ -109,26 +112,34 @@ export default function SettingsModal({
             <div>
               <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Source (Repository)</label>
               <select
-                value={repoUrl}
+                value={selectedSource?.name || repoUrl}
                 onChange={(e) => {
                   const selected = sources.find(s => s.name === e.target.value);
-                  const repoIdentifier = selected?.githubRepo ? `${selected.githubRepo.owner}/${selected.githubRepo.repo}` : e.target.value;
-                  setRepoUrl(repoIdentifier);
-                  if (selected?.githubRepo?.defaultBranch?.displayName) {
-                    setBranch(selected.githubRepo.defaultBranch.displayName);
+                  if (selected) {
+                    const repoIdentifier = selected.githubRepo ? `${selected.githubRepo.owner}/${selected.githubRepo.repo}` : selected.name;
+                    setRepoUrl(repoIdentifier);
+                    if (selected.githubRepo?.defaultBranch?.displayName) {
+                      setBranch(selected.githubRepo.defaultBranch.displayName);
+                    } else {
+                      setBranch('');
+                    }
                   } else {
-                    setBranch('');
+                    setRepoUrl(e.target.value);
                   }
                 }}
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                disabled={isLoadingSources || sources.length === 0}
+                disabled={isLoadingSources}
               >
                 <option value="">Select a source...</option>
+                {isLoadingSources && <option value="" disabled>Loading sources...</option>}
                 {sources.map(s => (
                   <option key={s.name} value={s.name}>
                     {s.githubRepo ? `${s.githubRepo.owner}/${s.githubRepo.repo}` : s.name}
                   </option>
                 ))}
+                {!isLoadingSources && repoUrl && !selectedSource && (
+                  <option value={repoUrl}>{repoUrl}</option>
+                )}
               </select>
               {sources.length === 0 && !isLoadingSources && apiKey && (
                 <p className="text-[10px] text-yellow-500 mt-1">No sources found. Click refresh.</p>
@@ -141,7 +152,7 @@ export default function SettingsModal({
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                disabled={!repoUrl || branches.length === 0}
+                disabled={!repoUrl || (branches.length === 0 && !isLoadingSources)}
               >
                 <option value="">Select a branch...</option>
                 {branches.map(b => (
@@ -149,6 +160,9 @@ export default function SettingsModal({
                     {b.displayName}
                   </option>
                 ))}
+                {!selectedSource && branch && (
+                  <option value={branch}>{branch}</option>
+                )}
               </select>
             </div>
           </div>

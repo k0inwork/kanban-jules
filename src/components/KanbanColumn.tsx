@@ -3,18 +3,23 @@ import { Task, TaskStatus } from '../types';
 import TaskCard from './TaskCard';
 
 interface KanbanColumnProps {
+  key?: string | number;
   title: string;
   status: TaskStatus;
   tasks: Task[];
   onDrop: (taskId: string, newStatus: TaskStatus) => void;
   onTaskClick: (task: Task) => void;
   onStartTask?: (task: Task) => void;
+  onDeleteTask?: (taskId: string) => void;
+  onAttachArtifact?: (taskId: string, artifactId: number) => void;
 }
 
-export default function KanbanColumn({ title, status, tasks, onDrop, onTaskClick, onStartTask }: KanbanColumnProps) {
+export default function KanbanColumn({ title, status, tasks, onDrop, onTaskClick, onStartTask, onDeleteTask, onAttachArtifact }: KanbanColumnProps) {
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    if (e.dataTransfer.types.includes('taskId')) {
+      e.dataTransfer.dropEffect = 'move';
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -33,7 +38,7 @@ export default function KanbanColumn({ title, status, tasks, onDrop, onTaskClick
     <div
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className="flex-1 flex flex-col bg-neutral-900/40 rounded-xl border border-neutral-800/60 overflow-hidden"
+      className="flex-1 flex flex-col bg-neutral-900/40 rounded-xl border border-neutral-800/60 overflow-hidden min-w-[280px] h-full"
     >
       <div className="p-4 border-b border-neutral-800/60 bg-neutral-900/80 flex items-center justify-between">
         <h3 className="font-mono text-sm font-semibold text-neutral-300 uppercase tracking-wider">
@@ -44,7 +49,7 @@ export default function KanbanColumn({ title, status, tasks, onDrop, onTaskClick
         </span>
       </div>
       
-      <div className="flex-1 p-3 overflow-y-auto space-y-3 custom-scrollbar">
+      <div className="flex-1 p-3 overflow-y-auto space-y-3 custom-scrollbar min-h-0 h-0">
         {tasks.map((task) => (
           <TaskCard 
             key={task.id} 
@@ -52,10 +57,12 @@ export default function KanbanColumn({ title, status, tasks, onDrop, onTaskClick
             onDragStart={handleDragStart}
             onClick={onTaskClick}
             onStartTask={onStartTask}
+            onDelete={onDeleteTask}
+            onAttachArtifact={onAttachArtifact}
           />
         ))}
         {tasks.length === 0 && (
-          <div className="h-full flex items-center justify-center text-neutral-600 text-sm font-mono border-2 border-dashed border-neutral-800 rounded-lg">
+          <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm font-mono border-2 border-dashed border-neutral-800 rounded-lg py-12">
             Drop tasks here
           </div>
         )}

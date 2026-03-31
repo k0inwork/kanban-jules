@@ -1,19 +1,33 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Task } from '../types';
-import { X, Terminal, Paperclip, Check } from 'lucide-react';
+import { X, Terminal, Paperclip, Trash2 } from 'lucide-react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
-import { Artifact } from '../services/db';
+import { Artifact, db } from '../services/db';
+import ArtifactTree from './ArtifactTree';
 
 interface TaskDetailsModalProps {
   task: Task | null;
   onClose: () => void;
+  tasks: Task[];
+  onDeleteTask?: (taskId: string) => void;
 }
 
-export default function TaskDetailsModal({ task, onClose }: TaskDetailsModalProps) {
+export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask }: TaskDetailsModalProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const [availableArtifacts, setAvailableArtifacts] = useState<Artifact[]>([]);
-  const [taskArtifacts, setTaskArtifacts] = useState<Artifact[]>([]);
   const [showAttach, setShowAttach] = useState(false);
+
+  const availableArtifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
+  const taskArtifacts = useLiveQuery(async () => {
+    if (!task) return [];
+    const direct = await db.taskArtifacts.where('taskId').equals(task.id).toArray();
+    const links = await db.taskArtifactLinks.where('taskId').equals(task.id).toArray();
+    const artifactIds = links.map(l => l.artifactId);
+    const linked = artifactIds.length > 0 
+      ? await db.taskArtifacts.where('id').anyOf(artifactIds).toArray()
+      : [];
+    return [...direct, ...linked];
+  }, [task?.id]) || [];
 
   useEffect(() => {
     if (logsEndRef.current) {
@@ -21,22 +35,42 @@ export default function TaskDetailsModal({ task, onClose }: TaskDetailsModalProp
     }
   }, [task?.logs]);
 
-  useEffect(() => {
-    if (task) {
-      const taskFs = new TaskFs();
-      taskFs.getAllArtifacts().then(setAvailableArtifacts);
-      taskFs.getArtifacts(task.id).then(setTaskArtifacts);
-    }
-  }, [task]);
-
   if (!task) return null;
 
-  const handleAttach = async (artifactId: number) => {
+  const handleAttach = async (artifactIds: number[]) => {
     const taskFs = new TaskFs();
-    await taskFs.attachArtifact(task.id, artifactId);
-    // Refresh artifacts
-    taskFs.getArtifacts(task.id).then(setTaskArtifacts);
-    setShowAttach(false);
+    const currentIds = taskArtifacts.map(a => a.id!);
+    
+    for (const id of artifactIds) {
+      if (currentIds.includes(id)) {
+        // Already attached, remove it
+        await handleRemoveLink(id);
+      } else {
+        // Not attached, add it
+        await taskFs.attachArtifact(task.id, id);
+      }
+    }
+    // Don't close automatically so user can toggle multiple
+  };
+
+  const handleRemoveLink = async (artifactId: number) => {
+    const taskFs = new TaskFs();
+    // Check if it's a direct artifact or a linked one
+    const artifact = await db.taskArtifacts.get(artifactId);
+    if (artifact?.taskId === task.id) {
+      // Direct artifact - delete it
+      await taskFs.deleteArtifact(artifactId);
+    } else {
+      // Linked artifact - just remove the link
+      await taskFs.removeArtifactLink(task.id, artifactId);
+    }
+  };
+
+  const handleDeleteTask = () => {
+    if (onDeleteTask) {
+      onDeleteTask(task.id);
+      onClose();
+    }
   };
 
   return (
@@ -50,9 +84,20 @@ export default function TaskDetailsModal({ task, onClose }: TaskDetailsModalProp
               {task.status}
             </span>
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-white transition-colors">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            {onDeleteTask && (
+              <button 
+                onClick={handleDeleteTask}
+                className="p-2 text-neutral-400 hover:text-red-400 transition-colors"
+                title="Delete Task"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={onClose} className="text-neutral-400 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
         
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
@@ -88,22 +133,25 @@ export default function TaskDetailsModal({ task, onClose }: TaskDetailsModalProp
                 </div>
                 
                 {showAttach && (
-                  <div className="mb-4 bg-neutral-950 p-2 rounded border border-neutral-800 space-y-1">
-                    {availableArtifacts.map(a => (
-                      <button key={a.id} onClick={() => handleAttach(a.id!)} className="w-full text-left text-xs p-1 hover:bg-neutral-800 rounded text-neutral-300">
-                        {a.name}
-                      </button>
-                    ))}
+                  <div className="mb-4 bg-neutral-950 p-2 rounded border border-neutral-800 max-h-64 overflow-y-auto custom-scrollbar">
+                    <div className="text-[10px] font-mono text-neutral-500 uppercase mb-2 px-2">Select to Attach/Detach</div>
+                    <ArtifactTree 
+                      artifacts={availableArtifacts} 
+                      tasks={tasks} 
+                      selectedIds={taskArtifacts.map(a => a.id!)}
+                      onToggle={handleAttach}
+                      showCheckboxes={true}
+                    />
                   </div>
                 )}
 
-                <ul className="space-y-2">
-                  {taskArtifacts.map((artifact, index) => (
-                    <li key={index} className="text-sm text-neutral-300 bg-neutral-800 p-2 rounded border border-neutral-700">
-                      {artifact.name}
-                    </li>
-                  ))}
-                </ul>
+                <div className="bg-neutral-800/50 rounded-md border border-neutral-700 p-2">
+                  <ArtifactTree 
+                    artifacts={taskArtifacts} 
+                    tasks={tasks} 
+                    onDelete={handleRemoveLink}
+                  />
+                </div>
               </div>
             </div>
           </div>

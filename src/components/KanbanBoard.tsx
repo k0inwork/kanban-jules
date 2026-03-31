@@ -7,9 +7,11 @@ interface KanbanBoardProps {
   onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
   onTaskClick: (task: Task) => void;
   onStartTask?: (task: Task) => void;
+  onDeleteTask?: (taskId: string) => void;
+  onAttachArtifact?: (taskId: string, artifactId: number) => void;
 }
 
-export default function KanbanBoard({ tasks, onMoveTask, onTaskClick, onStartTask }: KanbanBoardProps) {
+export default function KanbanBoard({ tasks, onMoveTask, onTaskClick, onStartTask, onDeleteTask, onAttachArtifact }: KanbanBoardProps) {
   const columns: { title: string; status: TaskStatus }[] = [
     { title: 'Todo', status: 'todo' },
     { title: 'In Progress', status: 'in-progress' },
@@ -18,7 +20,7 @@ export default function KanbanBoard({ tasks, onMoveTask, onTaskClick, onStartTas
   ];
 
   return (
-    <div className="flex-1 flex space-x-4 p-4 overflow-x-auto custom-scrollbar">
+    <div className="flex-1 flex h-full space-x-4 p-4 overflow-x-auto custom-scrollbar">
       {columns.map((col) => (
         <KanbanColumn
           key={col.status}
@@ -28,6 +30,8 @@ export default function KanbanBoard({ tasks, onMoveTask, onTaskClick, onStartTas
           onDrop={onMoveTask}
           onTaskClick={onTaskClick}
           onStartTask={onStartTask}
+          onDeleteTask={onDeleteTask}
+          onAttachArtifact={onAttachArtifact}
         />
       ))}
     </div>

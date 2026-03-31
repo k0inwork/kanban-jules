@@ -15,6 +15,7 @@ import { TaskFs } from './services/TaskFs';
 import { db } from './services/db';
 import { Bot, Plus, Play, Square, Settings, Folder } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
+import ArtifactBrowser from './components/ArtifactBrowser';
 import { cn } from './lib/utils';
 
 export default function App() {
@@ -264,6 +265,11 @@ Otherwise, based on the task description, provide a short, direct answer or inst
     }
   };
 
+  const handleDeleteTask = (taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+    if (selectedTask?.id === taskId) setSelectedTask(null);
+  };
+
   const handleMoveTask = (taskId: string, newStatus: TaskStatus) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
   };
@@ -296,6 +302,11 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       if (updated) setSelectedTask(updated);
     }
   }, [tasks, selectedTask?.id]);
+
+  const handleAttachArtifact = async (taskId: string, artifactId: number) => {
+    const taskFs = new TaskFs();
+    await taskFs.attachArtifact(taskId, artifactId);
+  };
 
   return (
     <div className="flex flex-col h-screen bg-neutral-950 text-neutral-100 font-sans overflow-hidden">
@@ -365,16 +376,19 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       {/* Main Board */}
       <div className="flex-1 flex overflow-hidden">
         {isRepoBrowserOpen && (
-          <div className="w-64 p-4 border-r border-neutral-800">
+          <div className="w-64 p-4 border-r border-neutral-800 flex flex-col space-y-8 overflow-y-auto custom-scrollbar">
             <RepositoryBrowser repoUrl={repoUrl} branch={repoBranch} token={import.meta.env.VITE_GITHUB_TOKEN} />
+            <ArtifactBrowser tasks={tasks} />
           </div>
         )}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden flex flex-col">
           <KanbanBoard 
             tasks={tasks} 
             onMoveTask={handleMoveTask} 
             onTaskClick={setSelectedTask}
             onStartTask={processTask}
+            onDeleteTask={handleDeleteTask}
+            onAttachArtifact={handleAttachArtifact}
           />
         </div>
       </div>
@@ -384,6 +398,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         isOpen={isNewTaskModalOpen}
         onClose={() => setIsNewTaskModalOpen(false)}
         onSubmit={handleCreateTask}
+        tasks={tasks}
       />
       
       <SettingsModal
@@ -399,6 +414,8 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       <TaskDetailsModal
         task={selectedTask}
         onClose={() => setSelectedTask(null)}
+        tasks={tasks}
+        onDeleteTask={handleDeleteTask}
       />
     </div>
   );
