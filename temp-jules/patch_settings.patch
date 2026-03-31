@@ -1,0 +1,13 @@
+--- client/src/components/SettingsModal.tsx
++++ client/src/components/SettingsModal.tsx
+@@ -58,6 +58,11 @@
+     setGeminiKey(localGeminiKey.trim());
+     setZaiKey(localZaiKey.trim());
+     setApiKey(localJulesKey.trim());
++    setAutoPingEnabled(localAutoPingEnabled);
++    const parsedInterval = parseInt(localAutoPingInterval, 10);
++    if (!isNaN(parsedInterval) && parsedInterval >= 5) {
++      setAutoPingInterval(parsedInterval);
++    }
+
+     const checks = [];

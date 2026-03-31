@@ -1,0 +1,244 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   JULES CHAT — Obsidian Dark Design System
+   Movement: Premium Dev Dashboard
+   Colors: Deep charcoal + indigo accent + emerald success
+   Fonts: Space Grotesk (headings), Inter (body), Fira Code (mono)
+   ============================================================ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Dark theme only — Obsidian Dark */
+:root {
+  --radius: 0.5rem;
+
+  /* Core surfaces */
+  --background: oklch(0.12 0.008 265);        /* #0f1117 deep charcoal */
+  --foreground: oklch(0.92 0.005 265);         /* near-white */
+  --card: oklch(0.16 0.008 265);               /* #1a1d27 elevated card */
+  --card-foreground: oklch(0.92 0.005 265);
+  --popover: oklch(0.18 0.009 265);
+  --popover-foreground: oklch(0.92 0.005 265);
+
+  /* Primary: electric indigo */
+  --primary: oklch(0.62 0.22 264);             /* #6366f1 indigo */
+  --primary-foreground: oklch(0.98 0 0);
+
+  /* Secondary: subtle elevated surface */
+  --secondary: oklch(0.22 0.008 265);
+  --secondary-foreground: oklch(0.80 0.005 265);
+
+  /* Muted */
+  --muted: oklch(0.20 0.007 265);
+  --muted-foreground: oklch(0.55 0.010 265);
+
+  /* Accent: emerald green */
+  --accent: oklch(0.65 0.18 162);              /* #10b981 emerald */
+  --accent-foreground: oklch(0.10 0.005 162);
+
+  /* Destructive */
+  --destructive: oklch(0.60 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  /* Borders & inputs */
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.62 0.22 264 / 60%);
+
+  /* Charts */
+  --chart-1: oklch(0.62 0.22 264);
+  --chart-2: oklch(0.65 0.18 162);
+  --chart-3: oklch(0.75 0.15 55);
+  --chart-4: oklch(0.60 0.22 25);
+  --chart-5: oklch(0.70 0.15 300);
+
+  /* Sidebar */
+  --sidebar: oklch(0.14 0.008 265);
+  --sidebar-foreground: oklch(0.85 0.005 265);
+  --sidebar-primary: oklch(0.62 0.22 264);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.20 0.008 265);
+  --sidebar-accent-foreground: oklch(0.85 0.005 265);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.62 0.22 264 / 60%);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+
+  /* Scrollbar styling for dark theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 15%);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 25%);
+  }
+}
+
+@layer components {
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+      max-width: 1280px;
+    }
+  }
+
+  /* Jules-specific utility classes */
+  .font-mono-code {
+    font-family: 'Fira Code', 'JetBrains Mono', monospace;
+    font-variant-ligatures: common-ligatures;
+  }
+
+  .font-display {
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  /* Glass panel effect */
+  .glass-panel {
+    background: oklch(1 0 0 / 4%);
+    backdrop-filter: blur(12px);
+    border: 1px solid oklch(1 0 0 / 8%);
+  }
+
+  /* Status badge variants */
+  .status-queued {
+    @apply bg-yellow-500/15 text-yellow-400 border border-yellow-500/25;
+  }
+  .status-planning {
+    @apply bg-blue-500/15 text-blue-400 border border-blue-500/25;
+  }
+  .status-awaiting-approval {
+    @apply bg-orange-500/15 text-orange-400 border border-orange-500/25;
+  }
+  .status-awaiting-feedback {
+    @apply bg-purple-500/15 text-purple-400 border border-purple-500/25;
+  }
+  .status-in-progress {
+    @apply bg-indigo-500/15 text-indigo-400 border border-indigo-500/25;
+  }
+  .status-paused {
+    @apply bg-gray-500/15 text-gray-400 border border-gray-500/25;
+  }
+  .status-completed {
+    @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/25;
+  }
+  .status-failed {
+    @apply bg-red-500/15 text-red-400 border border-red-500/25;
+  }
+
+  /* Activity timeline connector */
+  .activity-line::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 24px;
+    bottom: -8px;
+    width: 1px;
+    background: oklch(1 0 0 / 10%);
+  }
+
+  /* Pulse animation for active states */
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 oklch(0.62 0.22 264 / 40%); }
+    70% { box-shadow: 0 0 0 6px oklch(0.62 0.22 264 / 0%); }
+    100% { box-shadow: 0 0 0 0 oklch(0.62 0.22 264 / 0%); }
+  }
+  .pulse-indigo {
+    animation: pulse-ring 2s ease-out infinite;
+  }
+
+  @keyframes fade-slide-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-slide-up {
+    animation: fade-slide-up 0.2s ease-out forwards;
+  }
+}

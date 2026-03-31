@@ -1,0 +1,16 @@
+--- client/src/contexts/JulesContext.tsx
++++ client/src/contexts/JulesContext.tsx
+@@ -93,6 +93,14 @@
+     return localStorage.getItem(ZAI_KEY_STORAGE) || import.meta.env.Z_API_KEY || import.meta.env.VITE_Z_API_KEY || '';
+   });
+
++  const [autoPingEnabled, setAutoPingEnabledState] = useState<boolean>(() => {
++    const stored = localStorage.getItem(AUTO_PING_ENABLED_STORAGE);
++    return stored !== null ? stored === 'true' : true;
++  });
++  const [autoPingInterval, setAutoPingIntervalState] = useState<number>(() => {
++    const stored = localStorage.getItem(AUTO_PING_INTERVAL_STORAGE);
++    return stored !== null ? parseInt(stored, 10) : 30;
++  });
+   const [isKeyValid, setIsKeyValid] = useState<boolean | null>(null);
+   const [isKeyTesting, setIsKeyTesting] = useState(false);

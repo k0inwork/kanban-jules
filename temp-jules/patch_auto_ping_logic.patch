@@ -1,0 +1,44 @@
+--- client/src/contexts/JulesContext.tsx
++++ client/src/contexts/JulesContext.tsx
+@@ -324,6 +324,40 @@
+     };
+   }, [selectedSessionId, apiKey, refreshActivities, sessions]);
+
++  // Auto-ping logic
++  useEffect(() => {
++    if (autoPingTimerRef.current) clearInterval(autoPingTimerRef.current);
++    if (!apiKey || !autoPingEnabled || autoPingInterval <= 0) return;
++
++    const activeSessions = sessions.filter(s => ACTIVE_STATES.has(s.state));
++    if (activeSessions.length === 0) return;
++
++    const checkAndPing = async () => {
++      const now = new Date();
++      for (const session of activeSessions) {
++        if (session.updateTime) {
++          const updateTime = new Date(session.updateTime);
++          const diffSec = (now.getTime() - updateTime.getTime()) / 1000;
++
++          if (diffSec >= autoPingInterval) {
++            const messages = ["ping", "hello", "hi"];
++            const msg = messages[Math.floor(Math.random() * messages.length)];
++            try {
++              await julesApi.sendMessage(apiKey, session.id, msg);
++              if (session.id === selectedSessionId) {
++                 setTimeout(() => refreshActivities(true), 1000);
++              }
++            } catch (err) {
++              console.error(`Failed to auto-ping session ${session.id}:`, err);
++            }
++          }
++        }
++      }
++    };
++
++    autoPingTimerRef.current = setInterval(checkAndPing, 5000);
++    return () => { if (autoPingTimerRef.current) clearInterval(autoPingTimerRef.current); };
++  }, [apiKey, sessions, autoPingEnabled, autoPingInterval, selectedSessionId, refreshActivities]);
++
+   const selectSession = useCallback((id: string | null) => {
+     setSelectedSessionId(id);
+   }, []);

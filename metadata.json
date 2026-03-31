@@ -1,0 +1,5 @@
+{
+  "name": "Agent Kanban",
+  "description": "A Kanban board where AI agents supervise tasks using the Gemini API.",
+  "requestFramePermissions": []
+}

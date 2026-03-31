@@ -1,0 +1,24 @@
+--- client/src/contexts/JulesContext.tsx
++++ client/src/contexts/JulesContext.tsx
+@@ -10,6 +10,8 @@
+ const API_KEY_STORAGE = 'jules_api_key';
+ const GEMINI_KEY_STORAGE = 'gemini_api_key';
+ const ZAI_KEY_STORAGE = 'zai_api_key';
++const AUTO_PING_ENABLED_STORAGE = 'auto_ping_enabled';
++const AUTO_PING_INTERVAL_STORAGE = 'auto_ping_interval';
+ const POLL_INTERVAL_MS = 5000;
+
+ const ACTIVE_STATES = new Set([
+@@ -69,6 +71,12 @@
+
+   zaiModel: string;
+   setZaiModel: (model: string) => void;
++
++  autoPingEnabled: boolean;
++  setAutoPingEnabled: (enabled: boolean) => void;
++
++  autoPingInterval: number;
++  setAutoPingInterval: (interval: number) => void;
+ }
+
+ const JulesContext = createContext<JulesContextValue | null>(null);

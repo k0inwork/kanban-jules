@@ -1,0 +1,13 @@
+--- JulesContext.tsx
++++ JulesContext.tsx
+@@ -331,6 +331,10 @@
+     };
+   }, [selectedSessionId, apiKey, refreshActivities, sessions]);
+
++  // Keep track of recent pings to avoid race condition where we ping a session multiple times
++  // before its updateTime is refreshed from the API.
++  const recentlyPingedSessions = useRef<Record<string, number>>({});
++
+   // Auto-ping logic
+   useEffect(() => {
+     if (autoPingTimerRef.current) clearInterval(autoPingTimerRef.current);
