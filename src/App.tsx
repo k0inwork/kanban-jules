@@ -54,6 +54,7 @@ export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isViewingBoard, setIsViewingBoard] = useState(true);
+  const [isConstitutionOpen, setIsConstitutionOpen] = useState(false);
 
   // LLM Settings
   const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('apiProvider') || 'gemini');
@@ -108,20 +109,7 @@ export default function App() {
 
   const handleReviewProject = async (e?: React.MouseEvent) => {
     if (e?.shiftKey) {
-      // Open Constitution Editor
-      const constitutionTabId = 'constitution-editor';
-      const existingTab = tabs.find(t => t.id === constitutionTabId);
-      if (!existingTab) {
-        const newTab: Tab = {
-          id: constitutionTabId,
-          name: 'Constitution',
-          type: 'constitution',
-          content: ''
-        };
-        setTabs(prev => [...prev, newTab]);
-      }
-      setActiveTabId(constitutionTabId);
-      setIsViewingBoard(false);
+      setIsConstitutionOpen(prev => !prev);
       return;
     }
 
@@ -675,11 +663,12 @@ Otherwise, based on the task description, provide a short, direct answer or inst
             disabled={isReviewing}
             className={cn(
               "p-2 rounded-md transition-all",
-              isReviewing ? "text-blue-500 animate-pulse" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              isReviewing ? "text-blue-500 animate-pulse" : 
+              isConstitutionOpen ? "text-emerald-400 bg-emerald-500/10" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
             )}
-            title="Review Project & Propose Tasks"
+            title="Review Project & Propose Tasks (Shift+Click to edit Constitution)"
           >
-            <Bot className={cn("w-5 h-5", isReviewing && "text-blue-400")} />
+            <Bot className={cn("w-5 h-5", (isReviewing || isConstitutionOpen) && "text-current")} />
           </button>
           <button
             onClick={() => {
@@ -848,7 +837,13 @@ Otherwise, based on the task description, provide a short, direct answer or inst
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col">
-          {tabs.length > 0 && !isViewingBoard ? (
+          {isConstitutionOpen ? (
+            <ConstitutionEditor 
+              repoUrl={repoUrl} 
+              branch={repoBranch} 
+              onSave={() => setIsConstitutionOpen(false)}
+            />
+          ) : tabs.length > 0 && !isViewingBoard ? (
             <div className="flex-1 flex flex-col overflow-hidden">
               <PreviewTabs 
                 tabs={tabs} 
@@ -856,14 +851,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
                 onTabSelect={setActiveTabId} 
                 onTabClose={handleTabClose} 
               />
-              {tabs.find(t => t.id === activeTabId)?.type === 'constitution' ? (
-                <ConstitutionEditor 
-                  repoUrl={repoUrl} 
-                  branch={repoBranch} 
-                />
-              ) : (
-                <PreviewPane activeTab={tabs.find(t => t.id === activeTabId) || null} />
-              )}
+              <PreviewPane activeTab={tabs.find(t => t.id === activeTabId) || null} />
             </div>
           ) : (
             <KanbanBoard 
