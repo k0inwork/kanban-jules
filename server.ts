@@ -4,14 +4,53 @@ import fs from "fs/promises";
 import path from "path";
 import { exec } from "child_process";
 import util from "util";
+import { mcpManager } from "./src/services/McpClient.ts";
 
 const execPromise = util.promisify(exec);
+
+let isMcpConfigured = false;
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  // NotebookLM MCP Setup Route
+  app.post("/api/mcp/setup", async (req, res) => {
+    const { cookie } = req.body;
+    if (!cookie) {
+      return res.status(400).json({ error: "Cookie is required" });
+    }
+
+    try {
+      const cookieFile = path.join(process.cwd(), ".notebooklm-cookies.txt");
+      await fs.writeFile(cookieFile, cookie, "utf-8");
+
+      console.log("Setting up NotebookLM authentication...");
+      await execPromise(`uvx --from notebooklm-mcp-cli nlm login --manual --file ${cookieFile}`);
+
+      console.log("Connecting NotebookLM MCP server...");
+      await mcpManager.connect("uvx", ["--from", "notebooklm-mcp-cli", "notebooklm-mcp"]);
+
+      isMcpConfigured = true;
+      res.json({ success: true, message: "NotebookLM MCP successfully connected" });
+    } catch (error: any) {
+      console.error("MCP Setup error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get available MCP tools
+  app.get("/api/mcp/tools", async (req, res) => {
+    if (!isMcpConfigured) return res.json({ tools: [] });
+    try {
+      const tools = await mcpManager.getTools();
+      res.json({ tools });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Agent In-Place Implementation
   app.post("/api/mcp/execute", async (req, res) => {
@@ -56,6 +95,21 @@ async function startServer() {
           break;
         }
         default:
+          if (isMcpConfigured) {
+            try {
+              // Forward action to NotebookLM MCP
+              const mcpRes = await mcpManager.callTool(action, params);
+              let toolText = "";
+              if (mcpRes.content && Array.isArray(mcpRes.content)) {
+                toolText = mcpRes.content.map((c: any) => c.text || JSON.stringify(c)).join("\n");
+              } else {
+                toolText = JSON.stringify(mcpRes);
+              }
+              return res.json({ result: toolText });
+            } catch (mcpErr: any) {
+              return res.status(500).json({ error: `MCP Tool Error: ${mcpErr.message}` });
+            }
+          }
           return res.status(400).json({ error: `Unknown action: ${action}` });
       }
 

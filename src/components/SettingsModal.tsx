@@ -17,7 +17,8 @@ interface SettingsModalProps {
     geminiModel: string,
     openaiUrl: string,
     openaiKey: string,
-    openaiModel: string
+    openaiModel: string,
+    notebooklmCookie: string
   ) => void;
   initialEndpoint: string;
   initialApiKey: string;
@@ -30,12 +31,13 @@ interface SettingsModalProps {
   initialOpenaiUrl: string;
   initialOpenaiKey: string;
   initialOpenaiModel: string;
+  initialNotebooklmCookie: string;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
   initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel
+  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialNotebooklmCookie
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
@@ -50,6 +52,9 @@ export default function SettingsModal({
   const [openaiKey, setOpenaiKey] = useState(initialOpenaiKey);
   const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
   
+  const [notebooklmCookie, setNotebooklmCookie] = useState(initialNotebooklmCookie);
+  const [isConfiguringMcp, setIsConfiguringMcp] = useState(false);
+
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [error, setError] = useState('');
@@ -67,10 +72,11 @@ export default function SettingsModal({
       setOpenaiUrl(initialOpenaiUrl);
       setOpenaiKey(initialOpenaiKey);
       setOpenaiModel(initialOpenaiModel);
+      setNotebooklmCookie(initialNotebooklmCookie);
     }
   }, [
     isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel
+    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialNotebooklmCookie
   ]);
 
   useEffect(() => {
@@ -96,11 +102,26 @@ export default function SettingsModal({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (notebooklmCookie && notebooklmCookie !== initialNotebooklmCookie) {
+      setIsConfiguringMcp(true);
+      try {
+        await fetch('/api/mcp/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookie: notebooklmCookie })
+        });
+      } catch (err) {
+        console.error("Failed to setup NotebookLM MCP", err);
+      }
+      setIsConfiguringMcp(false);
+    }
+
     onSave(
       endpoint, apiKey, repoUrl, branch, sourceName, sourceId,
-      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel
+      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, notebooklmCookie
     );
     onClose();
   };
@@ -220,6 +241,22 @@ export default function SettingsModal({
             </div>
           </div>
 
+
+          <div className="space-y-4 pb-4 border-b border-neutral-800">
+            <h3 className="text-sm font-medium text-neutral-300">NotebookLM Configuration</h3>
+            <div>
+              <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">NotebookLM Cookie</label>
+              <input
+                type="password"
+                value={notebooklmCookie}
+                onChange={(e) => setNotebooklmCookie(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                placeholder="Paste cookie here..."
+              />
+              <p className="text-[10px] text-neutral-500 mt-1">To get your cookie: Go to notebooklm.google.com, open Developer Tools (F12) - Network tab, refresh the page. Find the first request to notebooklm.google.com, copy the cookie request header value entirely.</p>
+            </div>
+          </div>
+
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-neutral-300">Target Repository</h3>
@@ -309,10 +346,11 @@ export default function SettingsModal({
             </button>
             <button
               type="submit"
-              className="flex items-center px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 transition-colors"
+              disabled={isConfiguringMcp}
+              className="flex items-center px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 transition-colors disabled:opacity-50"
             >
-              <Save className="w-4 h-4 mr-2" />
-              Save Settings
+              {isConfiguringMcp ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              {isConfiguringMcp ? 'Configuring...' : 'Save Settings'}
             </button>
           </div>
         </form>

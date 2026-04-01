@@ -62,6 +62,7 @@ export default function App() {
   const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
+  const [notebooklmCookie, setNotebooklmCookie] = useState(() => localStorage.getItem('notebooklmCookie') || '');
 
   const handleSaveSettings = (
     endpoint: string, 
@@ -74,7 +75,8 @@ export default function App() {
     gModel: string,
     oUrl: string,
     oKey: string,
-    oModel: string
+    oModel: string,
+    nbCookie: string
   ) => {
     console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel });
     setJulesEndpoint(endpoint);
@@ -88,6 +90,7 @@ export default function App() {
     setOpenaiUrl(oUrl);
     setOpenaiKey(oKey);
     setOpenaiModel(oModel);
+    setNotebooklmCookie(nbCookie);
 
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
@@ -100,6 +103,7 @@ export default function App() {
     localStorage.setItem('openaiUrl', oUrl);
     localStorage.setItem('openaiKey', oKey);
     localStorage.setItem('openaiModel', oModel);
+    localStorage.setItem('notebooklmCookie', nbCookie);
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
     if (token && repo) {
@@ -889,6 +893,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialOpenaiUrl={openaiUrl}
         initialOpenaiKey={openaiKey}
         initialOpenaiModel={openaiModel}
+        initialNotebooklmCookie={notebooklmCookie}
       />
 
       <TaskDetailsModal

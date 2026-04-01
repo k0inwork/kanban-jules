@@ -194,7 +194,32 @@ export class LocalAgent {
       }
     ];
 
-    const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration, ...localCommunicationToolDeclarations] }];
+
+    let mcpTools: any[] = [];
+    try {
+      const mcpResponse = await fetch('/api/mcp/tools');
+      if (mcpResponse.ok) {
+        const data = await mcpResponse.json();
+        if (data.tools) {
+          mcpTools = data.tools.map((t: any) => ({
+            name: t.name,
+            description: t.description || 'No description',
+            parameters: {
+              type: Type.OBJECT,
+              properties: Object.keys(t.inputSchema?.properties || {}).reduce((acc: any, key: string) => {
+                acc[key] = { type: Type.STRING, description: t.inputSchema.properties[key].description || '' };
+                return acc;
+              }, {}),
+              required: t.inputSchema?.required || []
+            }
+          }));
+        }
+      }
+    } catch(err) {
+      console.error("Failed to fetch MCP tools", err);
+    }
+    const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration, ...localCommunicationToolDeclarations, ...mcpTools] }];
+
     appendLog(`> [LocalAgent] Tools available: ${tools[0].functionDeclarations.map(f => f.name).join(', ')}\n`);
     
     const prompt = `
@@ -216,6 +241,15 @@ export class LocalAgent {
       - <listTasks/> : List all tasks on the board to see what else is being worked on.
       - <sendMessage type="info|proposal|alert" content="message text" [title="task title" description="task desc"]/> : Send a message to the user's Mailbox.
       
+      DYNAMIC MCP TOOLS AVAILABLE:
+      ${mcpTools.map((t: any) => {
+        let attrs = '';
+        if (t.parameters?.properties) {
+          attrs = Object.keys(t.parameters.properties).map(k => `${k}="..."`).join(' ');
+        }
+        return `- <${t.name} ${attrs}/> : ${t.description}`;
+      }).join('\n      ')}
+
       COMMUNICATION RULES:
       1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.
       2. Use <sendMessage type="proposal"/> if you discover a new task that needs to be done (e.g., "I found a bug in X, we should fix it").
@@ -324,7 +358,24 @@ export class LocalAgent {
                 await db.messages.add(msg);
                 result = { success: true };
               } else {
-                result = { error: `Unknown tool: ${call.name}` };
+                // Check if it's an MCP tool
+                const isMcpTool = mcpTools.some((t: any) => t.name === call.name);
+                if (isMcpTool) {
+                  const execResponse = await fetch('/api/mcp/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: call.name, params: call.args })
+                  });
+                  if (execResponse.ok) {
+                    const data = await execResponse.json();
+                    result = data.result || data;
+                  } else {
+                    const errorText = await execResponse.text();
+                    result = { error: errorText };
+                  }
+                } else {
+                  result = { error: `Unknown tool: ${call.name}` };
+                }
               }
             } catch (e: any) {
               result = { error: e.message };
