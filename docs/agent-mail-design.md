@@ -57,10 +57,6 @@ When an agent sends a message, it will explicitly provide its designated name or
   * **From:** `Overseer Agent`
   * **From:** `Jules Integration`
 
-### 2.2 Global / Broadcast Messaging
-The user can send a message with the recipient set to `all`.
-* **UI Action:** A "New Message" button in the generic Mailbox view with a dropdown for recipient. Selecting "All Agents" broadcasts the message.
-* **Agent Logic:** When `LocalAgent` or `ProcessAgent` cycles its logic, it queries `db.messages` for `status === 'unread'` and `recipient === 'all'`. The agents inject these broadcast messages into their context window (LLM prompt) to adjust their immediate behavior.
 
 ### 2.3 Direct Agent Chat ("Agent Box")
 The user can open a dedicated chat thread with a specific agent.
@@ -74,14 +70,11 @@ The "Overseer Agent" (implemented by `ProcessAgent.ts`) governs the project phas
   * E.g., *"Change priority to focus on bug fixes for this phase."*
 * **Overseer Logic:** The `ProcessAgent` reads the message. Its LLM prompt is instructed to parse user directives and output a modified Constitution.
 * **Database Update:** The `ProcessAgent` updates the `ProjectConfig.constitution` in Dexie, either permanently or with a notation that it only applies to the current phase. It then replies to the user: *"I have updated the project rules as requested."*
+Actually idea is that processagent would ask questions often and onyl then save the cahnges.
 
 ### 2.5 External Message Forwarding (Jules Integration)
-The system supports an external execution agent ("Jules").
-* **Incoming from Jules:** When Jules sends a message to the Kanban system via `sendMessage`, a new `AgentMessage` is created.
-  * `sender`: 'Jules'
-  * `metadata.isFromJules`: true
-* **Replying:** When a local agent or the User replies to a message that has `isFromJules: true`, the system intercepts the database insert.
-  * Instead of just saving it to Dexie for internal routing, the Kanban server API acts as a proxy, forwarding the reply payload back out to the Jules execution system over the wire (e.g., via the MCP connection or webhook).
+Jules agents may send jules session statuses (when asking for approval from user and not deciding the answer for jules agents themsleves)
+the answer for those messages would be routed to juels-agents who would then immediately send them to Jules agents.
 
 ---
 
