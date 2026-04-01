@@ -65,7 +65,7 @@ export default function App() {
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
   const [proxyUrl, setProxyUrl] = useState(localStorage.getItem('proxyUrl') || '');
 
-  const handleSaveSettings = (
+    const handleSaveSettings = (
     endpoint: string, 
     apiKey: string, 
     repo: string, 
@@ -74,11 +74,13 @@ export default function App() {
     sourceId: string,
     provider: string,
     gModel: string,
+    gKey: string,
     oUrl: string,
     oKey: string,
-    oModel: string
+    oModel: string,
+    pUrl: string
   ) => {
-    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel });
+    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, gKey, oUrl, oKey, oModel, pUrl });
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
@@ -87,21 +89,25 @@ export default function App() {
     setJulesSourceId(sourceId);
     setApiProvider(provider);
     setGeminiModel(gModel);
+    setGeminiKey(gKey);
     setOpenaiUrl(oUrl);
     setOpenaiKey(oKey);
     setOpenaiModel(oModel);
+    setProxyUrl(pUrl);
 
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
-    localStorage.setItem('repoUrl', repo);
-    localStorage.setItem('repoBranch', branch);
+    localStorage.setItem('julesRepoUrl', repo);
+    localStorage.setItem('julesRepoBranch', branch);
     localStorage.setItem('julesSourceName', sourceName);
     localStorage.setItem('julesSourceId', sourceId);
     localStorage.setItem('apiProvider', provider);
     localStorage.setItem('geminiModel', gModel);
+    localStorage.setItem('geminiKey', gKey);
     localStorage.setItem('openaiUrl', oUrl);
     localStorage.setItem('openaiKey', oKey);
     localStorage.setItem('openaiModel', oModel);
+    localStorage.setItem('proxyUrl', pUrl);
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
     if (token && repo) {
@@ -118,7 +124,7 @@ export default function App() {
     if (isReviewing) return;
     setIsReviewing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const ai = new GoogleGenAI({ apiKey: geminiKey || 'dummy_key' });
       const agentConfig: AgentConfig = {
         apiProvider,
         geminiModel,
