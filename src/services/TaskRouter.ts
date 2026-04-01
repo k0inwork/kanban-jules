@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { AgentConfig } from "./LocalAgent";
 
 export interface Tool {
   name: string;
@@ -11,7 +12,8 @@ export async function routeTask(
   ai: GoogleGenAI,
   taskTitle: string,
   taskDescription: string,
-  localTools: Tool[]
+  localTools: Tool[],
+  config: AgentConfig
 ): Promise<ExecutionLocation> {
   const toolsList = localTools.map(t => `- ${t.name}: ${t.description}`).join('\n    ');
 
@@ -38,11 +40,32 @@ export async function routeTask(
     Return EXACTLY ONE WORD: either "LOCAL" or "JULES". Do not include any other text.
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-  });
+  let responseText = '';
+  if (config.apiProvider === 'gemini') {
+    const response = await ai.models.generateContent({
+      model: config.geminiModel,
+      contents: prompt,
+    });
+    responseText = response.text || '';
+  } else {
+    const response = await fetch(`${config.openaiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.openaiKey}`
+      },
+      body: JSON.stringify({
+        model: config.openaiModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1
+      })
+    });
+    if (response.ok) {
+      const data = await response.json();
+      responseText = data.choices[0].message.content || '';
+    }
+  }
 
-  const decision = response.text?.trim().toUpperCase() || 'JULES';
+  const decision = responseText.trim().toUpperCase() || 'JULES';
   return decision.includes('LOCAL') ? 'local' : 'jules';
 }

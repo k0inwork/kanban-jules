@@ -6,9 +6,10 @@ interface RepositoryBrowserProps {
   repoUrl: string;
   branch: string;
   token: string;
+  onFileSelect?: (file: GitFile) => void;
 }
 
-export default function RepositoryBrowser({ repoUrl, branch, token }: RepositoryBrowserProps) {
+export default function RepositoryBrowser({ repoUrl, branch, token, onFileSelect }: RepositoryBrowserProps) {
   const [files, setFiles] = useState<GitFile[]>([]);
   const [currentPath, setCurrentPath] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -38,6 +39,12 @@ export default function RepositoryBrowser({ repoUrl, branch, token }: Repository
 
   const handleFolderClick = (path: string) => {
     fetchFiles(path);
+  };
+
+  const handleFileClick = (file: GitFile) => {
+    if (onFileSelect) {
+      onFileSelect(file);
+    }
   };
 
   const handleBack = () => {
@@ -71,8 +78,8 @@ export default function RepositoryBrowser({ repoUrl, branch, token }: Repository
         {files.map(file => (
           <div 
             key={file.path} 
-            onClick={() => file.type === 'dir' ? handleFolderClick(file.path) : null}
-            className={`flex items-center space-x-2 p-2 hover:bg-neutral-800 rounded text-sm text-neutral-300 ${file.type === 'dir' ? 'cursor-pointer' : ''}`}
+            onClick={() => file.type === 'dir' ? handleFolderClick(file.path) : handleFileClick(file)}
+            className={`flex items-center space-x-2 p-2 hover:bg-neutral-800 rounded text-sm text-neutral-300 cursor-pointer`}
           >
             {file.type === 'dir' ? <Folder className="w-4 h-4 text-blue-400" /> : <FileText className="w-4 h-4 text-neutral-500" />}
             <span className="truncate">{file.name}</span>

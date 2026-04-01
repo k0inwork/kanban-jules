@@ -3,6 +3,15 @@ import { LocalAnalyzer } from './LocalAnalyzer';
 import { ArtifactTool, artifactToolDeclarations } from './ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './RepositoryTool';
 
+export interface AgentConfig {
+  apiProvider: string;
+  geminiModel: string;
+  openaiUrl: string;
+  openaiKey: string;
+  openaiModel: string;
+  geminiApiKey: string;
+}
+
 export class LocalAgent {
   private analyzer: LocalAnalyzer;
   private artifactTool: typeof ArtifactTool;
@@ -12,21 +21,67 @@ export class LocalAgent {
   private branch: string;
   private token: string;
   private taskId: string;
+  private config: AgentConfig;
 
-  constructor(ai: GoogleGenAI, repoUrl: string, branch: string, token: string, taskId: string, taskTitle: string) {
+  constructor(ai: GoogleGenAI, repoUrl: string, branch: string, token: string, taskId: string, taskTitle: string, config: AgentConfig) {
     this.ai = ai;
     this.repoUrl = repoUrl;
     this.branch = branch;
     this.token = token;
     this.taskId = taskId;
+    this.config = config;
     this.analyzer = new LocalAnalyzer(repoUrl, branch, token, taskId, taskTitle);
     this.artifactTool = ArtifactTool;
     this.repositoryTool = RepositoryTool;
+    console.log(`[LocalAgent] Initialized with repoUrl: ${repoUrl}, branch: ${branch}, taskId: ${taskId}, provider: ${config.apiProvider}`);
   }
 
-  async runTask(taskTitle: string, taskDescription: string, appendLog: (log: string) => void): Promise<string[]> {
+  private async callLlm(contents: any[]): Promise<string> {
+    if (this.config.apiProvider === 'gemini') {
+      const response = await this.ai.models.generateContent({
+        model: this.config.geminiModel,
+        contents: contents,
+      });
+      return response.text || '';
+    } else {
+      // OpenAI compatible
+      const messages = contents.map(c => ({
+        role: c.role === 'model' ? 'assistant' : c.role,
+        content: c.parts[0].text
+      }));
+
+      const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: this.config.openaiModel,
+          messages: messages,
+          temperature: 0.1
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`OpenAI API error: ${error}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content || '';
+    }
+  }
+
+  async runTask(taskTitle: string, taskDescription: string, appendLog: (log: string) => void): Promise<{ findings: string[], savedArtifactIds: number[] }> {
     appendLog(`> [LocalAgent] Starting local execution for: ${taskTitle}\n`);
+    appendLog(`> [LocalAgent] Task ID: ${this.taskId}\n`);
+    appendLog(`> [LocalAgent] Task Description: ${taskDescription}\n`);
+    appendLog(`> [LocalAgent] Repository: ${this.repoUrl}, Branch: ${this.branch}\n`);
     appendLog(`> [LocalAgent] Using LLM to execute task with tools...\n`);
+    
+    const modelName = this.config.apiProvider === 'gemini' ? this.config.geminiModel : this.config.openaiModel;
+    appendLog(`> [LocalAgent] Provider: ${this.config.apiProvider}, Model: ${modelName}\n`);
     
     const localRepositoryToolDeclarations = [
       {
@@ -35,7 +90,9 @@ export class LocalAgent {
         parameters: {
           type: Type.OBJECT,
           properties: {
-            path: { type: Type.STRING, description: 'The path to list files from. Use "." for root.' }
+            path: { type: Type.STRING, description: 'The path to list files from. Use "." for root.' },
+            repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
           },
           required: ['path']
         }
@@ -46,7 +103,9 @@ export class LocalAgent {
         parameters: {
           type: Type.OBJECT,
           properties: {
-            path: { type: Type.STRING, description: 'The file path.' }
+            path: { type: Type.STRING, description: 'The file path.' },
+            repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
           },
           required: ['path']
         }
@@ -59,8 +118,10 @@ export class LocalAgent {
         description: 'List all artifacts for a given task.',
         parameters: {
           type: Type.OBJECT,
-          properties: {},
-          required: []
+          properties: {
+            repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
+          }
         }
       },
       {
@@ -69,7 +130,9 @@ export class LocalAgent {
         parameters: {
           type: Type.OBJECT,
           properties: {
-            artifactId: { type: Type.NUMBER, description: 'The artifact ID.' }
+            artifactId: { type: Type.NUMBER, description: 'The artifact ID.' },
+            repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
           },
           required: ['artifactId']
         }
@@ -81,7 +144,9 @@ export class LocalAgent {
           type: Type.OBJECT,
           properties: {
             name: { type: Type.STRING, description: 'The artifact name.' },
-            content: { type: Type.STRING, description: 'The artifact content.' }
+            content: { type: Type.STRING, description: 'The artifact content.' },
+            repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
           },
           required: ['name', 'content']
         }
@@ -93,12 +158,15 @@ export class LocalAgent {
       description: 'Analyzes the code for sensitive information.',
       parameters: {
         type: Type.OBJECT,
-        properties: {},
-        required: []
+        properties: {
+          repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
+          branch: { type: Type.STRING, description: 'Optional. The branch name.' }
+        }
       }
     };
 
     const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration] }];
+    appendLog(`> [LocalAgent] Tools available: ${tools[0].functionDeclarations.map(f => f.name).join(', ')}\n`);
     
     const prompt = `
       You are a local agent executing a task on a repository.
@@ -107,84 +175,120 @@ export class LocalAgent {
       Repository: ${this.repoUrl}
       Branch: ${this.branch}
       
-      You have the following tools available. You MUST use these exact tool names:
-      - listFiles: List files in a repository path.
-      - readFile: Read the content of a file in a repository.
-      - saveArtifact: Save a new artifact.
-      - listArtifacts: List all artifacts for a given task.
-      - readArtifact: Read the content of an artifact.
-      - analyzeCode: Analyzes the code for secrets and passwords.
+      You have the following tools available. To call a tool, you MUST use the following XML-like tags:
       
-      You MUST use the provided tools to complete the task. Do not just return a summary without taking action.
-      Execute the task using these tools.
-      When you are done, return a final summary of what you did.
+      - <listFiles path="path/to/dir"/> : List files in a repository path. Use "." for root.
+      - <readFile path="path/to/file"/> : Read the content of a file.
+      - <saveArtifact name="artifact_name" content="artifact_content"/> : Save a new artifact.
+      - <listArtifacts/> : List all artifacts for this task.
+      - <readArtifact artifactId="123"/> : Read the content of an artifact by ID.
+      - <analyzeCode/> : Analyzes the code for secrets and passwords.
+      
+      CRITICAL INSTRUCTIONS:
+      1. You MUST use these tags to take action. Do not just describe what you would do.
+      2. If the task requires producing a result (like a file list, a report, or a code analysis), you MUST save it as an artifact using <saveArtifact name="..." content="..."/>.
+      3. You can call multiple tools in one turn if needed.
+      4. After calling a tool, wait for the tool response which will be provided in a <tool_response> tag.
+      5. When the task is complete, provide a final summary of your findings.
+      
+      Example:
+      To list files in the root: <listFiles path="."/>
     `;
 
     let currentContents: any[] = [{ role: 'user', parts: [{ text: prompt }] }];
     const findings: string[] = [];
+    const savedArtifactIds: number[] = [];
 
-    for (let i = 0; i < 10; i++) { // Max 10 turns
-      const response = await this.ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: currentContents,
-        tools: tools,
-      });
+    for (let i = 0; i < 15; i++) { // Max 15 turns
+      try {
+        appendLog(`> [Debug] Turn ${i} Request: ${JSON.stringify({ contents: currentContents }, null, 2)}\n`);
+        const responseText = await this.callLlm(currentContents);
 
-      const responseMessage = response.candidates?.[0]?.content;
-      if (!responseMessage) break;
-      
-      currentContents.push(responseMessage);
-
-      if (responseMessage.parts && responseMessage.parts.some(p => p.text)) {
-        const textParts = responseMessage.parts.filter(p => p.text).map(p => p.text).join('\n');
-        appendLog(`> [LocalAgent] ${textParts}\n`);
-        findings.push(textParts);
-      }
-
-      if (response.functionCalls && response.functionCalls.length > 0) {
-        const functionResponses: any[] = [];
+        appendLog(`> [LocalAgent] ${responseText}\n`);
         
-        for (const call of response.functionCalls) {
-          appendLog(`> [Tool Call] ${call.name}(${JSON.stringify(call.args)})\n`);
-          let result: any;
+        currentContents.push({ role: 'model', parts: [{ text: responseText }] });
+
+        // Parse XML-like tool calls
+        // Regex to match <toolName attr1="val1" attr2="val2" /> or <toolName />
+        const toolCallRegex = /<(\w+)\s*([^>]*?)\/?>/g;
+        let match;
+        const toolCalls: { name: string, args: any }[] = [];
+
+        while ((match = toolCallRegex.exec(responseText)) !== null) {
+          const name = match[1];
+          const attrString = match[2];
+          const args: any = {};
           
-          try {
-            if (call.name === 'listFiles') {
-              result = await this.repositoryTool.listFiles(this.repoUrl, this.branch, this.token, call.args.path);
-            } else if (call.name === 'readFile') {
-              result = await this.repositoryTool.readFile(this.repoUrl, this.branch, this.token, call.args.path);
-            } else if (call.name === 'listArtifacts') {
-              result = await this.artifactTool.listArtifacts(this.taskId);
-            } else if (call.name === 'readArtifact') {
-              result = await this.artifactTool.readArtifact(call.args.artifactId);
-            } else if (call.name === 'saveArtifact') {
-              const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
-              result = await this.artifactTool.saveArtifact(this.taskId, repoName, this.branch, call.args.name, call.args.content);
-            } else if (call.name === 'analyzeCode') {
-              result = await this.analyzer.analyze();
-            } else {
-              throw new Error(`Unknown tool called by LLM: ${call.name}`);
-            }
-          } catch (e: any) {
-            result = { error: e.message };
+          // Parse attributes: key="value"
+          const attrRegex = /(\w+)="([^"]*)"/g;
+          let attrMatch;
+          while ((attrMatch = attrRegex.exec(attrString)) !== null) {
+            args[attrMatch[1]] = attrMatch[2];
           }
           
-          functionResponses.push({
-            functionResponse: {
-              name: call.name,
-              response: { result }
+          toolCalls.push({ name, args });
+        }
+
+        if (toolCalls.length > 0) {
+          const toolResults: string[] = [];
+          
+          for (const call of toolCalls) {
+            appendLog(`> [Tool Call] ${call.name}(${JSON.stringify(call.args)})\n`);
+            let result: any;
+            
+            try {
+              if (call.name === 'listFiles') {
+                result = await this.repositoryTool.listFiles(this.repoUrl, this.branch, this.token, call.args.path || '.');
+              } else if (call.name === 'readFile') {
+                result = await this.repositoryTool.readFile(this.repoUrl, this.branch, this.token, call.args.path);
+              } else if (call.name === 'listArtifacts') {
+                result = await this.artifactTool.listArtifacts(this.taskId);
+              } else if (call.name === 'readArtifact') {
+                result = await this.artifactTool.readArtifact(parseInt(call.args.artifactId));
+              } else if (call.name === 'saveArtifact') {
+                const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
+                result = await this.artifactTool.saveArtifact(this.taskId, repoName, this.branch, call.args.name, call.args.content);
+                if (typeof result === 'number') {
+                  savedArtifactIds.push(result);
+                }
+              } else if (call.name === 'analyzeCode') {
+                result = await this.analyzer.analyze();
+              } else {
+                result = { error: `Unknown tool: ${call.name}` };
+              }
+            } catch (e: any) {
+              result = { error: e.message };
             }
-          });
+            
+            const resultStr = JSON.stringify(result, null, 2);
+            toolResults.push(`<tool_response name="${call.name}">\n${resultStr}\n</tool_response>`);
+            appendLog(`> [Tool Response] ${call.name} result: ${resultStr.substring(0, 200)}${resultStr.length > 200 ? '...' : ''}\n`);
+          }
+          
+          currentContents.push({ role: 'user', parts: [{ text: toolResults.join('\n\n') }] });
+        } else {
+          // No tool calls, assume we are done or the model is just talking
+          if (responseText.toLowerCase().includes('summary') || responseText.toLowerCase().includes('conclusion') || i > 0) {
+            findings.push(responseText);
+            break;
+          }
+        }
+      } catch (error: any) {
+        console.error(`[LocalAgent] Error in generateContent:`, error);
+        
+        // Try to extract more detailed error info if available
+        let errorMessage = error.message;
+        if (error.statusText) {
+          errorMessage += ` (${error.statusText})`;
         }
         
-        currentContents.push({ role: 'user', parts: functionResponses });
-      } else {
-        // No more tool calls, we are done
+        appendLog(`> [Error] API call failed: ${errorMessage}\n`);
         break;
       }
     }
 
-    return findings;
+    appendLog(`> [LocalAgent] Execution complete. Found ${findings.length} findings and saved ${savedArtifactIds.length} artifacts.\n`);
+    return { findings, savedArtifactIds };
   }
 
   get tools() {

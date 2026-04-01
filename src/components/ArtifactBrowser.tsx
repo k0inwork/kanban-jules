@@ -8,9 +8,10 @@ import ArtifactTree from './ArtifactTree';
 
 interface ArtifactBrowserProps {
   tasks: Task[];
+  onArtifactSelect?: (artifact: Artifact) => void;
 }
 
-export default function ArtifactBrowser({ tasks }: ArtifactBrowserProps) {
+export default function ArtifactBrowser({ tasks, onArtifactSelect }: ArtifactBrowserProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
 
   const artifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
@@ -25,6 +26,14 @@ export default function ArtifactBrowser({ tasks }: ArtifactBrowserProps) {
   const handleClearAll = async () => {
     const taskFs = new TaskFs();
     await taskFs.clearAllArtifacts();
+  };
+
+  const handleSelect = (artifact: Artifact) => {
+    if (onArtifactSelect) {
+      onArtifactSelect(artifact);
+    } else {
+      setSelectedArtifact(artifact);
+    }
   };
 
   if (loading) return <div className="text-xs text-neutral-500 font-mono p-4">Loading artifacts...</div>;
@@ -48,7 +57,7 @@ export default function ArtifactBrowser({ tasks }: ArtifactBrowserProps) {
         <ArtifactTree 
           artifacts={artifacts} 
           tasks={tasks} 
-          onSelect={setSelectedArtifact} 
+          onSelect={handleSelect} 
           onDelete={handleDeleteArtifact}
         />
       </div>

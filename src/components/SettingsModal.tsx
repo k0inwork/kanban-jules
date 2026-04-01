@@ -1,22 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, RefreshCw } from 'lucide-react';
 import { julesApi, Source } from '../lib/julesApi';
+import { cn } from '../lib/utils';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (endpoint: string, apiKey: string, repoUrl: string, branch: string, sourceName: string, sourceId: string) => void;
+  onSave: (
+    endpoint: string, 
+    apiKey: string, 
+    repoUrl: string, 
+    branch: string, 
+    sourceName: string, 
+    sourceId: string,
+    apiProvider: string,
+    geminiModel: string,
+    openaiUrl: string,
+    openaiKey: string,
+    openaiModel: string
+  ) => void;
   initialEndpoint: string;
   initialApiKey: string;
   initialRepoUrl: string;
   initialBranch: string;
   initialSourceName: string;
   initialSourceId: string;
+  initialApiProvider: string;
+  initialGeminiModel: string;
+  initialOpenaiUrl: string;
+  initialOpenaiKey: string;
+  initialOpenaiModel: string;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
-  initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId
+  initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
+  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
@@ -24,6 +43,12 @@ export default function SettingsModal({
   const [branch, setBranch] = useState(initialBranch);
   const [sourceName, setSourceName] = useState(initialSourceName);
   const [sourceId, setSourceId] = useState(initialSourceId);
+  
+  const [apiProvider, setApiProvider] = useState(initialApiProvider);
+  const [geminiModel, setGeminiModel] = useState(initialGeminiModel);
+  const [openaiUrl, setOpenaiUrl] = useState(initialOpenaiUrl);
+  const [openaiKey, setOpenaiKey] = useState(initialOpenaiKey);
+  const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
   
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
@@ -37,8 +62,16 @@ export default function SettingsModal({
       setBranch(initialBranch);
       setSourceName(initialSourceName);
       setSourceId(initialSourceId);
+      setApiProvider(initialApiProvider);
+      setGeminiModel(initialGeminiModel);
+      setOpenaiUrl(initialOpenaiUrl);
+      setOpenaiKey(initialOpenaiKey);
+      setOpenaiModel(initialOpenaiModel);
     }
-  }, [isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId]);
+  }, [
+    isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
+    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel
+  ]);
 
   useEffect(() => {
     if (isOpen && apiKey) {
@@ -65,7 +98,10 @@ export default function SettingsModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(endpoint, apiKey, repoUrl, branch, sourceName, sourceId);
+    onSave(
+      endpoint, apiKey, repoUrl, branch, sourceName, sourceId,
+      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel
+    );
     onClose();
   };
 
@@ -88,7 +124,89 @@ export default function SettingsModal({
         
         <form onSubmit={handleSubmit} className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
           <div className="space-y-4 pb-4 border-b border-neutral-800">
-            <h3 className="text-sm font-medium text-neutral-300">API Configuration</h3>
+            <h3 className="text-sm font-medium text-neutral-300">LLM Configuration</h3>
+            
+            <div>
+              <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">API Provider</label>
+              <div className="flex space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setApiProvider('gemini')}
+                  className={cn(
+                    "flex-1 py-2 text-xs font-medium rounded-md border transition-all",
+                    apiProvider === 'gemini' 
+                      ? "bg-blue-600 border-blue-500 text-white" 
+                      : "bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700"
+                  )}
+                >
+                  Gemini
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApiProvider('openai')}
+                  className={cn(
+                    "flex-1 py-2 text-xs font-medium rounded-md border transition-all",
+                    apiProvider === 'openai' 
+                      ? "bg-blue-600 border-blue-500 text-white" 
+                      : "bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700"
+                  )}
+                >
+                  OpenAI Compatible
+                </button>
+              </div>
+            </div>
+
+            {apiProvider === 'gemini' ? (
+              <div>
+                <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Gemini Model</label>
+                <select
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                >
+                  <option value="gemini-3.1-flash-preview">Gemini 3.1 Flash</option>
+                  <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+                  <option value="gemini-3-flash-preview">Gemini 3.0 Flash</option>
+                </select>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Base URL</label>
+                  <input
+                    type="text"
+                    value={openaiUrl}
+                    onChange={(e) => setOpenaiUrl(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">API Key</label>
+                  <input
+                    type="password"
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                    placeholder="sk-..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Model Name</label>
+                  <input
+                    type="text"
+                    value={openaiModel}
+                    onChange={(e) => setOpenaiModel(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                    placeholder="gpt-4o"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 pb-4 border-b border-neutral-800">
+            <h3 className="text-sm font-medium text-neutral-300">Jules API Configuration</h3>
             <div>
               <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Jules API Key</label>
               <input

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { Task, TaskStatus } from './types';
 import { initialTasks } from './lib/data';
 import KanbanBoard from './components/KanbanBoard';
@@ -15,10 +15,13 @@ import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
 import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
-import { db } from './services/db';
 import { Bot, Plus, Play, Square, Settings, Folder } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
+import PreviewTabs, { Tab } from './components/PreviewTabs';
+import PreviewPane from './components/PreviewPane';
+import { Artifact, db } from './services/db';
+import { GitFs, GitFile } from './services/GitFs';
 import { ArtifactTool, artifactToolDeclarations } from './services/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './services/RepositoryTool';
 import { RepoCrawler } from './services/RepoCrawler';
@@ -41,20 +44,55 @@ export default function App() {
   const [julesSourceName, setJulesSourceName] = useState(() => localStorage.getItem('julesSourceName') || '');
   const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
 
-  const handleSaveSettings = (endpoint: string, apiKey: string, repo: string, branch: string, sourceName: string, sourceId: string) => {
-    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId });
+  // Preview Tabs
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [isViewingBoard, setIsViewingBoard] = useState(true);
+
+  // LLM Settings
+  const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('apiProvider') || 'gemini');
+  const [geminiModel, setGeminiModel] = useState(() => localStorage.getItem('geminiModel') || 'gemini-3-flash-preview');
+  const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
+  const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
+  const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
+
+  const handleSaveSettings = (
+    endpoint: string, 
+    apiKey: string, 
+    repo: string, 
+    branch: string, 
+    sourceName: string, 
+    sourceId: string,
+    provider: string,
+    gModel: string,
+    oUrl: string,
+    oKey: string,
+    oModel: string
+  ) => {
+    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel });
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
     setRepoBranch(branch);
     setJulesSourceName(sourceName);
     setJulesSourceId(sourceId);
+    setApiProvider(provider);
+    setGeminiModel(gModel);
+    setOpenaiUrl(oUrl);
+    setOpenaiKey(oKey);
+    setOpenaiModel(oModel);
+
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
     localStorage.setItem('repoUrl', repo);
     localStorage.setItem('repoBranch', branch);
     localStorage.setItem('julesSourceName', sourceName);
     localStorage.setItem('julesSourceId', sourceId);
+    localStorage.setItem('apiProvider', provider);
+    localStorage.setItem('geminiModel', gModel);
+    localStorage.setItem('openaiUrl', oUrl);
+    localStorage.setItem('openaiKey', oKey);
+    localStorage.setItem('openaiModel', oModel);
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
     if (token && repo) {
@@ -111,6 +149,16 @@ export default function App() {
       }
 
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      const agentConfig = {
+        apiProvider,
+        geminiModel,
+        openaiUrl,
+        openaiKey,
+        openaiModel,
+        geminiApiKey: process.env.GEMINI_API_KEY || ''
+      };
+
       const availableTools: Tool[] = [
         { name: 'listFiles', description: 'List files in a repository path. Use "." for root.' },
         { name: 'readFile', description: 'Read the content of a file in a repository.' },
@@ -120,7 +168,7 @@ export default function App() {
         { name: 'analyzeCode', description: 'Analyzes the code for sensitive information.' }
       ];
       
-      const location = await routeTask(ai, task.title, task.description, availableTools);
+      const location = await routeTask(ai, task.title, task.description, availableTools, agentConfig);
       
       appendLog(`> Routing decision: ${location.toUpperCase()}\n`);
 
@@ -132,12 +180,19 @@ export default function App() {
           return;
         }
         appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
-        const agent = new LocalAgent(ai, repoUrl, repoBranch || 'main', token, task.id, task.title);
         
-        const findings = await agent.runTask(task.title, task.description, appendLog);
+        const agent = new LocalAgent(ai, repoUrl, repoBranch || 'main', token, task.id, task.title, agentConfig);
         
-        appendLog(`> [Local] Analysis complete. Found ${findings.length} findings.\n`);
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'done', agentId: 'local-agent', artifacts: findings } : t));
+        const { findings, savedArtifactIds } = await agent.runTask(task.title, task.description, appendLog);
+        
+        appendLog(`> [Local] Analysis complete. Found ${findings.length} findings and ${savedArtifactIds.length} artifacts.\n`);
+        setTasks(prev => prev.map(t => t.id === task.id ? { 
+          ...t, 
+          status: 'done', 
+          agentId: 'local-agent', 
+          artifacts: findings,
+          artifactIds: [...(t.artifactIds || []), ...savedArtifactIds]
+        } : t));
         return;
       }
 
@@ -357,6 +412,125 @@ Otherwise, based on the task description, provide a short, direct answer or inst
     }));
   };
 
+  const handleFileSelect = async (file: GitFile) => {
+    const token = import.meta.env.VITE_GITHUB_TOKEN;
+    if (!token || !repoUrl) return;
+
+    const tabId = `file-${file.path}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      return;
+    }
+
+    try {
+      const gitFs = new GitFs(repoUrl, repoBranch, token);
+      const content = await gitFs.getFile(file.path);
+      const newTab: Tab = {
+        id: tabId,
+        name: file.name,
+        content,
+        type: 'file'
+      };
+      setTabs(prev => [...prev, newTab]);
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+    } catch (error) {
+      console.error('Failed to read file:', error);
+    }
+  };
+
+  const handleArtifactSelect = (artifact: Artifact) => {
+    const tabId = `artifact-${artifact.id}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+
+    const newTab: Tab = {
+      id: tabId,
+      name: artifact.name,
+      content: artifact.content,
+      type: 'artifact'
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
+  const handleTabClose = (id: string) => {
+    setTabs(prev => {
+      const newTabs = prev.filter(t => t.id !== id);
+      if (newTabs.length === 0) {
+        setIsViewingBoard(true);
+      }
+      if (activeTabId === id) {
+        setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
+      }
+      return newTabs;
+    });
+  };
+
+  const handleTestXmlTool = async () => {
+    console.log("Starting XML Tool Debug Test...");
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const prompt = `
+      You are a local agent executing a task on a repository.
+      Task Description: list repo files
+      Repository: k0inwork/fleet
+      Branch: master
+      
+      To call a tool, you MUST use the following XML-like tags:
+      - <listFiles path="."/> : List files in a repository path.
+      
+      You MUST use the <listFiles path="."/> tag to complete this task.
+      Do NOT describe what you would do. Just call the tool.
+    `;
+
+    try {
+      let responseText = '';
+      if (apiProvider === 'gemini') {
+        const response = await ai.models.generateContent({
+          model: geminiModel,
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        });
+        responseText = response.text || '';
+      } else {
+        const response = await fetch(`${openaiUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openaiKey}`
+          },
+          body: JSON.stringify({
+            model: openaiModel,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1
+          })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          responseText = data.choices[0].message.content || '';
+        } else {
+          const error = await response.text();
+          throw new Error(`OpenAI API error: ${error}`);
+        }
+      }
+
+      console.log("XML DEBUG RESULT:", responseText);
+      
+      if (responseText.includes('<listFiles')) {
+        alert("Success! Model emitted XML tool call: " + responseText);
+      } else {
+        alert("Model did not emit XML tool call. Check console.");
+      }
+    } catch (error: any) {
+      console.error("XML DEBUG ERROR:", error);
+      alert("Debug failed: " + error.message);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-neutral-950 text-neutral-100 font-sans overflow-hidden">
       {/* Header */}
@@ -380,6 +554,13 @@ Otherwise, based on the task description, provide a short, direct answer or inst
 
         <div className="flex items-center space-x-4">
           <button
+            onClick={handleTestXmlTool}
+            className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md transition-colors"
+            title="Test XML Tool"
+          >
+            <Bot className="w-5 h-5 text-red-400" />
+          </button>
+          <button
             onClick={() => setIsRepoBrowserOpen(!isRepoBrowserOpen)}
             className={cn(
               "p-2 rounded-md transition-colors",
@@ -389,6 +570,21 @@ Otherwise, based on the task description, provide a short, direct answer or inst
           >
             <Folder className="w-5 h-5" />
           </button>
+          
+          {tabs.length > 0 && (
+            <button
+              onClick={() => setIsViewingBoard(!isViewingBoard)}
+              className={cn(
+                "p-2 rounded-md transition-colors border",
+                isViewingBoard 
+                  ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20" 
+                  : "bg-blue-500/10 border-blue-500/50 text-blue-400 hover:bg-blue-500/20"
+              )}
+              title={isViewingBoard ? "Return to Tabs" : "View Board"}
+            >
+              <Bot className="w-5 h-5" />
+            </button>
+          )}
           <button
             onClick={() => setIsSettingsModalOpen(true)}
             className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md transition-colors"
@@ -435,13 +631,18 @@ Otherwise, based on the task description, provide a short, direct answer or inst
           <div className="w-80 border-r border-neutral-800 flex flex-col bg-neutral-900/30 overflow-y-auto custom-scrollbar">
             <CollapsiblePane title="Repository" defaultExpanded={false}>
               <div className="p-4">
-                <RepositoryBrowser repoUrl={repoUrl} branch={repoBranch} token={import.meta.env.VITE_GITHUB_TOKEN} />
+                <RepositoryBrowser 
+                  repoUrl={repoUrl} 
+                  branch={repoBranch} 
+                  token={import.meta.env.VITE_GITHUB_TOKEN} 
+                  onFileSelect={handleFileSelect}
+                />
               </div>
             </CollapsiblePane>
 
             <CollapsiblePane title="Artifacts" defaultExpanded={false} badge={tasks.reduce((acc, t) => acc + (t.artifactIds?.length || 0), 0)}>
               <div className="p-2">
-                <ArtifactBrowser tasks={tasks} />
+                <ArtifactBrowser tasks={tasks} onArtifactSelect={handleArtifactSelect} />
               </div>
             </CollapsiblePane>
 
@@ -459,14 +660,26 @@ Otherwise, based on the task description, provide a short, direct answer or inst
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col">
-          <KanbanBoard 
-            tasks={tasks} 
-            onMoveTask={handleMoveTask} 
-            onTaskClick={setSelectedTask}
-            onStartTask={processTask}
-            onDeleteTask={handleDeleteTask}
-            onAttachArtifact={handleAttachArtifact}
-          />
+          {tabs.length > 0 && !isViewingBoard ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <PreviewTabs 
+                tabs={tabs} 
+                activeTabId={activeTabId} 
+                onTabSelect={setActiveTabId} 
+                onTabClose={handleTabClose} 
+              />
+              <PreviewPane activeTab={tabs.find(t => t.id === activeTabId) || null} />
+            </div>
+          ) : (
+            <KanbanBoard 
+              tasks={tasks} 
+              onMoveTask={handleMoveTask} 
+              onTaskClick={setSelectedTask}
+              onStartTask={processTask}
+              onDeleteTask={handleDeleteTask}
+              onAttachArtifact={handleAttachArtifact}
+            />
+          )}
         </div>
       </div>
 
@@ -488,6 +701,11 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialBranch={repoBranch}
         initialSourceName={julesSourceName}
         initialSourceId={julesSourceId}
+        initialApiProvider={apiProvider}
+        initialGeminiModel={geminiModel}
+        initialOpenaiUrl={openaiUrl}
+        initialOpenaiKey={openaiKey}
+        initialOpenaiModel={openaiModel}
       />
 
       <TaskDetailsModal
