@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Task, TaskStatus } from './types';
 import { initialTasks } from './lib/data';
@@ -10,17 +11,19 @@ import SettingsModal from './components/SettingsModal';
 import { executeJulesCommand } from './lib/jules';
 import { julesApi, SessionState } from './lib/julesApi';
 import { routeTask, Tool } from './services/TaskRouter';
-import { LocalAgent } from './services/LocalAgent';
+import { LocalAgent, AgentConfig } from './services/LocalAgent';
+import { ProcessAgent } from './services/ProcessAgent';
 import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
 import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
-import { Bot, Plus, Play, Square, Settings, Folder } from 'lucide-react';
+import { Bot, Plus, Play, Square, Settings, Folder, Mail, X } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
+import MailboxView from './components/MailboxView';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
 import PreviewPane from './components/PreviewPane';
-import { Artifact, db } from './services/db';
+import { Artifact, db, AgentMessage } from './services/db';
 import { GitFs, GitFile } from './services/GitFs';
 import { ArtifactTool, artifactToolDeclarations } from './services/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './services/RepositoryTool';
@@ -30,9 +33,11 @@ import { cn } from './lib/utils';
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [isAutoPilot, setIsAutoPilot] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isRepoBrowserOpen, setIsRepoBrowserOpen] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<'repo' | 'mailbox'>('repo');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const processingRef = useRef<Set<string>>(new Set());
 
@@ -100,6 +105,50 @@ export default function App() {
     }
   };
 
+  const handleReviewProject = async () => {
+    if (isReviewing) return;
+    setIsReviewing(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const agentConfig: AgentConfig = {
+        apiProvider,
+        geminiModel,
+        openaiUrl,
+        openaiKey,
+        openaiModel,
+        geminiApiKey: process.env.GEMINI_API_KEY || ''
+      };
+      const processAgent = new ProcessAgent(ai, agentConfig, repoUrl, repoBranch);
+      await processAgent.runReview();
+      setSidebarMode('mailbox');
+      setIsRepoBrowserOpen(true);
+    } catch (error) {
+      console.error("Review failed:", error);
+    } finally {
+      setIsReviewing(false);
+    }
+  };
+
+  const handleAcceptProposal = async (message: AgentMessage) => {
+    if (message.proposedTask) {
+      const newTask: Task = {
+        id: uuidv4(),
+        title: message.proposedTask.title,
+        description: message.proposedTask.description,
+        status: 'todo',
+        createdAt: Date.now(),
+      };
+      setTasks(prev => [...prev, newTask]);
+      if (message.id) {
+        await db.messages.update(message.id, { status: 'read' });
+      }
+    }
+  };
+
+  const unreadMessagesCount = useLiveQuery(() => 
+    db.messages.where('status').equals('unread').count()
+  ) || 0;
+
   // Agent Loop
   useEffect(() => {
     if (!isAutoPilot) return;
@@ -122,14 +171,22 @@ export default function App() {
     if (processingRef.current.has(task.id)) return;
     processingRef.current.add(task.id);
     
-    setTasks(prev => prev.map(t => 
-      t.id === task.id ? { 
-        ...t, 
-        status: 'in-progress', 
-        agentId: 'jules-agent', 
-        logs: (t.logs ? t.logs + '\n\n---\n\n' : '') + '> Initializing Jules Session...\n' 
-      } : t
-    ));
+    setTasks(prev => prev.map(t => {
+      if (t.id === task.id) {
+        const updatedTask = { 
+          ...t, 
+          status: 'in-progress' as TaskStatus, 
+          agentId: 'jules-agent', 
+          logs: (t.logs ? t.logs + '\n\n---\n\n' : '') + '> Initializing Jules Session...\n' 
+        };
+        db.tasks.update(task.id, { 
+          status: updatedTask.status, 
+          agentId: updatedTask.agentId 
+        });
+        return updatedTask;
+      }
+      return t;
+    }));
 
     const appendLog = (text: string) => {
       setTasks(prev => prev.map(t => 
@@ -186,13 +243,28 @@ export default function App() {
         const { findings, savedArtifactIds } = await agent.runTask(task.title, task.description, appendLog);
         
         appendLog(`> [Local] Analysis complete. Found ${findings.length} findings and ${savedArtifactIds.length} artifacts.\n`);
-        setTasks(prev => prev.map(t => t.id === task.id ? { 
-          ...t, 
-          status: 'done', 
-          agentId: 'local-agent', 
-          artifacts: findings,
-          artifactIds: [...(t.artifactIds || []), ...savedArtifactIds]
-        } : t));
+        setTasks(prev => prev.map(t => {
+          if (t.id === task.id) {
+            const updatedTask = { 
+              ...t, 
+              status: 'done' as TaskStatus, 
+              agentId: 'local-agent', 
+              artifacts: findings,
+              artifactIds: [...(t.artifactIds || []), ...savedArtifactIds]
+            };
+            db.tasks.update(task.id, { 
+              status: updatedTask.status, 
+              agentId: updatedTask.agentId, 
+              artifactIds: updatedTask.artifactIds 
+            });
+            return updatedTask;
+          }
+          return t;
+        }));
+        processingRef.current.delete(task.id);
+        
+        // Trigger automatic review after a task is completed
+        handleReviewProject();
         return;
       }
 
@@ -342,10 +414,17 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         appendLog(`\n> SUPERVISOR: Reached maximum polling time. Marking as review.\n`);
       }
 
+      const finalStatus = currentState === 'COMPLETED' ? 'done' : 'review';
       setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, status: currentState === 'COMPLETED' ? 'done' : 'review' } : t
+        t.id === task.id ? { ...t, status: finalStatus } : t
       ));
+      await db.tasks.update(task.id, { status: finalStatus });
       processingRef.current.delete(task.id);
+
+      // Trigger automatic review after a task is completed
+      if (finalStatus === 'done') {
+        handleReviewProject();
+      }
 
     } catch (error: any) {
       const isSessionMissing = error.status === 404;
@@ -355,18 +434,21 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       setTasks(prev => prev.map(t => 
         t.id === task.id ? { ...t, status: nextStatus, agentId: undefined } : t
       ));
+      await db.tasks.update(task.id, { status: nextStatus, agentId: undefined });
       processingRef.current.delete(task.id);
       setIsAutoPilot(false);
     }
   };
 
-  const handleDeleteTask = (taskId: string) => {
+  const handleDeleteTask = async (taskId: string) => {
     setTasks(prev => prev.filter(t => t.id !== taskId));
     if (selectedTask?.id === taskId) setSelectedTask(null);
+    await db.tasks.delete(taskId);
   };
 
-  const handleMoveTask = (taskId: string, newStatus: TaskStatus) => {
+  const handleMoveTask = async (taskId: string, newStatus: TaskStatus) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    await db.tasks.update(taskId, { status: newStatus });
   };
 
   const handleCreateTask = async (title: string, description: string, artifactIds: number[]) => {
@@ -387,6 +469,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
     }
     
     setTasks(prev => [...prev, newTask]);
+    await db.tasks.add(newTask);
     setIsNewTaskModalOpen(false);
   };
 
@@ -554,17 +637,52 @@ Otherwise, based on the task description, provide a short, direct answer or inst
 
         <div className="flex items-center space-x-4">
           <button
-            onClick={handleTestXmlTool}
-            className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md transition-colors"
-            title="Test XML Tool"
+            onClick={handleReviewProject}
+            disabled={isReviewing}
+            className={cn(
+              "p-2 rounded-md transition-all",
+              isReviewing ? "text-blue-500 animate-pulse" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+            )}
+            title="Review Project & Propose Tasks"
           >
-            <Bot className="w-5 h-5 text-red-400" />
+            <Bot className={cn("w-5 h-5", isReviewing && "text-blue-400")} />
           </button>
           <button
-            onClick={() => setIsRepoBrowserOpen(!isRepoBrowserOpen)}
+            onClick={() => {
+              if (isRepoBrowserOpen && sidebarMode === 'mailbox') {
+                setSidebarMode('repo');
+              } else {
+                setIsRepoBrowserOpen(true);
+                setSidebarMode('mailbox');
+              }
+            }}
+            className={cn(
+              "p-2 rounded-md transition-all relative",
+              isRepoBrowserOpen && sidebarMode === 'mailbox' 
+                ? "text-white bg-neutral-800" 
+                : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+            )}
+            title="Mailbox"
+          >
+            <Mail className="w-5 h-5" />
+            {unreadMessagesCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center border-2 border-neutral-900">
+                {unreadMessagesCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => {
+              if (isRepoBrowserOpen) {
+                setIsRepoBrowserOpen(false);
+              } else {
+                setIsRepoBrowserOpen(true);
+                setSidebarMode('repo');
+              }
+            }}
             className={cn(
               "p-2 rounded-md transition-colors",
-              isRepoBrowserOpen ? "text-white bg-neutral-800" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              isRepoBrowserOpen && sidebarMode === 'repo' ? "text-white bg-neutral-800" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
             )}
             title="Toggle Repository Browser"
           >
@@ -629,34 +747,40 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       <div className="flex-1 flex overflow-hidden">
         {isRepoBrowserOpen && (
           <div className="w-80 border-r border-neutral-800 flex flex-col bg-neutral-900/30 overflow-y-auto custom-scrollbar">
-            <CollapsiblePane title="Repository" defaultExpanded={false}>
-              <div className="p-4">
-                <RepositoryBrowser 
-                  repoUrl={repoUrl} 
-                  branch={repoBranch} 
-                  token={import.meta.env.VITE_GITHUB_TOKEN} 
-                  onFileSelect={handleFileSelect}
-                />
-              </div>
-            </CollapsiblePane>
+            {sidebarMode === 'repo' ? (
+              <>
+                <CollapsiblePane title="Repository" defaultExpanded={false}>
+                  <div className="p-4">
+                    <RepositoryBrowser 
+                      repoUrl={repoUrl} 
+                      branch={repoBranch} 
+                      token={import.meta.env.VITE_GITHUB_TOKEN} 
+                      onFileSelect={handleFileSelect}
+                    />
+                  </div>
+                </CollapsiblePane>
 
-            <CollapsiblePane title="Artifacts" defaultExpanded={false} badge={tasks.reduce((acc, t) => acc + (t.artifactIds?.length || 0), 0)}>
-              <div className="p-2">
-                <ArtifactBrowser tasks={tasks} onArtifactSelect={handleArtifactSelect} />
-              </div>
-            </CollapsiblePane>
+                <CollapsiblePane title="Artifacts" defaultExpanded={false} badge={tasks.reduce((acc, t) => acc + (t.artifactIds?.length || 0), 0)}>
+                  <div className="p-2">
+                    <ArtifactBrowser tasks={tasks} onArtifactSelect={handleArtifactSelect} />
+                  </div>
+                </CollapsiblePane>
 
-            <CollapsiblePane title="Jules Processes" defaultExpanded={false}>
-              <JulesProcessBrowser tasks={tasks} />
-            </CollapsiblePane>
+                <CollapsiblePane title="Jules Processes" defaultExpanded={false}>
+                  <JulesProcessBrowser tasks={tasks} />
+                </CollapsiblePane>
 
-            <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
-              <GithubWorkflowMonitor 
-                repoUrl={repoUrl} 
-                branch={repoBranch || 'main'} 
-                token={import.meta.env.VITE_GITHUB_TOKEN || ''} 
-              />
-            </CollapsiblePane>
+                <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
+                  <GithubWorkflowMonitor 
+                    repoUrl={repoUrl} 
+                    branch={repoBranch || 'main'} 
+                    token={import.meta.env.VITE_GITHUB_TOKEN || ''} 
+                  />
+                </CollapsiblePane>
+              </>
+            ) : (
+              <MailboxView onAcceptProposal={handleAcceptProposal} />
+            )}
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col">

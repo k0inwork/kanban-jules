@@ -2,6 +2,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { LocalAnalyzer } from './LocalAnalyzer';
 import { ArtifactTool, artifactToolDeclarations } from './ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './RepositoryTool';
+import { db } from './db';
 
 export interface AgentConfig {
   apiProvider: string;
@@ -115,10 +116,11 @@ export class LocalAgent {
     const localArtifactToolDeclarations = [
       {
         name: 'listArtifacts',
-        description: 'List all artifacts for a given task.',
+        description: 'List artifacts for this repository and branch, or for a specific task.',
         parameters: {
           type: Type.OBJECT,
           properties: {
+            taskId: { type: Type.STRING, description: 'Optional. The task ID.' },
             repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
             branch: { type: Type.STRING, description: 'Optional. The branch name.' }
           }
@@ -165,7 +167,34 @@ export class LocalAgent {
       }
     };
 
-    const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration] }];
+    const localCommunicationToolDeclarations = [
+      {
+        name: 'listTasks',
+        description: 'List all tasks on the Kanban board to understand the project context.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            status: { type: Type.STRING, description: 'Optional. Filter by status: todo, in-progress, review, done.' }
+          }
+        }
+      },
+      {
+        name: 'sendMessage',
+        description: 'Send a message to the user\'s Mailbox.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            type: { type: Type.STRING, description: 'The message type: info, proposal, alert.' },
+            content: { type: Type.STRING, description: 'The message content.' },
+            title: { type: Type.STRING, description: 'Optional. For proposals, the suggested task title.' },
+            description: { type: Type.STRING, description: 'Optional. For proposals, the suggested task description.' }
+          },
+          required: ['type', 'content']
+        }
+      }
+    ];
+
+    const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration, ...localCommunicationToolDeclarations] }];
     appendLog(`> [LocalAgent] Tools available: ${tools[0].functionDeclarations.map(f => f.name).join(', ')}\n`);
     
     const prompt = `
@@ -180,9 +209,18 @@ export class LocalAgent {
       - <listFiles path="path/to/dir"/> : List files in a repository path. Use "." for root.
       - <readFile path="path/to/file"/> : Read the content of a file.
       - <saveArtifact name="artifact_name" content="artifact_content"/> : Save a new artifact.
-      - <listArtifacts/> : List all artifacts for this task.
+      - <listArtifacts/> : List all artifacts for the current repository and branch.
+      - <listArtifacts taskId="task-id"/> : List all artifacts for a specific task.
       - <readArtifact artifactId="123"/> : Read the content of an artifact by ID.
       - <analyzeCode/> : Analyzes the code for secrets and passwords.
+      - <listTasks/> : List all tasks on the board to see what else is being worked on.
+      - <sendMessage type="info|proposal|alert" content="message text" [title="task title" description="task desc"]/> : Send a message to the user's Mailbox.
+      
+      COMMUNICATION RULES:
+      1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.
+      2. Use <sendMessage type="proposal"/> if you discover a new task that needs to be done (e.g., "I found a bug in X, we should fix it").
+      3. Use <sendMessage type="alert"/> for critical blockers or security issues.
+      4. Do NOT spam the mailbox. Only send messages for important events.
       
       CRITICAL INSTRUCTIONS:
       1. You MUST use these tags to take action. Do not just describe what you would do.
@@ -242,7 +280,15 @@ export class LocalAgent {
               } else if (call.name === 'readFile') {
                 result = await this.repositoryTool.readFile(this.repoUrl, this.branch, this.token, call.args.path);
               } else if (call.name === 'listArtifacts') {
-                result = await this.artifactTool.listArtifacts(this.taskId);
+                const repoName = call.args.repo_name || this.repoUrl.split('/').pop() || this.repoUrl;
+                const branch = call.args.branch || this.branch;
+                const taskId = call.args.taskId;
+                // If no taskId is provided, we default to repo/branch search to enable sharing
+                if (!taskId && !call.args.repo_name && !call.args.branch) {
+                  result = await this.artifactTool.listArtifacts(undefined, repoName, branch);
+                } else {
+                  result = await this.artifactTool.listArtifacts(taskId, repoName, branch);
+                }
               } else if (call.name === 'readArtifact') {
                 result = await this.artifactTool.readArtifact(parseInt(call.args.artifactId));
               } else if (call.name === 'saveArtifact') {
@@ -253,6 +299,30 @@ export class LocalAgent {
                 }
               } else if (call.name === 'analyzeCode') {
                 result = await this.analyzer.analyze();
+              } else if (call.name === 'listTasks') {
+                const status = call.args.status;
+                if (status) {
+                  result = await db.tasks.where('status').equals(status).toArray();
+                } else {
+                  result = await db.tasks.toArray();
+                }
+              } else if (call.name === 'sendMessage') {
+                const msg: any = {
+                  sender: 'local-agent',
+                  taskId: this.taskId,
+                  type: call.args.type || 'info',
+                  content: call.args.content,
+                  status: 'unread',
+                  timestamp: Date.now()
+                };
+                if (call.args.type === 'proposal' && call.args.title) {
+                  msg.proposedTask = {
+                    title: call.args.title,
+                    description: call.args.description || ''
+                  };
+                }
+                await db.messages.add(msg);
+                result = { success: true };
               } else {
                 result = { error: `Unknown tool: ${call.name}` };
               }

@@ -1,8 +1,14 @@
 import { db, Artifact } from './db';
 
 export const ArtifactTool = {
-  listArtifacts: async (taskId: string): Promise<Artifact[]> => {
-    return await db.taskArtifacts.where('taskId').equals(taskId).toArray();
+  listArtifacts: async (taskId?: string, repoName?: string, branchName?: string): Promise<Artifact[]> => {
+    if (taskId) {
+      return await db.taskArtifacts.where('taskId').equals(taskId).toArray();
+    }
+    if (repoName && branchName) {
+      return await db.taskArtifacts.where({ repoName, branchName }).toArray();
+    }
+    return await db.taskArtifacts.toArray();
   },
 
   readArtifact: async (artifactId: number): Promise<Artifact | undefined> => {
@@ -26,13 +32,14 @@ import { Type, FunctionDeclaration } from '@google/genai';
 export const artifactToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'listArtifacts',
-    description: 'List all artifacts for a given task.',
+    description: 'List artifacts. Can filter by taskId or by repoName and branchName.',
     parameters: {
       type: Type.OBJECT,
       properties: {
-        taskId: { type: Type.STRING, description: 'The task ID.' }
-      },
-      required: ['taskId']
+        taskId: { type: Type.STRING, description: 'The task ID (optional).' },
+        repoName: { type: Type.STRING, description: 'The repository name (optional).' },
+        branchName: { type: Type.STRING, description: 'The branch name (optional).' }
+      }
     }
   },
   {
