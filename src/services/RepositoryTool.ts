@@ -13,17 +13,19 @@ export const RepositoryTool = {
   }
 };
 
-export const repositoryToolDeclarations = [
+import { Type, FunctionDeclaration } from '@google/genai';
+
+export const repositoryToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'listFiles',
     description: 'List files in a repository path.',
     parameters: {
-      type: 'object',
+      type: Type.OBJECT,
       properties: {
-        repoUrl: { type: 'string', description: 'The repository URL.' },
-        branch: { type: 'string', description: 'The branch name.' },
-        token: { type: 'string', description: 'The GitHub token.' },
-        path: { type: 'string', description: 'The path to list files from.' }
+        repoUrl: { type: Type.STRING, description: 'The repository URL.' },
+        branch: { type: Type.STRING, description: 'The branch name.' },
+        token: { type: Type.STRING, description: 'The GitHub token.' },
+        path: { type: Type.STRING, description: 'The path to list files from.' }
       },
       required: ['repoUrl', 'branch', 'token']
     }
@@ -32,12 +34,12 @@ export const repositoryToolDeclarations = [
     name: 'readFile',
     description: 'Read the content of a file in a repository.',
     parameters: {
-      type: 'object',
+      type: Type.OBJECT,
       properties: {
-        repoUrl: { type: 'string', description: 'The repository URL.' },
-        branch: { type: 'string', description: 'The branch name.' },
-        token: { type: 'string', description: 'The GitHub token.' },
-        path: { type: 'string', description: 'The file path.' }
+        repoUrl: { type: Type.STRING, description: 'The repository URL.' },
+        branch: { type: Type.STRING, description: 'The branch name.' },
+        token: { type: Type.STRING, description: 'The GitHub token.' },
+        path: { type: Type.STRING, description: 'The file path.' }
       },
       required: ['repoUrl', 'branch', 'token', 'path']
     }

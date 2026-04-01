@@ -9,8 +9,8 @@ import TaskDetailsModal from './components/TaskDetailsModal';
 import SettingsModal from './components/SettingsModal';
 import { executeJulesCommand } from './lib/jules';
 import { julesApi, SessionState } from './lib/julesApi';
-import { inferTaskType, getExecutionLocation, assessTaskFeasibility, Tool } from './services/TaskRouter';
-import { LocalResearcher } from './services/LocalResearcher';
+import { routeTask, Tool } from './services/TaskRouter';
+import { LocalAgent } from './services/LocalAgent';
 import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
@@ -110,14 +110,19 @@ export default function App() {
         return;
       }
 
-      const taskType = inferTaskType(task.title, task.description);
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const availableTools: Tool[] = [
-        { name: 'LocalResearcher', canHandle: ['analyze', 'unit test'], description: 'Analyzes code for secrets.' }
+        { name: 'listFiles', description: 'List files in a repository path. Use "." for root.' },
+        { name: 'readFile', description: 'Read the content of a file in a repository.' },
+        { name: 'saveArtifact', description: 'Save a new artifact.' },
+        { name: 'listArtifacts', description: 'List all artifacts for a given task.' },
+        { name: 'readArtifact', description: 'Read the content of an artifact.' },
+        { name: 'analyzeCode', description: 'Analyzes the code for sensitive information.' }
       ];
-      const feasibilityScore = await assessTaskFeasibility(ai, task.title, task.description, availableTools);
-      const location = getExecutionLocation(feasibilityScore);
       
-      appendLog(`> Task identified as: ${taskType}. Feasibility: ${feasibilityScore}%. Routing to: ${location}\n`);
+      const location = await routeTask(ai, task.title, task.description, availableTools);
+      
+      appendLog(`> Routing decision: ${location.toUpperCase()}\n`);
 
       if (location === 'local') {
         const token = import.meta.env.VITE_GITHUB_TOKEN;
@@ -126,18 +131,15 @@ export default function App() {
           setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'todo', agentId: undefined } : t));
           return;
         }
-        appendLog(`> [Local] Initializing LocalResearcher for ${repoUrl}...\n`);
-        const researcher = new LocalResearcher(repoUrl, repoBranch || 'main', token, task.id, task.title);
+        appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
+        const agent = new LocalAgent(ai, repoUrl, repoBranch || 'main', token, task.id, task.title);
         
-        appendLog(`> [Local] Performing analysis locally...\n`);
-        const findings = await researcher.analyze();
+        const findings = await agent.runTask(task.title, task.description, appendLog);
         
         appendLog(`> [Local] Analysis complete. Found ${findings.length} findings.\n`);
         setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'done', agentId: 'local-agent', artifacts: findings } : t));
         return;
       }
-
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       // 1. Create Jules Session
       const sourceContext = {

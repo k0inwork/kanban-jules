@@ -21,14 +21,16 @@ export const ArtifactTool = {
   }
 };
 
-export const artifactToolDeclarations = [
+import { Type, FunctionDeclaration } from '@google/genai';
+
+export const artifactToolDeclarations: FunctionDeclaration[] = [
   {
     name: 'listArtifacts',
     description: 'List all artifacts for a given task.',
     parameters: {
-      type: 'object',
+      type: Type.OBJECT,
       properties: {
-        taskId: { type: 'string', description: 'The task ID.' }
+        taskId: { type: Type.STRING, description: 'The task ID.' }
       },
       required: ['taskId']
     }
@@ -37,9 +39,9 @@ export const artifactToolDeclarations = [
     name: 'readArtifact',
     description: 'Read the content of an artifact.',
     parameters: {
-      type: 'object',
+      type: Type.OBJECT,
       properties: {
-        artifactId: { type: 'number', description: 'The artifact ID.' }
+        artifactId: { type: Type.NUMBER, description: 'The artifact ID.' }
       },
       required: ['artifactId']
     }
@@ -48,13 +50,13 @@ export const artifactToolDeclarations = [
     name: 'saveArtifact',
     description: 'Save a new artifact.',
     parameters: {
-      type: 'object',
+      type: Type.OBJECT,
       properties: {
-        taskId: { type: 'string', description: 'The task ID.' },
-        repoName: { type: 'string', description: 'The repository name.' },
-        branchName: { type: 'string', description: 'The branch name.' },
-        name: { type: 'string', description: 'The artifact name.' },
-        content: { type: 'string', description: 'The artifact content.' }
+        taskId: { type: Type.STRING, description: 'The task ID.' },
+        repoName: { type: Type.STRING, description: 'The repository name.' },
+        branchName: { type: Type.STRING, description: 'The branch name.' },
+        name: { type: Type.STRING, description: 'The artifact name.' },
+        content: { type: Type.STRING, description: 'The artifact content.' }
       },
       required: ['taskId', 'repoName', 'branchName', 'name', 'content']
     }

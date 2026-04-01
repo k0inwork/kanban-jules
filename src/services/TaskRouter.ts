@@ -1,38 +1,41 @@
 import { GoogleGenAI } from "@google/genai";
 
-export type TaskType = 'analyze' | 'refactor' | 'unit test' | 'unknown';
-
 export interface Tool {
   name: string;
-  canHandle: TaskType[];
   description: string;
 }
 
 export type ExecutionLocation = 'local' | 'jules';
 
-export function inferTaskType(title: string, description: string): TaskType {
-  const content = (title + ' ' + description).toLowerCase();
-  if (content.includes('analyze')) return 'analyze';
-  if (content.includes('refactor')) return 'refactor';
-  if (content.includes('unit test') || content.includes('test')) return 'unit test';
-  return 'unknown';
-}
-
-export async function assessTaskFeasibility(
+export async function routeTask(
   ai: GoogleGenAI,
   taskTitle: string,
   taskDescription: string,
-  availableTools: Tool[]
-): Promise<number> {
+  localTools: Tool[]
+): Promise<ExecutionLocation> {
+  const toolsList = localTools.map(t => `- ${t.name}: ${t.description}`).join('\n    ');
+
   const prompt = `
-    Given the following task and the available local tools, assess the percentage (0-100) 
-    of how well we can perform this task locally.
+    You are an intelligent task routing assistant. You must decide whether a task should be executed by the 'local' agent or the 'jules' agent.
+    
+    LOCAL AGENT CAPABILITIES:
+    The local agent is a lightweight environment. It CANNOT execute shell commands, run code, or modify files.
+    It ONLY has access to the following specific tools:
+    ${toolsList}
+    
+    JULES AGENT CAPABILITIES:
+    - Full development environment.
+    - Can write/modify code, refactor, and commit.
+    - Can run terminal commands (e.g., grep, wc, npm test, python), execute tests, install dependencies.
     
     Task Title: ${taskTitle}
     Task Description: ${taskDescription}
-    Available Tools: ${JSON.stringify(availableTools)}
     
-    Return ONLY the percentage number.
+    ROUTING RULES:
+    1. If the task can be fully completed using ONLY the specific tools listed for the Local Agent, return LOCAL.
+    2. If the task requires modifying code, running tests, executing shell commands (like counting lines of code across a repo), or doing anything beyond the strict capabilities of the local tools, you MUST return JULES.
+    
+    Return EXACTLY ONE WORD: either "LOCAL" or "JULES". Do not include any other text.
   `;
 
   const response = await ai.models.generateContent({
@@ -40,10 +43,6 @@ export async function assessTaskFeasibility(
     contents: prompt,
   });
 
-  const percentage = parseInt(response.text?.trim() || "0", 10);
-  return isNaN(percentage) ? 0 : percentage;
-}
-
-export function getExecutionLocation(feasibilityScore: number): ExecutionLocation {
-  return feasibilityScore >= 80 ? 'local' : 'jules';
+  const decision = response.text?.trim().toUpperCase() || 'JULES';
+  return decision.includes('LOCAL') ? 'local' : 'jules';
 }

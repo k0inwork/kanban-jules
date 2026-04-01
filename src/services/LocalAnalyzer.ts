@@ -1,7 +1,7 @@
 import { GitFs } from './GitFs';
 import { TaskFs } from './TaskFs';
 
-export class LocalResearcher {
+export class LocalAnalyzer {
   private gitFs: GitFs;
   private taskFs: TaskFs;
   private taskId: string;
