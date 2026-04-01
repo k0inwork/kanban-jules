@@ -70,10 +70,11 @@ export default function SettingsModal({
       setOpenaiUrl(initialOpenaiUrl);
       setOpenaiKey(initialOpenaiKey);
       setOpenaiModel(initialOpenaiModel);
+      setProxyUrl(initialProxyUrl || '');
     }
   }, [
     isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel
+    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialProxyUrl
   ]);
 
   useEffect(() => {
