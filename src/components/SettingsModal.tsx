@@ -5,23 +5,25 @@ import { julesApi, Source } from '../lib/julesApi';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (endpoint: string, apiKey: string, repoUrl: string, branch: string, sourceName: string) => void;
+  onSave: (endpoint: string, apiKey: string, repoUrl: string, branch: string, sourceName: string, sourceId: string) => void;
   initialEndpoint: string;
   initialApiKey: string;
   initialRepoUrl: string;
   initialBranch: string;
   initialSourceName: string;
+  initialSourceId: string;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
-  initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName
+  initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
   const [repoUrl, setRepoUrl] = useState(initialRepoUrl);
   const [branch, setBranch] = useState(initialBranch);
   const [sourceName, setSourceName] = useState(initialSourceName);
+  const [sourceId, setSourceId] = useState(initialSourceId);
   
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
@@ -34,8 +36,9 @@ export default function SettingsModal({
       setRepoUrl(initialRepoUrl);
       setBranch(initialBranch);
       setSourceName(initialSourceName);
+      setSourceId(initialSourceId);
     }
-  }, [isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName]);
+  }, [isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId]);
 
   useEffect(() => {
     if (isOpen && apiKey) {
@@ -124,6 +127,7 @@ export default function SettingsModal({
                   const selected = sources.find(s => s.name === val);
                   if (selected) {
                     setSourceName(selected.name);
+                    setSourceId(selected.id);
                     const repoIdentifier = selected.githubRepo ? `${selected.githubRepo.owner}/${selected.githubRepo.repo}` : selected.name;
                     setRepoUrl(repoIdentifier);
                     if (selected.githubRepo?.defaultBranch?.displayName) {
@@ -133,6 +137,7 @@ export default function SettingsModal({
                     }
                   } else {
                     setSourceName('');
+                    setSourceId('');
                     setRepoUrl(val);
                   }
                 }}

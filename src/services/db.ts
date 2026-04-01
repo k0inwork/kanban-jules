@@ -38,11 +38,11 @@ export class MyDatabase extends Dexie {
 
   constructor() {
     super('AgentKanbanDB');
-    this.version(4).stores({
+    this.version(6).stores({
       gitCache: 'path',
       taskArtifacts: '++id, taskId, repoName, branchName',
       taskArtifactLinks: '++id, taskId, artifactId',
-      julesSessions: 'id, taskId, name'
+      julesSessions: 'id, taskId, name, createdAt'
     });
   }
 }

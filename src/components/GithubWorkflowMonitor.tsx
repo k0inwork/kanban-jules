@@ -27,8 +27,8 @@ export default function GithubWorkflowMonitor({ repoUrl, branch, token }: Github
     setLoading(true);
     setError(null);
     try {
-      const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
-      if (!match) throw new Error("Invalid GitHub URL");
+      const match = repoUrl.match(/(?:github\.com\/|api\.github\.com\/repos\/)?([^/]+)\/([^/]+)/);
+      if (!match) throw new Error(`Invalid GitHub URL: ${repoUrl}`);
       const [_, owner, repo] = match;
       const url = `https://api.github.com/repos/${owner}/${repo.replace(/\.git$/, '')}/actions/runs?branch=${branch}&per_page=5`;
       

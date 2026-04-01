@@ -36,18 +36,21 @@ export default function App() {
   const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || '');
   const [repoBranch, setRepoBranch] = useState(() => localStorage.getItem('repoBranch') || 'main');
   const [julesSourceName, setJulesSourceName] = useState(() => localStorage.getItem('julesSourceName') || '');
+  const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
 
-  const handleSaveSettings = (endpoint: string, apiKey: string, repo: string, branch: string, sourceName: string) => {
+  const handleSaveSettings = (endpoint: string, apiKey: string, repo: string, branch: string, sourceName: string, sourceId: string) => {
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
     setRepoBranch(branch);
     setJulesSourceName(sourceName);
+    setJulesSourceId(sourceId);
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
     localStorage.setItem('repoUrl', repo);
     localStorage.setItem('repoBranch', branch);
     localStorage.setItem('julesSourceName', sourceName);
+    localStorage.setItem('julesSourceId', sourceId);
   };
 
   // Agent Loop
@@ -125,7 +128,7 @@ export default function App() {
 
       // 1. Create Jules Session
       const sourceContext = {
-        source: julesSourceName || repoUrl,
+        source: julesSourceId,
         githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
       };
 
@@ -403,19 +406,19 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       <div className="flex-1 flex overflow-hidden">
         {isRepoBrowserOpen && (
           <div className="w-80 border-r border-neutral-800 flex flex-col bg-neutral-900/30 overflow-y-auto custom-scrollbar">
-            <CollapsiblePane title="Repository" defaultExpanded={true}>
+            <CollapsiblePane title="Repository" defaultExpanded={false}>
               <div className="p-4">
                 <RepositoryBrowser repoUrl={repoUrl} branch={repoBranch} token={import.meta.env.VITE_GITHUB_TOKEN} />
               </div>
             </CollapsiblePane>
 
-            <CollapsiblePane title="Artifacts" defaultExpanded={true} badge={tasks.reduce((acc, t) => acc + (t.artifactIds?.length || 0), 0)}>
+            <CollapsiblePane title="Artifacts" defaultExpanded={false} badge={tasks.reduce((acc, t) => acc + (t.artifactIds?.length || 0), 0)}>
               <div className="p-2">
                 <ArtifactBrowser tasks={tasks} />
               </div>
             </CollapsiblePane>
 
-            <CollapsiblePane title="Jules Processes" defaultExpanded={true}>
+            <CollapsiblePane title="Jules Processes" defaultExpanded={false}>
               <JulesProcessBrowser tasks={tasks} />
             </CollapsiblePane>
 
@@ -457,6 +460,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialRepoUrl={repoUrl}
         initialBranch={repoBranch}
         initialSourceName={julesSourceName}
+        initialSourceId={julesSourceId}
       />
 
       <TaskDetailsModal
