@@ -59,6 +59,7 @@ export default function App() {
   // LLM Settings
   const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('apiProvider') || 'gemini');
   const [geminiModel, setGeminiModel] = useState(() => localStorage.getItem('geminiModel') || 'gemini-3-flash-preview');
+  const [geminiKey, setGeminiKey] = useState(localStorage.getItem('geminiKey') || import.meta.env.VITE_GEMINI_API_KEY || '');
   const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
@@ -117,7 +118,7 @@ export default function App() {
     if (isReviewing) return;
     setIsReviewing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || '' });
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
       const agentConfig: AgentConfig = {
         apiProvider,
         geminiModel,
@@ -125,7 +126,7 @@ export default function App() {
         openaiKey,
         openaiModel,
         proxyUrl,
-        geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || ''
+        geminiApiKey: geminiKey
       };
       const processAgent = new ProcessAgent(ai, agentConfig, repoUrl, repoBranch);
       await processAgent.runReview();
@@ -888,6 +889,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialSourceId={julesSourceId}
         initialApiProvider={apiProvider}
         initialGeminiModel={geminiModel}
+        initialGeminiKey={geminiKey}
         initialOpenaiUrl={openaiUrl}
         initialOpenaiKey={openaiKey}
         initialOpenaiModel={openaiModel}
