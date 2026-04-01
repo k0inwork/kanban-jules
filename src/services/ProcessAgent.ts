@@ -24,17 +24,26 @@ export class ProcessAgent {
     const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
     const artifacts = await db.taskArtifacts.where({ repoName, branchName: this.branch }).toArray();
     const unreadMessages = await db.messages.where('status').equals('unread').toArray();
+    
+    // Load Constitution
+    const configId = `${this.repoUrl}:${this.branch}`;
+    const config = await db.projectConfigs.get(configId);
+    const constitution = config?.constitution || 'No specific project rules defined.';
 
     const context = {
       tasks: tasks.map(t => ({ title: t.title, status: t.status, description: t.description })),
       artifacts: artifacts.map(a => ({ name: a.name, content: a.content.substring(0, 500) })),
-      unreadMessages: unreadMessages.map(m => ({ sender: m.sender, content: m.content, type: m.type }))
+      unreadMessages: unreadMessages.map(m => ({ sender: m.sender, content: m.content, type: m.type })),
+      constitution
     };
 
     const prompt = `
       You are the Project Manager Agent for this Kanban board.
       Your goal is to analyze the current state of the project and propose new tasks if necessary.
       
+      PROJECT CONSTITUTION (Rules and Stage-Artifact Mapping):
+      ${context.constitution}
+
       Current Tasks:
       ${JSON.stringify(context.tasks, null, 2)}
       
@@ -44,20 +53,26 @@ export class ProcessAgent {
       Unread Messages in Mailbox:
       ${JSON.stringify(context.unreadMessages, null, 2)}
       
-      Based on the artifacts (like design specs, research, or code analysis) and existing messages, what should be the next steps?
+      Based on the artifacts (like design specs, research, or code analysis), existing messages, and the PROJECT CONSTITUTION, what should be the next steps?
       
+      ANALYSIS STEPS:
+      1. Identify the current PROJECT STAGE based on the artifacts present and the mapping in the CONSTITUTION.
+      2. Determine if any required artifacts for the current or previous stages are missing.
+      3. Propose tasks that move the project to the next stage or fill gaps in the current stage.
+
       RULES:
       1. If you see a "Design Spec" but no task to implement it, propose an "Implementation" task.
       2. If you see a "Code Analysis" with security findings, propose a "Security Fix" task.
       3. Do NOT propose tasks that are already on the board or have already been proposed in unread messages.
       4. If a message already contains a proposal you agree with, do not repeat it.
+      5. Strictly adhere to the PROJECT CONSTITUTION provided above.
       
       Respond in JSON format:
       {
         "proposals": [
           {
             "type": "info" | "proposal" | "alert",
-            "content": "Why are you suggesting this?",
+            "content": "Why are you suggesting this? (e.g., 'We are in the Design stage, but the Testing Spec is missing.')",
             "proposedTask": {
               "title": "Task Title",
               "description": "Detailed description of what needs to be done"

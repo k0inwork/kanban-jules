@@ -45,6 +45,12 @@ export interface AgentMessage {
   timestamp: number;
 }
 
+export interface ProjectConfig {
+  id: string; // repoUrl + branch
+  constitution: string;
+  updatedAt: number;
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -52,16 +58,18 @@ export class MyDatabase extends Dexie {
   julesSessions!: Table<JulesSession>;
   messages!: Table<AgentMessage>;
   tasks!: Table<Task>;
+  projectConfigs!: Table<ProjectConfig>;
 
   constructor() {
     super('AgentKanbanDB');
-    this.version(8).stores({
+    this.version(9).stores({
       gitCache: 'path',
       taskArtifacts: '++id, taskId, repoName, branchName',
       taskArtifactLinks: '++id, taskId, artifactId',
       julesSessions: 'id, taskId, name, createdAt',
       messages: '++id, sender, taskId, type, status, timestamp',
-      tasks: 'id, status, createdAt'
+      tasks: 'id, status, createdAt',
+      projectConfigs: 'id'
     });
   }
 }

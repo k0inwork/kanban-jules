@@ -1,15 +1,16 @@
 import React from 'react';
-import { Mail, Trash2, CheckCircle, Info, AlertTriangle, Plus } from 'lucide-react';
+import { Mail, Trash2, CheckCircle, Info, AlertTriangle, Plus, X, Zap } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, AgentMessage } from '../services/db';
 import { cn } from '../lib/utils';
 import Markdown from 'react-markdown';
 
 interface MailboxViewProps {
-  onAcceptProposal?: (message: AgentMessage) => void;
+  onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean }) => void;
+  autonomyMode: 'manual' | 'assisted' | 'full';
 }
 
-export default function MailboxView({ onAcceptProposal }: MailboxViewProps) {
+export default function MailboxView({ onAcceptProposal, autonomyMode }: MailboxViewProps) {
   const messages = useLiveQuery(() => 
     db.messages.orderBy('timestamp').reverse().toArray()
   );
@@ -95,13 +96,33 @@ export default function MailboxView({ onAcceptProposal }: MailboxViewProps) {
               <div className="mt-3 p-2 bg-neutral-950 rounded border border-neutral-800 flex flex-col gap-2">
                 <div className="text-xs font-medium text-neutral-400">Proposed Task:</div>
                 <div className="text-xs text-white font-semibold">{msg.proposedTask.title}</div>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onAcceptProposal?.(msg); }}
-                  className="mt-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors"
-                >
-                  <Plus className="w-3 h-3" />
-                  Accept Proposal
-                </button>
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onAcceptProposal?.(msg); }}
+                      className="flex-1 flex items-center justify-center gap-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors border border-blue-500/30"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Accept
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); msg.id && deleteMessage(msg.id); }}
+                      className="flex-1 flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors border border-neutral-700"
+                    >
+                      <X className="w-3 h-3" />
+                      Decline
+                    </button>
+                  </div>
+                  {autonomyMode === 'assisted' && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onAcceptProposal?.(msg, { autoStart: true }); }}
+                      className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors"
+                    >
+                      <Zap className="w-3 h-3" />
+                      Accept & Start
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

@@ -1,4 +1,5 @@
 export type TaskStatus = 'todo' | 'in-progress' | 'review' | 'done';
+export type AutonomyMode = 'manual' | 'assisted' | 'full';
 
 export interface Task {
   id: string;

@@ -6,7 +6,7 @@ export interface Tab {
   id: string;
   name: string;
   content: string;
-  type: 'file' | 'artifact';
+  type: 'file' | 'artifact' | 'constitution';
 }
 
 interface PreviewTabsProps {
@@ -30,7 +30,9 @@ export default function PreviewTabs({ tabs, activeTabId, onTabSelect, onTabClose
             activeTabId === tab.id ? "bg-neutral-800 text-white" : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-300"
           )}
         >
-          {tab.type === 'file' ? <FileText className="w-3.5 h-3.5" /> : <Paperclip className="w-3.5 h-3.5" />}
+          {tab.type === 'file' ? <FileText className="w-3.5 h-3.5" /> : 
+           tab.type === 'artifact' ? <Paperclip className="w-3.5 h-3.5" /> :
+           <FileText className="w-3.5 h-3.5 text-blue-400" />}
           <span className="text-xs font-mono truncate flex-1">{tab.name}</span>
           <button
             onClick={(e) => {

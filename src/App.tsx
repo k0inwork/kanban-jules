@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { GoogleGenAI, Type } from '@google/genai';
-import { Task, TaskStatus } from './types';
+import { Task, TaskStatus, AutonomyMode } from './types';
 import { initialTasks } from './lib/data';
 import KanbanBoard from './components/KanbanBoard';
 import NewTaskModal from './components/NewTaskModal';
@@ -17,10 +17,11 @@ import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
 import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
-import { Bot, Plus, Play, Square, Settings, Folder, Mail, X } from 'lucide-react';
+import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
 import MailboxView from './components/MailboxView';
+import ConstitutionEditor from './components/ConstitutionEditor';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
 import PreviewPane from './components/PreviewPane';
 import { Artifact, db, AgentMessage } from './services/db';
@@ -32,7 +33,7 @@ import { cn } from './lib/utils';
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [isAutoPilot, setIsAutoPilot] = useState(false);
+  const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => (localStorage.getItem('autonomyMode') as AutonomyMode) || 'assisted');
   const [isReviewing, setIsReviewing] = useState(false);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -105,7 +106,25 @@ export default function App() {
     }
   };
 
-  const handleReviewProject = async () => {
+  const handleReviewProject = async (e?: React.MouseEvent) => {
+    if (e?.shiftKey) {
+      // Open Constitution Editor
+      const constitutionTabId = 'constitution-editor';
+      const existingTab = tabs.find(t => t.id === constitutionTabId);
+      if (!existingTab) {
+        const newTab: Tab = {
+          id: constitutionTabId,
+          name: 'Constitution',
+          type: 'constitution',
+          content: ''
+        };
+        setTabs(prev => [...prev, newTab]);
+      }
+      setActiveTabId(constitutionTabId);
+      setIsViewingBoard(false);
+      return;
+    }
+
     if (isReviewing) return;
     setIsReviewing(true);
     try {
@@ -129,18 +148,21 @@ export default function App() {
     }
   };
 
-  const handleAcceptProposal = async (message: AgentMessage) => {
+  const handleAcceptProposal = async (message: AgentMessage, options?: { autoStart?: boolean }) => {
     if (message.proposedTask) {
       const newTask: Task = {
         id: uuidv4(),
         title: message.proposedTask.title,
         description: message.proposedTask.description,
-        status: 'todo',
+        status: options?.autoStart ? 'in-progress' : 'todo',
         createdAt: Date.now(),
       };
       setTasks(prev => [...prev, newTask]);
       if (message.id) {
-        await db.messages.update(message.id, { status: 'read' });
+        await db.messages.delete(message.id);
+      }
+      if (options?.autoStart) {
+        processTask(newTask);
       }
     }
   };
@@ -149,9 +171,20 @@ export default function App() {
     db.messages.where('status').equals('unread').count()
   ) || 0;
 
+  // Auto-accept proposals in Full Autonomy mode
+  const latestProposal = useLiveQuery(() => 
+    db.messages.where('type').equals('proposal').and(m => m.status === 'unread').first()
+  );
+
+  useEffect(() => {
+    if (autonomyMode === 'full' && latestProposal) {
+      handleAcceptProposal(latestProposal, { autoStart: true });
+    }
+  }, [latestProposal, autonomyMode]);
+
   // Agent Loop
   useEffect(() => {
-    if (!isAutoPilot) return;
+    if (autonomyMode === 'manual') return;
 
     const interval = setInterval(() => {
       // Prevent concurrent task processing to avoid rate limits
@@ -165,7 +198,7 @@ export default function App() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [tasks, isAutoPilot, julesEndpoint, julesApiKey, repoUrl, repoBranch]);
+  }, [tasks, autonomyMode, julesEndpoint, julesApiKey, repoUrl, repoBranch]);
 
   const processTask = async (task: Task) => {
     if (processingRef.current.has(task.id)) return;
@@ -436,7 +469,8 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       ));
       await db.tasks.update(task.id, { status: nextStatus, agentId: undefined });
       processingRef.current.delete(task.id);
-      setIsAutoPilot(false);
+      setAutonomyMode('manual');
+      localStorage.setItem('autonomyMode', 'manual');
     }
   };
 
@@ -637,7 +671,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
 
         <div className="flex items-center space-x-4">
           <button
-            onClick={handleReviewProject}
+            onClick={(e) => handleReviewProject(e)}
             disabled={isReviewing}
             className={cn(
               "p-2 rounded-md transition-all",
@@ -711,27 +745,54 @@ Otherwise, based on the task description, provide a short, direct answer or inst
             <Settings className="w-5 h-5" />
           </button>
 
-          <button
-            onClick={() => setIsAutoPilot(!isAutoPilot)}
-            className={cn(
-              "flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors border",
-              isAutoPilot 
-                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20" 
-                : "bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700"
-            )}
-          >
-            {isAutoPilot ? (
-              <>
-                <Square className="w-4 h-4 mr-2 fill-current" />
-                Auto-Pilot Active
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 mr-2 fill-current" />
-                Start Auto-Pilot
-              </>
-            )}
-          </button>
+          <div className="relative group">
+            <button
+              className={cn(
+                "flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors border gap-2",
+                autonomyMode === 'full' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                autonomyMode === 'assisted' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                "bg-neutral-800 text-neutral-300 border-neutral-700"
+              )}
+            >
+              {autonomyMode === 'full' ? <Zap className="w-4 h-4" /> :
+               autonomyMode === 'assisted' ? <Shield className="w-4 h-4" /> :
+               <User className="w-4 h-4" />}
+              <span className="capitalize">{autonomyMode} Autonomy</span>
+              <ChevronDown className="w-4 h-4 ml-1 opacity-50" />
+            </button>
+            <div className="absolute right-0 top-full mt-1 w-48 bg-neutral-900 border border-neutral-800 rounded-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
+              <button
+                onClick={() => { setAutonomyMode('manual'); localStorage.setItem('autonomyMode', 'manual'); }}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-neutral-800 flex items-center gap-2"
+              >
+                <User className="w-4 h-4 text-neutral-400" />
+                <div>
+                  <div className="font-medium">Manual</div>
+                  <div className="text-[10px] text-neutral-500">You control everything</div>
+                </div>
+              </button>
+              <button
+                onClick={() => { setAutonomyMode('assisted'); localStorage.setItem('autonomyMode', 'assisted'); }}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-neutral-800 flex items-center gap-2 border-t border-neutral-800"
+              >
+                <Shield className="w-4 h-4 text-blue-400" />
+                <div>
+                  <div className="font-medium">Assisted</div>
+                  <div className="text-[10px] text-neutral-500">One-click Accept & Start</div>
+                </div>
+              </button>
+              <button
+                onClick={() => { setAutonomyMode('full'); localStorage.setItem('autonomyMode', 'full'); }}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-neutral-800 flex items-center gap-2 border-t border-neutral-800"
+              >
+                <Zap className="w-4 h-4 text-emerald-400" />
+                <div>
+                  <div className="font-medium">Full</div>
+                  <div className="text-[10px] text-neutral-500">Auto-accept proposals</div>
+                </div>
+              </button>
+            </div>
+          </div>
           
           <button
             onClick={() => setIsNewTaskModalOpen(true)}
@@ -779,7 +840,10 @@ Otherwise, based on the task description, provide a short, direct answer or inst
                 </CollapsiblePane>
               </>
             ) : (
-              <MailboxView onAcceptProposal={handleAcceptProposal} />
+              <MailboxView 
+                onAcceptProposal={handleAcceptProposal} 
+                autonomyMode={autonomyMode}
+              />
             )}
           </div>
         )}
@@ -792,7 +856,14 @@ Otherwise, based on the task description, provide a short, direct answer or inst
                 onTabSelect={setActiveTabId} 
                 onTabClose={handleTabClose} 
               />
-              <PreviewPane activeTab={tabs.find(t => t.id === activeTabId) || null} />
+              {tabs.find(t => t.id === activeTabId)?.type === 'constitution' ? (
+                <ConstitutionEditor 
+                  repoUrl={repoUrl} 
+                  branch={repoBranch} 
+                />
+              ) : (
+                <PreviewPane activeTab={tabs.find(t => t.id === activeTabId) || null} />
+              )}
             </div>
           ) : (
             <KanbanBoard 
