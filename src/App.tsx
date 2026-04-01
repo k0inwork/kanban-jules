@@ -117,7 +117,7 @@ export default function App() {
     if (isReviewing) return;
     setIsReviewing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || '' });
       const agentConfig: AgentConfig = {
         apiProvider,
         geminiModel,
@@ -125,7 +125,7 @@ export default function App() {
         openaiKey,
         openaiModel,
         proxyUrl,
-        geminiApiKey: process.env.GEMINI_API_KEY || ''
+        geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY || ''
       };
       const processAgent = new ProcessAgent(ai, agentConfig, repoUrl, repoBranch);
       await processAgent.runReview();
