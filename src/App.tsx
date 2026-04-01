@@ -235,7 +235,7 @@ export default function App() {
         return;
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: geminiKey || 'dummy_key' });
       
       const agentConfig = {
         apiProvider,
@@ -243,7 +243,8 @@ export default function App() {
         openaiUrl,
         openaiKey,
         openaiModel,
-        geminiApiKey: process.env.GEMINI_API_KEY || ''
+        geminiApiKey: geminiKey || 'dummy_key',
+        proxyUrl
       };
 
       const availableTools: Tool[] = [
@@ -587,7 +588,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
 
   const handleTestXmlTool = async () => {
     console.log("Starting XML Tool Debug Test...");
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const ai = new GoogleGenAI({ apiKey: geminiKey || 'dummy_key' });
 
     const prompt = `
       You are a local agent executing a task on a repository.
