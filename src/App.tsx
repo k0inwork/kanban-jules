@@ -59,12 +59,13 @@ export default function App() {
   // LLM Settings
   const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('apiProvider') || 'gemini');
   const [geminiModel, setGeminiModel] = useState(() => localStorage.getItem('geminiModel') || 'gemini-3-flash-preview');
+  const [geminiKey, setGeminiKey] = useState(localStorage.getItem('geminiKey') || import.meta.env.VITE_GEMINI_API_KEY || '');
   const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
   const [proxyUrl, setProxyUrl] = useState(localStorage.getItem('proxyUrl') || '');
 
-  const handleSaveSettings = (
+    const handleSaveSettings = (
     endpoint: string, 
     apiKey: string, 
     repo: string, 
@@ -73,11 +74,13 @@ export default function App() {
     sourceId: string,
     provider: string,
     gModel: string,
+    gKey: string,
     oUrl: string,
     oKey: string,
-    oModel: string
+    oModel: string,
+    pUrl: string
   ) => {
-    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel });
+    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, gKey, oUrl, oKey, oModel, pUrl });
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
@@ -86,21 +89,25 @@ export default function App() {
     setJulesSourceId(sourceId);
     setApiProvider(provider);
     setGeminiModel(gModel);
+    setGeminiKey(gKey);
     setOpenaiUrl(oUrl);
     setOpenaiKey(oKey);
     setOpenaiModel(oModel);
+    setProxyUrl(pUrl);
 
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
-    localStorage.setItem('repoUrl', repo);
-    localStorage.setItem('repoBranch', branch);
+    localStorage.setItem('julesRepoUrl', repo);
+    localStorage.setItem('julesRepoBranch', branch);
     localStorage.setItem('julesSourceName', sourceName);
     localStorage.setItem('julesSourceId', sourceId);
     localStorage.setItem('apiProvider', provider);
     localStorage.setItem('geminiModel', gModel);
+    localStorage.setItem('geminiKey', gKey);
     localStorage.setItem('openaiUrl', oUrl);
     localStorage.setItem('openaiKey', oKey);
     localStorage.setItem('openaiModel', oModel);
+    localStorage.setItem('proxyUrl', pUrl);
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
     if (token && repo) {
@@ -117,7 +124,7 @@ export default function App() {
     if (isReviewing) return;
     setIsReviewing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: geminiKey || 'dummy_key' });
       const agentConfig: AgentConfig = {
         apiProvider,
         geminiModel,
@@ -125,7 +132,7 @@ export default function App() {
         openaiKey,
         openaiModel,
         proxyUrl,
-        geminiApiKey: process.env.GEMINI_API_KEY || ''
+        geminiApiKey: geminiKey
       };
       const processAgent = new ProcessAgent(ai, agentConfig, repoUrl, repoBranch);
       await processAgent.runReview();
@@ -888,6 +895,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialSourceId={julesSourceId}
         initialApiProvider={apiProvider}
         initialGeminiModel={geminiModel}
+        initialGeminiKey={geminiKey}
         initialOpenaiUrl={openaiUrl}
         initialOpenaiKey={openaiKey}
         initialOpenaiModel={openaiModel}
