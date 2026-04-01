@@ -17,7 +17,8 @@ interface SettingsModalProps {
     geminiModel: string,
     openaiUrl: string,
     openaiKey: string,
-    openaiModel: string
+    openaiModel: string,
+    proxyUrl: string
   ) => void;
   initialEndpoint: string;
   initialApiKey: string;
@@ -30,12 +31,13 @@ interface SettingsModalProps {
   initialOpenaiUrl: string;
   initialOpenaiKey: string;
   initialOpenaiModel: string;
+  initialProxyUrl?: string;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
   initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel
+  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialProxyUrl
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
@@ -49,6 +51,7 @@ export default function SettingsModal({
   const [openaiUrl, setOpenaiUrl] = useState(initialOpenaiUrl);
   const [openaiKey, setOpenaiKey] = useState(initialOpenaiKey);
   const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
+  const [proxyUrl, setProxyUrl] = useState(initialProxyUrl || '');
   
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
@@ -100,7 +103,7 @@ export default function SettingsModal({
     e.preventDefault();
     onSave(
       endpoint, apiKey, repoUrl, branch, sourceName, sourceId,
-      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel
+      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, proxyUrl
     );
     onClose();
   };

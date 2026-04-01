@@ -62,6 +62,7 @@ export default function App() {
   const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
+  const [proxyUrl, setProxyUrl] = useState(localStorage.getItem('proxyUrl') || '');
 
   const handleSaveSettings = (
     endpoint: string, 
@@ -123,6 +124,7 @@ export default function App() {
         openaiUrl,
         openaiKey,
         openaiModel,
+        proxyUrl,
         geminiApiKey: process.env.GEMINI_API_KEY || ''
       };
       const processAgent = new ProcessAgent(ai, agentConfig, repoUrl, repoBranch);
@@ -889,6 +891,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialOpenaiUrl={openaiUrl}
         initialOpenaiKey={openaiKey}
         initialOpenaiModel={openaiModel}
+        initialProxyUrl={proxyUrl}
       />
 
       <TaskDetailsModal

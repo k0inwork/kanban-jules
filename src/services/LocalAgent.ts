@@ -10,6 +10,7 @@ export interface AgentConfig {
   openaiUrl: string;
   openaiKey: string;
   openaiModel: string;
+  proxyUrl?: string;
   geminiApiKey: string;
 }
 
@@ -51,7 +52,8 @@ export class LocalAgent {
         content: c.parts[0].text
       }));
 
-      const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
+      let url = `${this.config.openaiUrl}/chat/completions`;
+      let fetchArgs: any = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -62,15 +64,33 @@ export class LocalAgent {
           messages: messages,
           temperature: 0.1
         })
-      });
+      };
+
+      if (this.config.proxyUrl) {
+        fetchArgs = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: url,
+            method: fetchArgs.method,
+            headers: fetchArgs.headers,
+            body: JSON.parse(fetchArgs.body),
+            proxyUrl: this.config.proxyUrl
+          })
+        };
+        url = '/api/proxy';
+      }
+
+      const response = await fetch(url, fetchArgs);
 
       if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${error}`);
+        const errorText = await response.text();
+        throw new Error(`OpenAI API error: ${errorText}`);
       }
 
       const data = await response.json();
-      return data.choices[0].message.content || '';
+      const responseData = this.config.proxyUrl ? data.data : data;
+      return responseData.choices[0].message.content || '';
     }
   }
 
