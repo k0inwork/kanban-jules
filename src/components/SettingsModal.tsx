@@ -65,7 +65,7 @@ export default function SettingsModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(endpoint, apiKey, repoUrl, branch, sourceName);
+    onSave(endpoint, apiKey, repoUrl, branch, sourceName, sourceId);
     onClose();
   };
 
@@ -120,11 +120,14 @@ export default function SettingsModal({
 
             <div>
               <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Source (Repository)</label>
+              <div className="mb-2 p-2 bg-neutral-950 border border-neutral-800 rounded text-xs font-mono text-blue-400 truncate">
+                {sourceName || repoUrl || 'No source selected'}
+              </div>
               <select
-                value={sourceName || repoUrl}
+                value={sourceId || ''}
                 onChange={(e) => {
                   const val = e.target.value;
-                  const selected = sources.find(s => s.name === val);
+                  const selected = sources.find(s => s.id === val);
                   if (selected) {
                     setSourceName(selected.name);
                     setSourceId(selected.id);
@@ -147,13 +150,10 @@ export default function SettingsModal({
                 <option value="">Select a source...</option>
                 {isLoadingSources && <option value="" disabled>Loading sources...</option>}
                 {sources.map(s => (
-                  <option key={s.name} value={s.name}>
+                  <option key={s.id} value={s.id}>
                     {s.githubRepo ? `${s.githubRepo.owner}/${s.githubRepo.repo}` : s.name}
                   </option>
                 ))}
-                {!isLoadingSources && repoUrl && !selectedSource && (
-                  <option value={repoUrl}>{repoUrl}</option>
-                )}
               </select>
               {sources.length === 0 && !isLoadingSources && apiKey && (
                 <p className="text-[10px] text-yellow-500 mt-1">No sources found. Click refresh.</p>

@@ -142,6 +142,9 @@ async function julesRequest<T>(
 ): Promise<T> {
   const url = `${JULES_BASE_URL}${path}`;
   console.log(`[Jules API] ${options.method || 'GET'} ${url}`);
+  if (options.body) {
+    console.log(`[Jules API] Body: ${options.body}`);
+  }
   const response = await fetch(url, {
     ...options,
     headers: {

@@ -9,7 +9,7 @@ import TaskDetailsModal from './components/TaskDetailsModal';
 import SettingsModal from './components/SettingsModal';
 import { executeJulesCommand } from './lib/jules';
 import { julesApi, SessionState } from './lib/julesApi';
-import { inferTaskType, getExecutionLocation } from './services/TaskRouter';
+import { inferTaskType, getExecutionLocation, assessTaskFeasibility, Tool } from './services/TaskRouter';
 import { LocalResearcher } from './services/LocalResearcher';
 import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
@@ -19,6 +19,9 @@ import { db } from './services/db';
 import { Bot, Plus, Play, Square, Settings, Folder } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
+import { ArtifactTool, artifactToolDeclarations } from './services/ArtifactTool';
+import { RepositoryTool, repositoryToolDeclarations } from './services/RepositoryTool';
+import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
 export default function App() {
@@ -39,6 +42,7 @@ export default function App() {
   const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
 
   const handleSaveSettings = (endpoint: string, apiKey: string, repo: string, branch: string, sourceName: string, sourceId: string) => {
+    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId });
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
@@ -51,6 +55,11 @@ export default function App() {
     localStorage.setItem('repoBranch', branch);
     localStorage.setItem('julesSourceName', sourceName);
     localStorage.setItem('julesSourceId', sourceId);
+
+    const token = import.meta.env.VITE_GITHUB_TOKEN;
+    if (token && repo) {
+      RepoCrawler.crawl(repo, branch || 'main', token).catch(console.error);
+    }
   };
 
   // Agent Loop
@@ -102,9 +111,13 @@ export default function App() {
       }
 
       const taskType = inferTaskType(task.title, task.description);
-      const location = getExecutionLocation(taskType);
+      const availableTools: Tool[] = [
+        { name: 'LocalResearcher', canHandle: ['analyze', 'unit test'], description: 'Analyzes code for secrets.' }
+      ];
+      const feasibilityScore = await assessTaskFeasibility(ai, task.title, task.description, availableTools);
+      const location = getExecutionLocation(feasibilityScore);
       
-      appendLog(`> Task identified as: ${taskType}. Routing to: ${location}\n`);
+      appendLog(`> Task identified as: ${taskType}. Feasibility: ${feasibilityScore}%. Routing to: ${location}\n`);
 
       if (location === 'local') {
         const token = import.meta.env.VITE_GITHUB_TOKEN;
@@ -128,16 +141,20 @@ export default function App() {
 
       // 1. Create Jules Session
       const sourceContext = {
-        source: julesSourceId,
+        source: julesSourceName,
         githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
       };
 
-      const session = await julesApi.createSession(julesApiKey, {
+      const sessionRequest = {
         title: task.title,
         prompt: task.description,
         sourceContext,
         requirePlanApproval: true,
-      });
+      };
+      console.log("Creating Jules session with request:", JSON.stringify(sessionRequest, null, 2));
+      appendLog(`> Creating session with source: ${julesSourceId}\n`);
+
+      const session = await julesApi.createSession(julesApiKey, sessionRequest);
 
       // Save session to DB
       await db.julesSessions.add({
@@ -188,6 +205,7 @@ export default function App() {
 
           // Process new activities (in chronological order)
           for (const activity of newActivities.reverse()) {
+            console.log("Activity:", activity);
             if (activity.progressUpdated) {
               appendLog(`> [Progress] ${activity.progressUpdated.title}\n`);
             } else if (activity.agentMessaged) {
@@ -347,7 +365,14 @@ Otherwise, based on the task description, provide a short, direct answer or inst
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">Agent Kanban</h1>
-            <p className="text-xs font-mono text-neutral-400">Agent Edition</p>
+            <div className="flex items-center space-x-2">
+              <p className="text-xs font-mono text-neutral-400">Agent Edition</p>
+              {repoUrl && (
+                <span className="text-[10px] font-mono bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded border border-neutral-700">
+                  {repoUrl} @ {repoBranch}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
