@@ -13,8 +13,10 @@ interface ArtifactBrowserProps {
 
 export default function ArtifactBrowser({ tasks, onArtifactSelect }: ArtifactBrowserProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [showLocalArtifacts, setShowLocalArtifacts] = useState(false);
 
-  const artifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
+  const allArtifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
+  const artifacts = showLocalArtifacts ? allArtifacts : allArtifacts.filter(a => !a.name.startsWith('_'));
   const artifactCount = useLiveQuery(() => db.taskArtifacts.count());
   const loading = artifacts.length === 0 && !artifactCount;
 
@@ -45,6 +47,13 @@ export default function ArtifactBrowser({ tasks, onArtifactSelect }: ArtifactBro
         <div className="flex items-center">
           <Paperclip className="w-4 h-4 mr-2 text-blue-400" />
           <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-neutral-400">Artifacts</h3>
+          <button
+            onClick={() => setShowLocalArtifacts(!showLocalArtifacts)}
+            className="ml-2 text-[9px] font-mono text-neutral-500 hover:text-neutral-300 transition-colors"
+            title="Toggle local artifacts (prefixed with _)"
+          >
+            {showLocalArtifacts ? '[All]' : '[Global]'}
+          </button>
         </div>
         <button 
           onClick={handleClearAll}

@@ -306,6 +306,14 @@ export class LocalAgent {
       - <askUser question="your question here"/> : Ask the user a question or request missing information. Use this when you cannot proceed without user input. This will pause the task and wait for the user.
       - <finishStage stageName="Current Stage" [nextStage="Next Stage"] [data='{"key": "val"}']/> : Mark a task stage as complete and update the task-protocol.json artifact. Use this to maintain hard state and avoid "vibish" execution.
       
+      ARTIFACT NAMING CONVENTION:
+      - Artifacts starting with underscore (_) are LOCAL artifacts (working state, temporary data, debugging info).
+      - Artifacts without underscore are GLOBAL artifacts (deliverables, shared outputs, final results).
+      - Example: _file_list.json (local), code-metrics.json (global).
+      - When you save artifacts, use _ prefix for intermediate/temporary data, and NO prefix for final deliverables.
+      - Other tasks will NOT see your _ artifacts, but they WILL see your global artifacts.
+      - The Supervisor (ProcessAgent) only sees global artifacts to determine what to do next.
+      
       PROTOCOL-DRIVEN EXECUTION:
       1. Your first action in any task MUST be to check for a "task-protocol.json" artifact using <listArtifacts/> and <readArtifact/>.
       2. If no protocol exists, you MUST create one using <saveArtifact name="task-protocol.json" content='{"objective": "...", "stages": [...], "current_stage": "..."}'/>.

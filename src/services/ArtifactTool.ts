@@ -2,13 +2,24 @@ import { db, Artifact } from './db';
 
 export const ArtifactTool = {
   listArtifacts: async (taskId?: string, repoName?: string, branchName?: string): Promise<Artifact[]> => {
+    let results: Artifact[] = [];
+    
     if (taskId) {
-      return await db.taskArtifacts.where('taskId').equals(taskId).toArray();
+      const ownArtifacts = await db.taskArtifacts.where('taskId').equals(taskId).toArray();
+      results.push(...ownArtifacts);
     }
+    
     if (repoName && branchName) {
-      return await db.taskArtifacts.where({ repoName, branchName }).toArray();
+      const allRepoArtifacts = await db.taskArtifacts.where({ repoName, branchName }).toArray();
+      const globalArtifacts = allRepoArtifacts.filter(a => !a.taskId && !a.name.startsWith('_'));
+      results.push(...globalArtifacts);
     }
-    return await db.taskArtifacts.toArray();
+    
+    if (!taskId && !repoName && !branchName) {
+      return await db.taskArtifacts.toArray();
+    }
+    
+    return results;
   },
 
   readArtifact: async (artifactId: number): Promise<Artifact | undefined> => {
