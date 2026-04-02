@@ -9,6 +9,7 @@ export interface TaskProtocol {
     required_artifacts?: string[];
     verification_criteria?: string;
     expected_outputs?: string[];
+    delegate_to?: 'local' | 'jules';
   }[];
   current_stage: string;
   completed_stages: string[];
@@ -42,13 +43,28 @@ export async function architectTask(
           "description": "What needs to be done in this stage",
           "required_artifacts": ["List of artifact names to be produced"],
           "verification_criteria": "How to verify this stage is complete (e.g., 'All tests pass', 'No linting errors')",
-          "expected_outputs": ["Specific files or outputs that should be produced"]
+          "expected_outputs": ["Specific files or outputs that should be produced"],
+          "delegate_to": "local or jules - see DELEGATION RULES below"
         }
       ],
       "current_stage": "Name of the first stage",
       "completed_stages": [],
       "data": {}
     }
+    
+    DELEGATION RULES:
+    - Use "delegate_to": "jules" for stages that involve:
+      * File analysis across many files (counting lines, searching patterns)
+      * CLI tool usage (grep, wc, awk, sed, find, etc.)
+      * Complex code transformations or refactoring
+      * Running tests or linting
+      * Git operations (commits, diffs, history analysis)
+    - Use "delegate_to": "local" for stages that involve:
+      * Simple file reads/writes
+      * Artifact creation and management
+      * User interaction and validation
+      * Decision-making based on data
+    - Default to "local" if unsure, but prefer "jules" for bulk operations
     
     STAGING RULES:
     1. Break complex tasks into 3-5 logical stages.
@@ -57,6 +73,7 @@ export async function architectTask(
     4. Ensure the stages are actionable for an AI agent.
     5. For each stage that delegates to Jules, include clear verification_criteria so the Local Agent knows how to validate Jules' work.
     6. Include expected_outputs for each stage to make success measurable.
+    7. Always specify "delegate_to" for each stage to guide the Local Agent on whether to handle it locally or delegate to Jules.
     
     Return ONLY the JSON object. Do not include any other text or markdown formatting.
   `;

@@ -318,9 +318,12 @@ export class LocalAgent {
       1. Your first action in any task MUST be to check for a "task-protocol.json" artifact using <listArtifacts/> and <readArtifact/>.
       2. If no protocol exists, you MUST create one using <saveArtifact name="task-protocol.json" content='{"objective": "...", "stages": [...], "current_stage": "..."}'/>.
       3. You MUST follow the stages defined in the protocol.
-      4. When you finish a stage, you MUST call <finishStage stageName="..." nextStage="..." />. This is your primary way of signaling progress and maintaining state.
-      5. After calling <finishStage/>, you MUST also update the "task-protocol.json" artifact using <saveArtifact/> to reflect the new state if you have additional data to persist.
-      6. Do NOT "vibe" or guess your next step. Always refer to the protocol.
+      4. SMART DELEGATION: Before executing a stage, check the "delegate_to" field:
+         - If "delegate_to": "jules", immediately call <delegateToJules/> with the stage description and verification criteria.
+         - If "delegate_to": "local" or missing, execute the stage locally.
+      5. When you finish a stage, you MUST call <finishStage stageName="..." nextStage="..." />. This is your primary way of signaling progress and maintaining state.
+      6. After calling <finishStage/>, you MUST also update the "task-protocol.json" artifact using <saveArtifact/> to reflect the new state if you have additional data to persist.
+      7. Do NOT "vibe" or guess your next step. Always refer to the protocol and its delegation rules.
       
       COMMUNICATION RULES:
       1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.

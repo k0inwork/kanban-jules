@@ -383,6 +383,12 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
                                   {isCompleted && (
                                     <span className="text-[10px] font-mono bg-green-500/10 text-green-500 px-2 py-0.5 rounded uppercase">Done</span>
                                   )}
+                                  {stage.delegate_to === 'jules' && (
+                                    <span className="text-[10px] font-mono bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded uppercase">→ Jules</span>
+                                  )}
+                                  {stage.delegate_to === 'local' && (
+                                    <span className="text-[10px] font-mono bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded uppercase">Local</span>
+                                  )}
                                 </div>
                                 <p className="text-xs text-neutral-400 ml-4">{stage.description}</p>
                                 {stage.verification_criteria && (
