@@ -31,6 +31,8 @@ export interface JulesSession {
   createdAt: number;
   repoUrl?: string;
   branchName?: string;
+  verificationCriteria?: string;
+  expectedArtifacts?: string[];
 }
 
 export interface AgentMessage {

@@ -236,13 +236,15 @@ export class LocalAgent {
     const localJulesToolDeclarations = [
       {
         name: 'delegateToJules',
-        description: 'Delegate a complex coding or execution task to the remote Jules environment. This is an asynchronous operation. You will be woken up when Jules has a significant update (Plan, Question, or Completion).',
+        description: 'Delegate a complex coding or execution task to the remote Jules environment. A session will be automatically created or assigned. You will be woken up when Jules has a significant update.',
         parameters: {
           type: Type.OBJECT,
           properties: {
             prompt: { type: Type.STRING, description: 'The detailed instructions for Jules.' },
             repoUrl: { type: Type.STRING, description: 'Optional. The repository URL.' },
-            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' },
+            verificationCriteria: { type: Type.STRING, description: 'Optional. Criteria for verifying Jules completed correctly (e.g., All tests pass, No linting errors).' },
+            expectedArtifacts: { type: Type.STRING, description: 'Optional. Comma-separated list of expected artifacts Jules should produce.' }
           },
           required: ['prompt']
         }
@@ -467,13 +469,23 @@ export class LocalAgent {
               } else if (call.name === 'delegateToJules') {
                 const task = await db.tasks.get(this.taskId);
                 const timestamp = new Date().toLocaleTimeString();
+                const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
+                
+                const verificationData = {
+                  verificationCriteria: call.args.verificationCriteria || 'Task completed successfully',
+                  expectedArtifacts: call.args.expectedArtifacts ? call.args.expectedArtifacts.split(',').map((a: string) => a.trim()) : [],
+                  delegatedAt: new Date().toISOString()
+                };
+                
+                await this.artifactTool.finishStage(this.taskId, repoName, this.branch, 'Delegating to Jules', 'Awaiting Jules Response', verificationData);
                 
                 await db.tasks.update(this.taskId, {
                   agentState: 'WAITING_FOR_JULES',
                   actionLog: (task?.actionLog || '') + `> [${timestamp}] DELEGATING TO JULES: ${call.args.prompt}\n`
                 });
                 
-                appendLog(`\n> [LocalAgent] Delegating to Jules: ${call.args.prompt}\n`);
+                appendLog(`\n> [LocalAgent] Delegating to Jules with verification criteria: ${call.args.verificationCriteria || 'default'}\n`);
+                appendLog(`> [LocalAgent] Expected artifacts: ${call.args.expectedArtifacts || 'none specified'}\n`);}
                 return { findings, savedArtifactIds, status: 'PAUSED' };
               } else if (call.name === 'finishStage') {
                 const repoName = this.repoUrl.split('/').pop() || this.repoUrl;

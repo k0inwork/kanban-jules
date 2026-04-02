@@ -255,6 +255,12 @@ export default function App() {
                 sourceContext,
                 requirePlanApproval: true,
               });
+              // Extract verification criteria from task protocol if available
+              const protocolArtifact = await db.taskArtifacts.where({ taskId: task.id, name: 'task-protocol.json' }).first();
+              const protocol = protocolArtifact ? JSON.parse(protocolArtifact.content) : null;
+              const verificationCriteria = protocol?.data?.verificationCriteria || 'Task completed successfully';
+              const expectedArtifacts = protocol?.data?.expectedArtifacts || [];
+              
               const newSession = {
                 id: sessionRes.name,
                 name: sessionRes.name,
@@ -263,7 +269,9 @@ export default function App() {
                 status: sessionRes.state,
                 createdAt: Date.now(),
                 repoUrl: repoUrl || '',
-                branchName: repoBranch
+                branchName: repoBranch,
+                verificationCriteria,
+                expectedArtifacts
               };
               await db.julesSessions.add(newSession);
               session = newSession;

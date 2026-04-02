@@ -7,6 +7,8 @@ export interface TaskProtocol {
     name: string;
     description: string;
     required_artifacts?: string[];
+    verification_criteria?: string;
+    expected_outputs?: string[];
   }[];
   current_stage: string;
   completed_stages: string[];
@@ -38,7 +40,9 @@ export async function architectTask(
         {
           "name": "Stage Name",
           "description": "What needs to be done in this stage",
-          "required_artifacts": ["List of artifact names to be produced"]
+          "required_artifacts": ["List of artifact names to be produced"],
+          "verification_criteria": "How to verify this stage is complete (e.g., 'All tests pass', 'No linting errors')",
+          "expected_outputs": ["Specific files or outputs that should be produced"]
         }
       ],
       "current_stage": "Name of the first stage",
@@ -51,6 +55,8 @@ export async function architectTask(
     2. Common stages: "Analysis", "Drafting", "Implementation", "Verification".
     3. If the task is simple, 1-2 stages are enough.
     4. Ensure the stages are actionable for an AI agent.
+    5. For each stage that delegates to Jules, include clear verification_criteria so the Local Agent knows how to validate Jules' work.
+    6. Include expected_outputs for each stage to make success measurable.
     
     Return ONLY the JSON object. Do not include any other text or markdown formatting.
   `;

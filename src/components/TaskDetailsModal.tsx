@@ -385,11 +385,25 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
                                   )}
                                 </div>
                                 <p className="text-xs text-neutral-400 ml-4">{stage.description}</p>
+                                {stage.verification_criteria && (
+                                  <div className="mt-2 ml-4 text-[9px] text-green-500/70 italic">
+                                    <span className="font-semibold">Verification:</span> {stage.verification_criteria}
+                                  </div>
+                                )}
                                 {stage.required_artifacts?.length > 0 && (
                                   <div className="mt-2 ml-4 flex flex-wrap gap-2">
                                     {stage.required_artifacts.map((art: string, aidx: number) => (
                                       <span key={aidx} className="text-[9px] font-mono bg-neutral-950 text-neutral-500 px-1.5 py-0.5 rounded border border-neutral-800">
                                         {art}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {stage.expected_outputs?.length > 0 && (
+                                  <div className="mt-2 ml-4 flex flex-wrap gap-2">
+                                    {stage.expected_outputs.map((out: string, oidx: number) => (
+                                      <span key={oidx} className="text-[9px] font-mono bg-blue-950/30 text-blue-400 px-1.5 py-0.5 rounded border border-blue-800/30">
+                                        {out}
                                       </span>
                                     ))}
                                   </div>
