@@ -22,7 +22,7 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<'logs' | 'chat'>('chat');
+  const [activeTab, setActiveTab] = useState<'logs' | 'chat' | 'actions'>('chat');
   const [userMessage, setUserMessage] = useState('');
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -260,6 +260,12 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
                 >
                   Chat
                 </button>
+                <button 
+                  onClick={() => setActiveTab('actions')}
+                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'actions' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                >
+                  Actions
+                </button>
               </div>
               {activeTab === 'logs' && (
                 <button 
@@ -285,9 +291,13 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
                     Waiting for agent to start processing...
                   </div>
                 )
-              ) : (
+              ) : activeTab === 'chat' ? (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-sans">
                   {task.chat || <div className="text-neutral-600 italic">No chat messages yet.</div>}
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
+                  {task.actionLog || <div className="text-neutral-600 italic">No actions recorded yet.</div>}
                 </div>
               )}
               <div ref={logsEndRef} />

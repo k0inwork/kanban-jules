@@ -75,7 +75,19 @@ export class LocalAgent {
   }
 
   async runTask(taskTitle: string, taskDescription: string, taskLogs: string, appendLog: (log: string) => void): Promise<{ findings: string[], savedArtifactIds: number[], status?: 'REVIEW' | 'DONE' | 'PAUSED' }> {
+    const appendActionLog = async (msg: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      const logEntry = `> [${timestamp}] ${msg}\n`;
+      const task = await db.tasks.get(this.taskId);
+      if (task) {
+        await db.tasks.update(this.taskId, {
+          actionLog: (task.actionLog || '') + logEntry
+        });
+      }
+    };
+
     appendLog(`> [LocalAgent] Starting local execution for: ${taskTitle}\n`);
+    await appendActionLog(`Started local execution.`);
     appendLog(`> [LocalAgent] Task ID: ${this.taskId}\n`);
     appendLog(`> [LocalAgent] Task Description: ${taskDescription}\n`);
     appendLog(`> [LocalAgent] Repository: ${this.repoUrl}, Branch: ${this.branch}\n`);
@@ -299,6 +311,7 @@ export class LocalAgent {
           
           for (const call of toolCalls) {
             appendLog(`> [Tool Call] ${call.name}(${JSON.stringify(call.args)})\n`);
+            await appendActionLog(`Tool Call: ${call.name}`);
             let result: any;
             
             try {
@@ -349,6 +362,7 @@ export class LocalAgent {
                   };
                 }
                 await db.messages.add(msg);
+                await appendActionLog(`Sent message to user: ${call.args.content.substring(0, 50)}...`);
                 result = { success: true };
               } else if (call.name === 'askUser') {
                 const task = await db.tasks.get(this.taskId);
@@ -369,6 +383,7 @@ export class LocalAgent {
                   status: 'PAUSED',
                   questionCount: qCount
                 });
+                await appendActionLog(`Paused task to ask user: ${call.args.question}`);
                 appendLog(`> [LocalAgent] Pausing task to wait for user input.\n`);
                 return { findings, savedArtifactIds, status: 'PAUSED' };
               } else {
@@ -406,6 +421,7 @@ export class LocalAgent {
     }
 
     appendLog(`> [LocalAgent] Execution complete. Found ${findings.length} findings and saved ${savedArtifactIds.length} artifacts.\n`);
+    await appendActionLog(`Execution complete. Findings: ${findings.length}, Artifacts: ${savedArtifactIds.length}`);
     return { findings, savedArtifactIds, status: 'DONE' };
   }
 

@@ -164,6 +164,7 @@ export default function App() {
         description: message.proposedTask.description,
         status: options?.autoStart ? 'WORKING' : 'INITIATED',
         createdAt: Date.now(),
+        actionLog: `> [Decision] Task created based on proposal: ${message.content}\n`
       };
       setTasks(prev => [...prev, newTask]);
       await db.tasks.add(newTask);
@@ -240,6 +241,17 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [tasks, autonomyMode, julesEndpoint, julesApiKey, repoUrl, repoBranch]);
+
+  const appendActionLogToTask = async (taskId: string, msg: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = `> [${timestamp}] ${msg}\n`;
+    const task = await db.tasks.get(taskId);
+    if (task) {
+      const updatedLog = (task.actionLog || '') + logEntry;
+      await db.tasks.update(taskId, { actionLog: updatedLog });
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, actionLog: updatedLog } : t));
+    }
+  };
 
   const processTask = async (task: Task) => {
     if (processingRef.current.has(task.id)) return;
@@ -329,6 +341,7 @@ export default function App() {
       }
 
       appendLog(`> Routing decision: ${location.toUpperCase()}\n`);
+      await appendActionLogToTask(task.id, `Routing decision: ${location.toUpperCase()}`);
 
       if (location === 'local') {
         const token = import.meta.env.VITE_GITHUB_TOKEN;
@@ -447,9 +460,11 @@ export default function App() {
             console.log("Activity:", activity);
             if (activity.progressUpdated) {
               appendLog(`> [Progress] ${activity.progressUpdated.title}\n`);
+              await appendActionLogToTask(task.id, `Progress: ${activity.progressUpdated.title}`);
             } else if (activity.agentMessaged) {
               const msg = activity.agentMessaged.agentMessage;
               appendLog(`> [Jules] ${msg}\n`);
+              await appendActionLogToTask(task.id, `Agent Messaged: ${msg.substring(0, 50)}${msg.length > 50 ? '...' : ''}`);
               
               // Add to task chat history
               const chatMsg = `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${msg}\n`;
@@ -486,6 +501,7 @@ export default function App() {
           if (currentState === 'AWAITING_PLAN_APPROVAL') {
             appendLog(`\n> SUPERVISOR: Approving plan automatically...\n`);
             await julesApi.approvePlan(julesApiKey, session.name);
+            await appendActionLogToTask(task.id, `Automatically approved plan.`);
             appendLog(`> Plan approved.\n`);
           } else if (currentState === 'AWAITING_USER_FEEDBACK') {
             const allActivities = activitiesRes.activities || [];
@@ -509,6 +525,7 @@ export default function App() {
             setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'PAUSED', questionCount: qCount } : t));
             if (currentTask) {
               await db.tasks.update(task.id, { status: 'PAUSED', questionCount: qCount });
+              await appendActionLogToTask(task.id, `Paused to wait for user feedback: ${lastJulesMessage.substring(0, 50)}...`);
             }
             isDone = true; // Stop polling so user can answer
           } else if (currentState === 'COMPLETED' || currentState === 'FAILED') {
@@ -538,6 +555,7 @@ export default function App() {
         t.id === task.id ? { ...t, status: finalStatus } : t
       ));
       await db.tasks.update(task.id, { status: finalStatus });
+      await appendActionLogToTask(task.id, `Task finished with status: ${finalStatus}`);
       processingRef.current.delete(task.id);
 
       // Trigger automatic review after a task is completed
@@ -592,8 +610,15 @@ export default function App() {
   };
 
   const handleMoveTask = async (taskId: string, newStatus: TaskStatus) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const task = tasks.find(t => t.id === taskId);
+    const oldStatus = task?.status;
+    
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-    await db.tasks.update(taskId, { status: newStatus });
+    await db.tasks.update(taskId, { 
+      status: newStatus,
+      actionLog: (task?.actionLog || '') + `> [${timestamp}] Status changed from ${oldStatus} to ${newStatus}\n`
+    });
   };
 
   const handleCreateTask = async (title: string, description: string, artifactIds: number[]) => {
@@ -604,7 +629,8 @@ export default function App() {
       status: 'INITIATED',
       forwardJulesMessages: true,
       createdAt: Date.now(),
-      artifactIds: artifactIds
+      artifactIds: artifactIds,
+      actionLog: `> [Decision] Task created manually: ${title}\n`
     };
     
     if (artifactIds.length > 0) {
@@ -715,10 +741,11 @@ export default function App() {
       
       await db.tasks.update(task.id, { 
         status: 'WORKING',
-        chat: updatedTask.chat
+        chat: updatedTask.chat,
+        actionLog: (task.actionLog || '') + `> [${timestamp}] Replied to message: ${replyText.substring(0, 50)}...\n`
       });
       
-      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...updatedTask, actionLog: (task.actionLog || '') + `> [${timestamp}] Replied to message: ${replyText.substring(0, 50)}...\n` } : t));
       
       // Send to Jules if it's a Jules task
       if (task.agentId === 'jules-agent') {
@@ -758,10 +785,11 @@ export default function App() {
 
     await db.tasks.update(task.id, {
       status: 'WORKING',
-      chat: updatedTask.chat
+      chat: updatedTask.chat,
+      actionLog: (task.actionLog || '') + `> [${timestamp}] Sent message: ${message.substring(0, 50)}...\n`
     });
 
-    setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...updatedTask, actionLog: (task.actionLog || '') + `> [${timestamp}] Sent message: ${message.substring(0, 50)}...\n` } : t));
 
     if (task.agentId === 'jules-agent') {
       const session = await db.julesSessions.where('taskId').equals(task.id).first();

@@ -13,4 +13,5 @@ export interface Task {
   createdAt: number;
   forwardJulesMessages?: boolean;
   questionCount?: number;
+  actionLog?: string;
 }
