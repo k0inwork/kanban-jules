@@ -10,7 +10,8 @@ import TaskDetailsModal from './components/TaskDetailsModal';
 import SettingsModal from './components/SettingsModal';
 import { executeJulesCommand } from './lib/jules';
 import { julesApi, SessionState } from './lib/julesApi';
-import { routeTask, Tool } from './services/TaskRouter';
+import { architectTask } from './services/TaskArchitect';
+import { Tool } from './services/LocalAgent';
 import { LocalAgent, AgentConfig } from './services/LocalAgent';
 import { ProcessAgent } from './services/ProcessAgent';
 import { TaskFs } from './services/TaskFs';
@@ -136,16 +137,26 @@ export default function App() {
     if (isReviewing) return;
     setIsReviewing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const geminiKey = process.env.GEMINI_API_KEY || '';
       const agentConfig: AgentConfig = {
         apiProvider,
         geminiModel,
         openaiUrl,
         openaiKey,
         openaiModel,
-        geminiApiKey: process.env.GEMINI_API_KEY || ''
+        geminiApiKey: geminiKey
       };
-      const processAgent = new ProcessAgent(ai, agentConfig, repoUrl, repoBranch);
+      
+      // Only init Gemini if it's the selected provider
+      let ai = null;
+      if (apiProvider === 'gemini') {
+        if (!geminiKey) {
+          throw new Error("Gemini API Key is missing. Please set it in your environment or settings.");
+        }
+        ai = new GoogleGenAI({ apiKey: geminiKey });
+      }
+
+      const processAgent = new ProcessAgent(ai as any, agentConfig, repoUrl, repoBranch);
       await processAgent.runReview();
       setSidebarMode('mailbox');
       setIsRepoBrowserOpen(true);
@@ -281,19 +292,51 @@ export default function App() {
                 content = activity.agentMessaged.agentMessage;
                 type = 'chat';
                 
-                // Classify agent message using Gemini
-                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-                const classification = await ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
-                  contents: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
-                  SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                  NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-                  
-                  Message: "${content}"
-                  
-                  Return only "SIGNAL" or "NOISE".`,
-                });
-                category = (classification.text?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
+                // Classify agent message
+                if (apiProvider === 'gemini') {
+                  const geminiKey = process.env.GEMINI_API_KEY || '';
+                  if (!geminiKey) throw new Error("Gemini API Key is missing.");
+                  const ai = new GoogleGenAI({ apiKey: geminiKey });
+                  const classification = await ai.models.generateContent({
+                    model: geminiModel || 'gemini-3-flash-preview',
+                    contents: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
+                    SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
+                    NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
+                    
+                    Message: "${content}"
+                    
+                    Return only "SIGNAL" or "NOISE".`,
+                  });
+                  category = (classification.text?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
+                } else if (apiProvider === 'openai' && openaiKey) {
+                  const response = await fetch(`${openaiUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${openaiKey}`
+                    },
+                    body: JSON.stringify({
+                      model: openaiModel,
+                      messages: [{
+                        role: 'user',
+                        content: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
+                        SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
+                        NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
+                        
+                        Message: "${content}"
+                        
+                        Return only "SIGNAL" or "NOISE".`
+                      }],
+                      temperature: 0
+                    })
+                  });
+                  const data = await response.json();
+                  const text = data.choices?.[0]?.message?.content || '';
+                  category = (text.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
+                } else {
+                  // Default to SIGNAL if no LLM available to be safe
+                  category = 'SIGNAL';
+                }
               } else if (activity.progressUpdated) {
                 content = `Progress: ${activity.progressUpdated.title}`;
                 category = 'NOISE';
@@ -424,7 +467,12 @@ export default function App() {
         return;
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const geminiKey = process.env.GEMINI_API_KEY || '';
+      let ai = null;
+      if (apiProvider === 'gemini') {
+        if (!geminiKey) throw new Error("Gemini API Key is missing.");
+        ai = new GoogleGenAI({ apiKey: geminiKey });
+      }
       
       const agentConfig = {
         apiProvider,
@@ -432,7 +480,7 @@ export default function App() {
         openaiUrl,
         openaiKey,
         openaiModel,
-        geminiApiKey: process.env.GEMINI_API_KEY || ''
+        geminiApiKey: geminiKey
       };
 
       const availableTools: Tool[] = [
@@ -446,10 +494,22 @@ export default function App() {
         { name: 'delegateToJules', description: 'Delegate a complex coding or execution task to the remote Jules environment.' }
       ];
       
-      let location = await routeTask(ai, task.title, task.description, availableTools, agentConfig);
+      // 1. Check for existing protocol
+      const existingProtocol = await db.taskArtifacts.where({ taskId: task.id, name: 'task-protocol.json' }).first();
       
-      appendLog(`> Routing decision: ${location.toUpperCase()}\n`);
-      await appendActionLogToTask(task.id, `Routing decision: ${location.toUpperCase()}`);
+      if (!existingProtocol) {
+        appendLog(`> [Architect] Generating initial task protocol...\n`);
+        const protocol = await architectTask(ai, task.title, task.description, agentConfig);
+        const repoName = repoUrl.split('/').pop() || repoUrl;
+        await db.taskArtifacts.add({
+          taskId: task.id,
+          repoName,
+          branchName: repoBranch || 'main',
+          name: 'task-protocol.json',
+          content: JSON.stringify(protocol, null, 2)
+        });
+        appendLog(`> [Architect] Protocol generated: ${protocol.objective}\n`);
+      }
 
       const token = import.meta.env.VITE_GITHUB_TOKEN;
       if (!token) {
@@ -459,12 +519,9 @@ export default function App() {
       }
       
       appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
-      const agent = new LocalAgent(ai, repoUrl, repoBranch || 'main', token, task.id, task.title, agentConfig);
+      const agent = new LocalAgent(ai as any, repoUrl, repoBranch || 'main', token, task.id, task.title, agentConfig);
       
       let taskContext = (task.logs || '') + (task.chat || '');
-      if (location === 'jules') {
-        taskContext += `\n\n> [Supervisor] I recommend delegating this task to Jules for coding or execution.\n`;
-      }
 
       const { findings, savedArtifactIds, status } = await agent.runTask(task.title, task.description, taskContext, appendLog);
       

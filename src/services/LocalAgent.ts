@@ -302,6 +302,15 @@ export class LocalAgent {
       - <listTasks/> : List all tasks on the board to see what else is being worked on.
       - <sendMessage type="info|proposal|alert" content="message text" [title="task title" description="task desc"]/> : Send a message to the user's Mailbox.
       - <askUser question="your question here"/> : Ask the user a question or request missing information. Use this when you cannot proceed without user input. This will pause the task and wait for the user.
+      - <finishStage stageName="Current Stage" [nextStage="Next Stage"] [data='{"key": "val"}']/> : Mark a task stage as complete and update the task-protocol.json artifact. Use this to maintain hard state and avoid "vibish" execution.
+      
+      PROTOCOL-DRIVEN EXECUTION:
+      1. Your first action in any task MUST be to check for a "task-protocol.json" artifact using <listArtifacts/> and <readArtifact/>.
+      2. If no protocol exists, you MUST create one using <saveArtifact name="task-protocol.json" content='{"objective": "...", "stages": [...], "current_stage": "..."}'/>.
+      3. You MUST follow the stages defined in the protocol.
+      4. When you finish a stage, you MUST call <finishStage stageName="..." nextStage="..." />. This is your primary way of signaling progress and maintaining state.
+      5. After calling <finishStage/>, you MUST also update the "task-protocol.json" artifact using <saveArtifact/> to reflect the new state if you have additional data to persist.
+      6. Do NOT "vibe" or guess your next step. Always refer to the protocol.
       
       COMMUNICATION RULES:
       1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.
@@ -466,6 +475,11 @@ export class LocalAgent {
                 
                 appendLog(`\n> [LocalAgent] Delegating to Jules: ${call.args.prompt}\n`);
                 return { findings, savedArtifactIds, status: 'PAUSED' };
+              } else if (call.name === 'finishStage') {
+                const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
+                const data = call.args.data ? JSON.parse(call.args.data) : {};
+                result = await this.artifactTool.finishStage(this.taskId, repoName, this.branch, call.args.stageName, call.args.nextStage, data);
+                appendLog(`> [LocalAgent] Finished stage: ${call.args.stageName}. Next: ${call.args.nextStage || 'None'}\n`);
               } else if (call.name === 'getJulesHistory') {
                 const limit = parseInt(call.args.limit || '20');
                 const offset = parseInt(call.args.offset || '0');

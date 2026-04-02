@@ -24,6 +24,40 @@ export const ArtifactTool = {
       content,
     };
     return await db.taskArtifacts.add(artifact);
+  },
+
+  finishStage: async (taskId: string, repoName: string, branchName: string, stageName: string, nextStage?: string, data?: any): Promise<number> => {
+    // Find existing protocol or create new one
+    const existing = await db.taskArtifacts
+      .where({ taskId, name: 'task-protocol.json' })
+      .first();
+    
+    let protocol = existing ? JSON.parse(existing.content) : { 
+      objective: '', 
+      completed_stages: [], 
+      current_stage: '', 
+      next_stage: '', 
+      data: {} 
+    };
+
+    protocol.completed_stages = Array.from(new Set([...(protocol.completed_stages || []), stageName]));
+    protocol.current_stage = nextStage || '';
+    protocol.data = { ...(protocol.data || {}), ...(data || {}) };
+
+    const content = JSON.stringify(protocol, null, 2);
+    
+    if (existing && existing.id) {
+      await db.taskArtifacts.update(existing.id, { content });
+      return existing.id;
+    } else {
+      return await db.taskArtifacts.add({
+        taskId,
+        repoName,
+        branchName,
+        name: 'task-protocol.json',
+        content
+      });
+    }
   }
 };
 
@@ -66,6 +100,22 @@ export const artifactToolDeclarations: FunctionDeclaration[] = [
         content: { type: Type.STRING, description: 'The artifact content.' }
       },
       required: ['taskId', 'repoName', 'branchName', 'name', 'content']
+    }
+  },
+  {
+    name: 'finishStage',
+    description: 'Mark a task stage as complete and update the task-protocol.json artifact. Use this to maintain hard state and avoid "vibish" execution.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        taskId: { type: Type.STRING, description: 'The task ID.' },
+        repoName: { type: Type.STRING, description: 'The repository name.' },
+        branchName: { type: Type.STRING, description: 'The branch name.' },
+        stageName: { type: Type.STRING, description: 'The name of the stage just completed.' },
+        nextStage: { type: Type.STRING, description: 'The name of the next stage to execute.' },
+        data: { type: Type.OBJECT, description: 'Optional JSON data to persist in the protocol (e.g., file lists, analysis results).' }
+      },
+      required: ['taskId', 'repoName', 'branchName', 'stageName']
     }
   }
 ];
