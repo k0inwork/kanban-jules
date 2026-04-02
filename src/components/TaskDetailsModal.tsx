@@ -14,10 +14,11 @@ interface TaskDetailsModalProps {
   tasks: Task[];
   onDeleteTask?: (taskId: string) => void;
   onUpdateTask?: (task: Task) => void;
+  onSendMessage?: (taskId: string, message: string) => void;
   onAnalyzeArtifact?: (artifactId: number) => void;
 }
 
-export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, onUpdateTask, onAnalyzeArtifact }: TaskDetailsModalProps) {
+export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, onUpdateTask, onSendMessage, onAnalyzeArtifact }: TaskDetailsModalProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -53,15 +54,9 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userMessage.trim() || !onUpdateTask) return;
+    if (!userMessage.trim() || !onSendMessage || !task) return;
 
-    const timestamp = new Date().toLocaleTimeString();
-    const messageLog = `\n\n> [User - ${timestamp}] ${userMessage}\n`;
-
-    onUpdateTask({
-      ...task,
-      chat: (task.chat || '') + messageLog
-    });
+    onSendMessage(task.id, userMessage);
     setUserMessage('');
   };
 

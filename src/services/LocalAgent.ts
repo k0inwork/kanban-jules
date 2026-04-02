@@ -351,17 +351,23 @@ export class LocalAgent {
                 await db.messages.add(msg);
                 result = { success: true };
               } else if (call.name === 'askUser') {
+                const task = await db.tasks.get(this.taskId);
+                const qCount = (task?.questionCount || 0) + 1;
+                const qTag = `{Q${qCount}}`;
+                const questionWithTag = `${qTag} ${call.args.question}`;
+
                 await db.messages.add({
                   sender: 'local-agent',
                   taskId: this.taskId,
                   type: 'alert',
-                  content: `**Question regarding task "${taskTitle}":**\n\n${call.args.question}`,
+                  content: `**Question regarding task "${taskTitle}":**\n\n${questionWithTag}`,
                   status: 'unread',
                   timestamp: Date.now()
                 });
                 // Status update to PAUSED. Chat history is updated at the start of the turn.
                 await db.tasks.update(this.taskId, { 
-                  status: 'PAUSED'
+                  status: 'PAUSED',
+                  questionCount: qCount
                 });
                 appendLog(`> [LocalAgent] Pausing task to wait for user input.\n`);
                 return { findings, savedArtifactIds, status: 'PAUSED' };

@@ -12,4 +12,5 @@ export interface Task {
   artifactIds?: number[];
   createdAt: number;
   forwardJulesMessages?: boolean;
+  questionCount?: number;
 }

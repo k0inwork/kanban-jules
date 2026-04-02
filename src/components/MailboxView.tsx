@@ -61,10 +61,29 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
 
   const activeTasks = tasks.filter(t => ['INITIATED', 'WORKING', 'PAUSED', 'POLLING', 'REVIEW'].includes(t.status));
 
+  const handleSelectThread = async (taskId: string) => {
+    setSelectedTaskId(taskId);
+    // Mark all messages in this thread as read
+    const threadMessages = messages?.filter(m => (m.taskId || 'system') === taskId && m.status === 'unread') || [];
+    for (const msg of threadMessages) {
+      if (msg.id) {
+        await db.messages.update(msg.id, { status: 'read' });
+      }
+    }
+  };
+
   const handleSendNewMessage = () => {
     const targetId = selectedTaskId || newMessageTaskId;
     if (targetId && targetId !== 'system' && newMessageContent.trim() && onSendMessageToTask) {
-      onSendMessageToTask(targetId, newMessageContent);
+      let finalContent = newMessageContent;
+      const thread = threads.find(t => t.taskId === targetId);
+      if (thread?.task?.questionCount) {
+        const qTag = `{Q${thread.task.questionCount}}`;
+        if (!finalContent.includes(qTag)) {
+          finalContent = `${qTag} ${finalContent}`;
+        }
+      }
+      onSendMessageToTask(targetId, finalContent);
       setNewMessageContent('');
       setNewMessageTaskId('');
       setIsNewMessageOpen(false);
@@ -241,7 +260,7 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
             {threads.map(thread => (
               <button
                 key={thread.taskId}
-                onClick={() => setSelectedTaskId(thread.taskId)}
+                onClick={() => handleSelectThread(thread.taskId)}
                 className="w-full text-left p-3 rounded-lg border border-neutral-800 bg-neutral-900/30 hover:bg-neutral-800 transition-all group relative"
               >
                 <div className="flex justify-between items-start mb-1">

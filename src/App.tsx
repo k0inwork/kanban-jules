@@ -492,19 +492,23 @@ export default function App() {
             const lastAgentActivity = allActivities.find(a => a.agentMessaged);
             const lastJulesMessage = lastAgentActivity?.agentMessaged?.agentMessage || "Jules is waiting for feedback.";
 
+            const currentTask = await db.tasks.get(task.id);
+            const qCount = (currentTask?.questionCount || 0) + 1;
+            const qTag = `{Q${qCount}}`;
+            const questionWithTag = `${qTag} ${lastJulesMessage}`;
+
             appendLog(`\n> [Jules] Pausing task to wait for user input.\n`);
             await db.messages.add({
               sender: 'jules-agent',
               taskId: task.id,
               type: 'alert',
-              content: `**Question regarding task "${task.title}":**\n\n${lastJulesMessage}`,
+              content: `**Question regarding task "${task.title}":**\n\n${questionWithTag}`,
               status: 'unread',
               timestamp: Date.now()
             });
-            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'PAUSED' } : t));
-            const currentTask = await db.tasks.get(task.id);
+            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'PAUSED', questionCount: qCount } : t));
             if (currentTask) {
-              await db.tasks.update(task.id, { status: 'PAUSED' });
+              await db.tasks.update(task.id, { status: 'PAUSED', questionCount: qCount });
             }
             isDone = true; // Stop polling so user can answer
           } else if (currentState === 'COMPLETED' || currentState === 'FAILED') {
@@ -694,8 +698,14 @@ export default function App() {
     const task = tasks.find(t => t.id === message.taskId);
     if (task) {
       const timestamp = new Date().toLocaleTimeString();
+      
+      // Extract Q-tag from message content if present
+      const qMatch = message.content.match(/\{Q\d+\}/);
+      const qTag = qMatch ? qMatch[0] : (task.questionCount ? `{Q${task.questionCount}}` : '');
+      const taggedReply = qTag ? `${qTag} ${replyText}` : replyText;
+
       // Include the agent's question and the user's reply
-      const chatUpdate = `\n\n> [Agent] ${message.content}\n\n> [User - ${timestamp}] ${replyText}\n`;
+      const chatUpdate = `\n\n> [Agent] ${message.content}\n\n> [User - ${timestamp}] ${taggedReply}\n`;
       
       const updatedTask = {
         ...task,
@@ -1126,11 +1136,13 @@ export default function App() {
         onClose={() => setSelectedTask(null)}
         tasks={tasks}
         onDeleteTask={handleDeleteTask}
+        onSendMessage={handleSendMessageToTask}
         onUpdateTask={(updatedTask) => {
           setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
           db.tasks.update(updatedTask.id, {
             title: updatedTask.title,
-            description: updatedTask.description
+            description: updatedTask.description,
+            chat: updatedTask.chat
           });
           setSelectedTask(updatedTask);
         }}
