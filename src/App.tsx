@@ -383,12 +383,53 @@ export default function App() {
       }
 
       // Check for existing Jules session
-      const existingSession = await db.julesSessions.where('taskId').equals(task.id).first();
+      let existingSession = await db.julesSessions.where('taskId').equals(task.id).first();
+      let isReused = false;
+      
+      if (!existingSession) {
+        // Look for a session in the same repo/branch that is not active
+        const sessionsInRepo = await db.julesSessions
+          .where('repoUrl').equals(repoUrl)
+          .and(s => s.branchName === repoBranch)
+          .toArray();
+        
+        // Find one where the task is not WORKING or PAUSED
+        for (const s of sessionsInRepo) {
+          const t = tasks.find(task => task.id === s.taskId);
+          if (!t || (t.status !== 'WORKING' && t.status !== 'PAUSED' && t.status !== 'REVIEW')) {
+            existingSession = s;
+            isReused = true;
+            break;
+          }
+        }
+      }
+
       let session;
       
       if (existingSession) {
-        appendLog(`> Resuming existing Jules session: ${existingSession.name}\n`);
-        session = await julesApi.getSession(julesApiKey, existingSession.name);
+        if (isReused) {
+          appendLog(`> Reusing existing Jules session from another task: ${existingSession.name}\n`);
+          // Update session record to point to new task
+          await db.julesSessions.update(existingSession.id, { taskId: task.id, title: task.title });
+          session = await julesApi.getSession(julesApiKey, existingSession.name);
+          
+          // Send "forget context" and new task info
+          const reusePrompt = `IMPORTANT: We are starting completely new work. Forget all previous context altogether.\n\nNew Task: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
+          await julesApi.sendMessage(julesApiKey, session.name, reusePrompt);
+          await appendActionLogToTask(task.id, `Reused Jules session ${session.name}. Sent new task context.`);
+        } else {
+          appendLog(`> Resuming existing Jules session: ${existingSession.name}\n`);
+          session = await julesApi.getSession(julesApiKey, existingSession.name);
+          
+          // If there is chat history that might not have been seen by Jules yet
+          if (task.chat) {
+            // We could send it as a message to be sure, but Jules might have it if it was the one who sent it.
+            // However, user messages added while Jules was away should be sent.
+            // For simplicity, let's send a summary if it's resuming.
+            // Actually, the user specifically complained about chat history not being copied.
+            await julesApi.sendMessage(julesApiKey, session.name, `Resuming task. Current Chat History:\n${task.chat}`);
+          }
+        }
       } else {
         // 1. Create Jules Session
         const sourceContext = {
@@ -414,7 +455,9 @@ export default function App() {
           title: task.title,
           taskId: task.id,
           status: session.state,
-          createdAt: Date.now()
+          createdAt: Date.now(),
+          repoUrl: repoUrl,
+          branchName: repoBranch
         });
       }
 
@@ -541,8 +584,16 @@ export default function App() {
 
         } catch (pollErr: any) {
           console.error(`Polling error in session ${session.name} (state: ${currentState}):`, pollErr);
-          // Don't fail the whole task on a single poll error, just log and retry
-          appendLog(`> [Warning] Polling error in session ${session.name} (state: ${currentState}): ${pollErr.message}\n`);
+          
+          if (pollErr.status === 404 || pollErr.message?.includes('not found')) {
+            appendLog(`\n> [FATAL ERROR] Jules session missing: ${pollErr.message}\n`);
+            await appendActionLogToTask(task.id, `Jules session missing (404). Stopping polling.`);
+            isDone = true;
+            currentState = 'FAILED';
+          } else {
+            // Don't fail the whole task on a single poll error, just log and retry
+            appendLog(`> [Warning] Polling error in session ${session.name} (state: ${currentState}): ${pollErr.message}\n`);
+          }
         }
       }
 
@@ -564,10 +615,12 @@ export default function App() {
       }
 
     } catch (error: any) {
-      const isSessionMissing = error.status === 404;
+      const isSessionMissing = error.status === 404 || error.message?.includes('not found');
       const nextStatus = isSessionMissing ? 'INITIATED' : 'REVIEW';
       
       appendLog(`\n\n[FATAL ERROR] ${error.message}`);
+      await appendActionLogToTask(task.id, `Fatal error: ${error.message}. Resetting status to ${nextStatus}.`);
+      
       setTasks(prev => prev.map(t => 
         t.id === task.id ? { ...t, status: nextStatus, agentId: undefined } : t
       ));
