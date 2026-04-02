@@ -123,6 +123,20 @@ export class LocalAgent {
           },
           required: ['path']
         }
+      },
+      {
+        name: 'headFile',
+        description: 'Read the first N lines of a file in a repository.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            path: { type: Type.STRING, description: 'The file path.' },
+            lines: { type: Type.NUMBER, description: 'The number of lines to read. Default is 3.' },
+            repo_name: { type: Type.STRING, description: 'Optional. The repository name.' },
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
+          },
+          required: ['path']
+        }
       }
     ];
 
@@ -187,7 +201,8 @@ export class LocalAgent {
         parameters: {
           type: Type.OBJECT,
           properties: {
-            status: { type: Type.STRING, description: 'Optional. Filter by status: todo, in-progress, review, done.' }
+            workflowStatus: { type: Type.STRING, description: 'Optional. Filter by workflow status: TODO, IN_PROGRESS, IN_REVIEW, DONE.' },
+            agentState: { type: Type.STRING, description: 'Optional. Filter by agent state: IDLE, EXECUTING, WAITING_FOR_JULES, WAITING_FOR_USER, PAUSED, ERROR.' }
           }
         }
       },
@@ -218,7 +233,36 @@ export class LocalAgent {
       }
     ];
 
-    const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration, ...localCommunicationToolDeclarations] }];
+    const localJulesToolDeclarations = [
+      {
+        name: 'delegateToJules',
+        description: 'Delegate a complex coding or execution task to the remote Jules environment. This is an asynchronous operation. You will be woken up when Jules has a significant update (Plan, Question, or Completion).',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            prompt: { type: Type.STRING, description: 'The detailed instructions for Jules.' },
+            repoUrl: { type: Type.STRING, description: 'Optional. The repository URL.' },
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
+          },
+          required: ['prompt']
+        }
+      },
+      {
+        name: 'getJulesHistory',
+        description: 'Retrieve older technical logs or messages from the Jules session that have been evicted from the current context window.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            taskId: { type: Type.STRING, description: 'The task ID.' },
+            limit: { type: Type.NUMBER, description: 'Optional. Number of messages to retrieve. Default is 20.' },
+            offset: { type: Type.NUMBER, description: 'Optional. Offset for pagination.' }
+          },
+          required: ['taskId']
+        }
+      }
+    ];
+
+    const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration, ...localCommunicationToolDeclarations, ...localJulesToolDeclarations] }];
     appendLog(`> [LocalAgent] Tools available: ${tools[0].functionDeclarations.map(f => f.name).join(', ')}\n`);
     
     const prompt = `
@@ -228,6 +272,20 @@ export class LocalAgent {
       Repository: ${this.repoUrl}
       Branch: ${this.branch}
       
+      ### Hybrid Memory System
+      Your chat history contains a mix of user messages and "Signals" from the remote Jules environment.
+      - **Signals (Persistent):** Plans, Questions, and Completion messages from Jules are always kept in your context.
+      - **Noise (Sliding Window):** Technical logs (git commands, npm output) are only kept for the most recent events.
+      - **History:** If you need to see older technical logs that have been evicted, use the \`getJulesHistory\` tool.
+      
+      ### Jules Delegation
+      For complex coding, refactoring, or long-running executions, use the \`delegateToJules\` tool. 
+      This will pause your execution. You will be woken up when Jules has a significant update.
+      When you receive a message starting with "FromJules:", analyze it and decide whether to:
+      1. Ask the user for feedback (using \`askUser\`).
+      2. Instruct Jules to change its plan (using \`delegateToJules\` again).
+      3. Complete the task if Jules has finished successfully.
+      
       Task Logs/Chat History:
       ${taskLogs}
       
@@ -235,6 +293,7 @@ export class LocalAgent {
       
       - <listFiles path="path/to/dir"/> : List files in a repository path. Use "." for root.
       - <readFile path="path/to/file"/> : Read the content of a file.
+      - <headFile path="path/to/file" [lines="3"]/> : Read the first N lines of a file.
       - <saveArtifact name="artifact_name" content="artifact_content"/> : Save a new artifact.
       - <listArtifacts/> : List all artifacts for the current repository and branch.
       - <listArtifacts taskId="task-id"/> : List all artifacts for a specific task.
@@ -319,6 +378,8 @@ export class LocalAgent {
                 result = await this.repositoryTool.listFiles(this.repoUrl, this.branch, this.token, call.args.path || '.');
               } else if (call.name === 'readFile') {
                 result = await this.repositoryTool.readFile(this.repoUrl, this.branch, this.token, call.args.path);
+              } else if (call.name === 'headFile') {
+                result = await this.repositoryTool.headFile(this.repoUrl, this.branch, this.token, call.args.path, parseInt(call.args.lines || '3'));
               } else if (call.name === 'listArtifacts') {
                 const repoName = call.args.repo_name || this.repoUrl.split('/').pop() || this.repoUrl;
                 const branch = call.args.branch || this.branch;
@@ -340,11 +401,18 @@ export class LocalAgent {
               } else if (call.name === 'analyzeCode') {
                 result = await this.analyzer.analyze();
               } else if (call.name === 'listTasks') {
-                const status = call.args.status;
-                if (status) {
-                  result = await db.tasks.where('status').equals(status).toArray();
+                const workflowStatus = call.args.workflowStatus;
+                const agentState = call.args.agentState;
+                let query = db.tasks.toCollection();
+                if (workflowStatus) {
+                  query = db.tasks.where('workflowStatus').equals(workflowStatus);
+                }
+                if (agentState) {
+                  // Dexie doesn't support multiple where clauses easily without compound indexes or filtering
+                  const tasks = await query.toArray();
+                  result = tasks.filter(t => t.agentState === agentState);
                 } else {
-                  result = await db.tasks.toArray();
+                  result = await query.toArray();
                 }
               } else if (call.name === 'sendMessage') {
                 const msg: any = {
@@ -378,14 +446,41 @@ export class LocalAgent {
                   status: 'unread',
                   timestamp: Date.now()
                 });
-                // Status update to PAUSED. Chat history is updated at the start of the turn.
+                // Status update to WAITING_FOR_USER. Chat history is updated at the start of the turn.
                 await db.tasks.update(this.taskId, { 
-                  status: 'PAUSED',
+                  workflowStatus: 'IN_PROGRESS',
+                  agentState: 'WAITING_FOR_USER',
                   questionCount: qCount
                 });
                 await appendActionLog(`Paused task to ask user: ${call.args.question}`);
                 appendLog(`> [LocalAgent] Pausing task to wait for user input.\n`);
                 return { findings, savedArtifactIds, status: 'PAUSED' };
+              } else if (call.name === 'delegateToJules') {
+                const task = await db.tasks.get(this.taskId);
+                const timestamp = new Date().toLocaleTimeString();
+                
+                await db.tasks.update(this.taskId, {
+                  agentState: 'WAITING_FOR_JULES',
+                  actionLog: (task?.actionLog || '') + `> [${timestamp}] DELEGATING TO JULES: ${call.args.prompt}\n`
+                });
+                
+                appendLog(`\n> [LocalAgent] Delegating to Jules: ${call.args.prompt}\n`);
+                return { findings, savedArtifactIds, status: 'PAUSED' };
+              } else if (call.name === 'getJulesHistory') {
+                const limit = parseInt(call.args.limit || '20');
+                const offset = parseInt(call.args.offset || '0');
+                const history = await db.messages
+                  .where('taskId').equals(this.taskId)
+                  .filter(m => m.category === 'NOISE')
+                  .offset(offset)
+                  .limit(limit)
+                  .toArray();
+                
+                result = history.map(m => ({
+                  id: m.id,
+                  timestamp: new Date(m.timestamp).toLocaleTimeString(),
+                  content: m.content
+                }));
               } else {
                 result = { error: `Unknown tool: ${call.name}` };
               }

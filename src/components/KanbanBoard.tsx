@@ -1,10 +1,10 @@
 import React from 'react';
-import { Task, TaskStatus } from '../types';
+import { Task, WorkflowStatus } from '../types';
 import KanbanColumn from './KanbanColumn';
 
 interface KanbanBoardProps {
   tasks: Task[];
-  onMoveTask: (taskId: string, newStatus: TaskStatus) => void;
+  onMoveTask: (taskId: string, newStatus: WorkflowStatus) => void;
   onTaskClick: (task: Task) => void;
   onStartTask?: (task: Task) => void;
   onDeleteTask?: (taskId: string) => void;
@@ -12,12 +12,10 @@ interface KanbanBoardProps {
 }
 
 export default function KanbanBoard({ tasks, onMoveTask, onTaskClick, onStartTask, onDeleteTask, onAttachArtifact }: KanbanBoardProps) {
-  const columns: { title: string; status: TaskStatus }[] = [
-    { title: 'Initiated', status: 'INITIATED' },
-    { title: 'Working', status: 'WORKING' },
-    { title: 'Paused', status: 'PAUSED' },
-    { title: 'Polling', status: 'POLLING' },
-    { title: 'Review', status: 'REVIEW' },
+  const columns: { title: string; status: WorkflowStatus }[] = [
+    { title: 'Todo', status: 'TODO' },
+    { title: 'In Progress', status: 'IN_PROGRESS' },
+    { title: 'Review', status: 'IN_REVIEW' },
     { title: 'Done', status: 'DONE' },
   ];
 
@@ -28,7 +26,7 @@ export default function KanbanBoard({ tasks, onMoveTask, onTaskClick, onStartTas
           key={col.status}
           title={col.title}
           status={col.status}
-          tasks={tasks.filter((t) => t.status === col.status)}
+          tasks={tasks.filter((t) => t.workflowStatus === col.status)}
           onDrop={onMoveTask}
           onTaskClick={onTaskClick}
           onStartTask={onStartTask}

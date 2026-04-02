@@ -1,13 +1,13 @@
 import React from 'react';
-import { Task, TaskStatus } from '../types';
+import { Task, WorkflowStatus } from '../types';
 import TaskCard from './TaskCard';
 
 interface KanbanColumnProps {
   key?: string | number;
   title: string;
-  status: TaskStatus;
+  status: WorkflowStatus;
   tasks: Task[];
-  onDrop: (taskId: string, newStatus: TaskStatus) => void;
+  onDrop: (taskId: string, newStatus: WorkflowStatus) => void;
   onTaskClick: (task: Task) => void;
   onStartTask?: (task: Task) => void;
   onDeleteTask?: (taskId: string) => void;

@@ -31,7 +31,7 @@ export class ProcessAgent {
     const constitution = config?.constitution || 'No specific project rules defined.';
 
     const context = {
-      tasks: tasks.map(t => ({ title: t.title, status: t.status, description: t.description })),
+      tasks: tasks.map(t => ({ title: t.title, workflowStatus: t.workflowStatus, agentState: t.agentState, description: t.description })),
       artifacts: artifacts.map(a => ({ name: a.name, content: (a.content || '').substring(0, 500) })),
       unreadMessages: unreadMessages.map(m => ({ sender: m.sender, content: m.content, type: m.type })),
       constitution

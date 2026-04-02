@@ -59,7 +59,7 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
     await db.messages.delete(id);
   };
 
-  const activeTasks = tasks.filter(t => ['INITIATED', 'WORKING', 'PAUSED', 'POLLING', 'REVIEW'].includes(t.status));
+  const activeTasks = tasks.filter(t => t.workflowStatus === 'IN_PROGRESS' || t.workflowStatus === 'IN_REVIEW');
 
   const handleSelectThread = async (taskId: string) => {
     setSelectedTaskId(taskId);
@@ -201,7 +201,7 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
                 <option value="">Select a running task...</option>
                 {activeTasks.map(task => (
                   <option key={task.id} value={task.id}>
-                    {task.title} ({task.status})
+                    {task.title} ({task.workflowStatus} - {task.agentState})
                   </option>
                 ))}
               </select>

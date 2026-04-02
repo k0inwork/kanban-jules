@@ -10,6 +10,12 @@ export const RepositoryTool = {
   readFile: async (repoUrl: string, branch: string, token: string, path: string): Promise<string> => {
     const gitFs = new GitFs(repoUrl, branch, token);
     return await gitFs.getFile(path);
+  },
+
+  headFile: async (repoUrl: string, branch: string, token: string, path: string, lines: number = 3): Promise<string> => {
+    const gitFs = new GitFs(repoUrl, branch, token);
+    const content = await gitFs.getFile(path);
+    return content.split('\n').slice(0, lines).join('\n');
   }
 };
 
@@ -40,6 +46,21 @@ export const repositoryToolDeclarations: FunctionDeclaration[] = [
         branch: { type: Type.STRING, description: 'The branch name.' },
         token: { type: Type.STRING, description: 'The GitHub token.' },
         path: { type: Type.STRING, description: 'The file path.' }
+      },
+      required: ['repoUrl', 'branch', 'token', 'path']
+    }
+  },
+  {
+    name: 'headFile',
+    description: 'Read the first N lines of a file in a repository.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        repoUrl: { type: Type.STRING, description: 'The repository URL.' },
+        branch: { type: Type.STRING, description: 'The branch name.' },
+        token: { type: Type.STRING, description: 'The GitHub token.' },
+        path: { type: Type.STRING, description: 'The file path.' },
+        lines: { type: Type.NUMBER, description: 'The number of lines to read. Default is 3.' }
       },
       required: ['repoUrl', 'branch', 'token', 'path']
     }

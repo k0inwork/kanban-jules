@@ -127,9 +127,14 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
         <div className="flex items-center justify-between p-4 border-b border-neutral-800 bg-neutral-950/50">
           <div className="flex items-center space-x-3 flex-1 mr-4">
             <h2 className="text-lg font-semibold text-neutral-100">{task.title}</h2>
-            <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700 shrink-0">
-              {task.status}
-            </span>
+            <div className="flex items-center space-x-2">
+              <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700 shrink-0">
+                {task.workflowStatus}
+              </span>
+              <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full bg-blue-900/30 text-blue-400 border border-blue-800/50 shrink-0">
+                {task.agentState}
+              </span>
+            </div>
           </div>
           <div className="flex items-center space-x-2 shrink-0">
             {onDeleteTask && (
