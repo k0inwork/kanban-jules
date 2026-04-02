@@ -101,48 +101,20 @@ export class ProcessAgent {
         });
         responseText = response.text || '{}';
       } else {
-
-      let url = `${this.config.openaiUrl}/chat/completions`;
-      let fetchArgs: any = {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.openaiKey}`
-        },
-        body: JSON.stringify({
-          model: this.config.openaiModel,
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' }
-        })
-      };
-
-      if (this.config.proxyUrl) {
-        url = '/api/proxy';
-        fetchArgs = {
+        const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.openaiKey}`
+          },
           body: JSON.stringify({
-            url: `${this.config.openaiUrl}/chat/completions`,
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${this.config.openaiKey}`
-            },
-            body: {
-              model: this.config.openaiModel,
-              messages: [{ role: 'user', content: prompt }],
-              response_format: { type: 'json_object' }
-            },
-            proxyUrl: this.config.proxyUrl
+            model: this.config.openaiModel,
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' }
           })
-        };
-      }
-
-      const response = await fetch(url, fetchArgs);
-      const data = await response.json();
-      const responseData = this.config.proxyUrl ? data.data : data;
-      responseText = responseData.choices[0].message.content || '{}';
-
+        });
+        const data = await response.json();
+        responseText = data.choices[0].message.content || '{}';
       }
 
       const result = JSON.parse(responseText);

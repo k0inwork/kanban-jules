@@ -48,50 +48,22 @@ export async function routeTask(
     });
     responseText = response.text || '';
   } else {
-
-      let url = `${config.openaiUrl}/chat/completions`;
-      let fetchArgs: any = {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.openaiKey}`
-        },
-        body: JSON.stringify({
-          model: config.openaiModel,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1
-        })
-      };
-
-      if (config.proxyUrl) {
-        url = '/api/proxy';
-        fetchArgs = {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: `${config.openaiUrl}/chat/completions`,
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${config.openaiKey}`
-            },
-            body: {
-              model: config.openaiModel,
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.1
-            },
-            proxyUrl: config.proxyUrl
-          })
-        };
-      }
-
-      const response = await fetch(url, fetchArgs);
-      if (response.ok) {
-        const data = await response.json();
-        const responseData = config.proxyUrl ? data.data : data;
-        responseText = responseData.choices[0].message.content || '';
-      }
-
+    const response = await fetch(`${config.openaiUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.openaiKey}`
+      },
+      body: JSON.stringify({
+        model: config.openaiModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1
+      })
+    });
+    if (response.ok) {
+      const data = await response.json();
+      responseText = data.choices[0].message.content || '';
+    }
   }
 
   const decision = responseText.trim().toUpperCase() || 'JULES';

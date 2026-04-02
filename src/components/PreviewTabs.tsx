@@ -1,12 +1,15 @@
 import React from 'react';
-import { X, FileText, Paperclip } from 'lucide-react';
+import { X, FileText, Paperclip, Mail, LayoutDashboard } from 'lucide-react';
 import { cn } from '../lib/utils';
+
+import { AgentMessage } from '../services/db';
 
 export interface Tab {
   id: string;
   name: string;
   content: string;
-  type: 'file' | 'artifact' | 'constitution';
+  type: 'file' | 'artifact' | 'constitution' | 'mail';
+  message?: AgentMessage;
 }
 
 interface PreviewTabsProps {
@@ -14,13 +17,26 @@ interface PreviewTabsProps {
   activeTabId: string | null;
   onTabSelect: (id: string) => void;
   onTabClose: (id: string) => void;
+  onShowBoard?: () => void;
 }
 
-export default function PreviewTabs({ tabs, activeTabId, onTabSelect, onTabClose }: PreviewTabsProps) {
+export default function PreviewTabs({ tabs, activeTabId, onTabSelect, onTabClose, onShowBoard }: PreviewTabsProps) {
   if (tabs.length === 0) return null;
 
   return (
     <div className="flex bg-neutral-900 border-b border-neutral-800 overflow-x-auto custom-scrollbar shrink-0">
+      {onShowBoard && (
+        <div
+          onClick={() => onTabSelect('board')}
+          className={cn(
+            "flex items-center space-x-2 px-4 py-2 border-r border-neutral-800 cursor-pointer transition-colors min-w-[100px]",
+            activeTabId === 'board' ? "bg-neutral-800 text-white" : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-300"
+          )}
+        >
+          <LayoutDashboard className="w-3.5 h-3.5" />
+          <span className="text-xs font-mono font-medium flex-1">Board</span>
+        </div>
+      )}
       {tabs.map(tab => (
         <div
           key={tab.id}
@@ -32,6 +48,7 @@ export default function PreviewTabs({ tabs, activeTabId, onTabSelect, onTabClose
         >
           {tab.type === 'file' ? <FileText className="w-3.5 h-3.5" /> : 
            tab.type === 'artifact' ? <Paperclip className="w-3.5 h-3.5" /> :
+           tab.type === 'mail' ? <Mail className="w-3.5 h-3.5 text-blue-400" /> :
            <FileText className="w-3.5 h-3.5 text-blue-400" />}
           <span className="text-xs font-mono truncate flex-1">{tab.name}</span>
           <button

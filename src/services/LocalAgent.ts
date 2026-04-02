@@ -10,7 +10,6 @@ export interface AgentConfig {
   openaiUrl: string;
   openaiKey: string;
   openaiModel: string;
-  proxyUrl?: string;
   geminiApiKey: string;
 }
 
@@ -52,8 +51,7 @@ export class LocalAgent {
         content: c.parts[0].text
       }));
 
-      let url = `${this.config.openaiUrl}/chat/completions`;
-      let fetchArgs: any = {
+      const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -64,42 +62,25 @@ export class LocalAgent {
           messages: messages,
           temperature: 0.1
         })
-      };
-
-      if (this.config.proxyUrl) {
-        fetchArgs = {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: url,
-            method: fetchArgs.method,
-            headers: fetchArgs.headers,
-            body: JSON.parse(fetchArgs.body),
-            proxyUrl: this.config.proxyUrl
-          })
-        };
-        url = '/api/proxy';
-      }
-
-      const response = await fetch(url, fetchArgs);
+      });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI API error: ${errorText}`);
+        const error = await response.text();
+        throw new Error(`OpenAI API error: ${error}`);
       }
 
       const data = await response.json();
-      const responseData = this.config.proxyUrl ? data.data : data;
-      return responseData.choices[0].message.content || '';
+      return data.choices[0].message.content || '';
     }
   }
 
-  async runTask(taskTitle: string, taskDescription: string, appendLog: (log: string) => void): Promise<{ findings: string[], savedArtifactIds: number[] }> {
+  async runTask(taskTitle: string, taskDescription: string, taskLogs: string, appendLog: (log: string) => void): Promise<{ findings: string[], savedArtifactIds: number[], status?: 'REVIEW' | 'DONE' | 'PAUSED' }> {
     appendLog(`> [LocalAgent] Starting local execution for: ${taskTitle}\n`);
     appendLog(`> [LocalAgent] Task ID: ${this.taskId}\n`);
     appendLog(`> [LocalAgent] Task Description: ${taskDescription}\n`);
     appendLog(`> [LocalAgent] Repository: ${this.repoUrl}, Branch: ${this.branch}\n`);
     appendLog(`> [LocalAgent] Using LLM to execute task with tools...\n`);
+    appendLog(`> [System] Remember: Asking the user for clarification is a highly encouraged tool. If you are unsure about the next steps, use the askUser tool instead of guessing.\n`);
     
     const modelName = this.config.apiProvider === 'gemini' ? this.config.geminiModel : this.config.openaiModel;
     appendLog(`> [LocalAgent] Provider: ${this.config.apiProvider}, Model: ${modelName}\n`);
@@ -211,6 +192,17 @@ export class LocalAgent {
           },
           required: ['type', 'content']
         }
+      },
+      {
+        name: 'askUser',
+        description: 'Ask the user a question or request missing information. Use this when you cannot proceed without user input. This will pause the task and wait for the user.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            question: { type: Type.STRING, description: 'The question or information needed from the user.' }
+          },
+          required: ['question']
+        }
       }
     ];
 
@@ -224,6 +216,9 @@ export class LocalAgent {
       Repository: ${this.repoUrl}
       Branch: ${this.branch}
       
+      Task Logs/Chat History:
+      ${taskLogs}
+      
       You have the following tools available. To call a tool, you MUST use the following XML-like tags:
       
       - <listFiles path="path/to/dir"/> : List files in a repository path. Use "." for root.
@@ -235,6 +230,7 @@ export class LocalAgent {
       - <analyzeCode/> : Analyzes the code for secrets and passwords.
       - <listTasks/> : List all tasks on the board to see what else is being worked on.
       - <sendMessage type="info|proposal|alert" content="message text" [title="task title" description="task desc"]/> : Send a message to the user's Mailbox.
+      - <askUser question="your question here"/> : Ask the user a question or request missing information. Use this when you cannot proceed without user input. This will pause the task and wait for the user.
       
       COMMUNICATION RULES:
       1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.
@@ -343,6 +339,27 @@ export class LocalAgent {
                 }
                 await db.messages.add(msg);
                 result = { success: true };
+              } else if (call.name === 'askUser') {
+                await db.messages.add({
+                  sender: 'local-agent',
+                  taskId: this.taskId,
+                  type: 'alert',
+                  content: `**Question regarding task "${taskTitle}":**\n\n${call.args.question}`,
+                  status: 'unread',
+                  timestamp: Date.now()
+                });
+                // We can't easily update the task.chat from here without passing a callback, 
+                // but we can update it in the DB directly or pass a callback.
+                // Let's just update the DB directly since we have the task ID.
+                const task = await db.tasks.get(this.taskId);
+                if (task) {
+                  await db.tasks.update(this.taskId, { 
+                    chat: (task.chat || '') + `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${call.args.question}\n`,
+                    status: 'PAUSED'
+                  });
+                }
+                appendLog(`> [LocalAgent] Pausing task to wait for user input.\n`);
+                return { findings, savedArtifactIds, status: 'PAUSED' };
               } else {
                 result = { error: `Unknown tool: ${call.name}` };
               }
@@ -378,7 +395,7 @@ export class LocalAgent {
     }
 
     appendLog(`> [LocalAgent] Execution complete. Found ${findings.length} findings and saved ${savedArtifactIds.length} artifacts.\n`);
-    return { findings, savedArtifactIds };
+    return { findings, savedArtifactIds, status: 'DONE' };
   }
 
   get tools() {

@@ -1,4 +1,4 @@
-export type TaskStatus = 'todo' | 'in-progress' | 'review' | 'done';
+export type TaskStatus = 'INITIATED' | 'WORKING' | 'PAUSED' | 'POLLING' | 'REVIEW' | 'DONE';
 export type AutonomyMode = 'manual' | 'assisted' | 'full';
 
 export interface Task {
@@ -8,6 +8,8 @@ export interface Task {
   status: TaskStatus;
   agentId?: string;
   logs?: string;
+  chat?: string;
   artifactIds?: number[];
   createdAt: number;
+  forwardJulesMessages?: boolean;
 }

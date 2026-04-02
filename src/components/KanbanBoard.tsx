@@ -13,10 +13,12 @@ interface KanbanBoardProps {
 
 export default function KanbanBoard({ tasks, onMoveTask, onTaskClick, onStartTask, onDeleteTask, onAttachArtifact }: KanbanBoardProps) {
   const columns: { title: string; status: TaskStatus }[] = [
-    { title: 'Todo', status: 'todo' },
-    { title: 'In Progress', status: 'in-progress' },
-    { title: 'Review', status: 'review' },
-    { title: 'Done', status: 'done' },
+    { title: 'Initiated', status: 'INITIATED' },
+    { title: 'Working', status: 'WORKING' },
+    { title: 'Paused', status: 'PAUSED' },
+    { title: 'Polling', status: 'POLLING' },
+    { title: 'Review', status: 'REVIEW' },
+    { title: 'Done', status: 'DONE' },
   ];
 
   return (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Task, TaskStatus } from '../types';
 import { cn } from '../lib/utils';
-import { Bot, Clock, AlertCircle, CheckCircle2, Play, Trash2 } from 'lucide-react';
+import { Bot, Clock, AlertCircle, CheckCircle2, Play, Trash2, Zap } from 'lucide-react';
 
 interface TaskCardProps {
   key?: string | number;
@@ -15,11 +15,13 @@ interface TaskCardProps {
 
 export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDelete, onAttachArtifact }: TaskCardProps) {
   const [isOver, setIsOver] = React.useState(false);
-  const statusColors = {
-    'todo': 'border-neutral-700 bg-neutral-800/50',
-    'in-progress': 'border-blue-500/50 bg-blue-950/20',
-    'review': 'border-amber-500/50 bg-amber-950/20',
-    'done': 'border-emerald-500/50 bg-emerald-950/20',
+  const statusColors: Record<TaskStatus, string> = {
+    'INITIATED': 'border-neutral-700 bg-neutral-800/50',
+    'WORKING': 'border-blue-500/50 bg-blue-950/20',
+    'PAUSED': 'border-amber-500/50 bg-amber-950/20',
+    'POLLING': 'border-purple-500/50 bg-purple-950/20',
+    'REVIEW': 'border-amber-500/50 bg-amber-950/20',
+    'DONE': 'border-emerald-500/50 bg-emerald-950/20',
   };
 
   const handleStartClick = (e: React.MouseEvent) => {
@@ -74,7 +76,7 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
       <h4 className="font-medium text-neutral-100 mb-2 truncate pr-12">{task.title}</h4>
       
       <div className="absolute top-3 right-3 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        {task.status === 'todo' && onStartTask && (
+        {task.status === 'INITIATED' && onStartTask && (
           <button 
             onClick={handleStartClick}
             className="p-1.5 bg-blue-600/20 text-blue-400 rounded-md hover:bg-blue-600 hover:text-white transition-colors"
@@ -112,9 +114,11 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
           )}
         </div>
         
-        {task.status === 'in-progress' && <Clock className="w-4 h-4 text-blue-400 animate-pulse" />}
-        {task.status === 'review' && <AlertCircle className="w-4 h-4 text-amber-400" />}
-        {task.status === 'done' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+        {task.status === 'WORKING' && <Clock className="w-4 h-4 text-blue-400 animate-pulse" />}
+        {task.status === 'POLLING' && <Zap className="w-4 h-4 text-purple-400 animate-pulse" />}
+        {task.status === 'PAUSED' && <AlertCircle className="w-4 h-4 text-amber-400" />}
+        {task.status === 'REVIEW' && <AlertCircle className="w-4 h-4 text-amber-400" />}
+        {task.status === 'DONE' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
       </div>
     </div>
   );

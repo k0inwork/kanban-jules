@@ -15,11 +15,11 @@ interface SettingsModalProps {
     sourceId: string,
     apiProvider: string,
     geminiModel: string,
-    geminiKey: string,
     openaiUrl: string,
     openaiKey: string,
     openaiModel: string,
-    proxyUrl: string
+    julesDailyLimit: number,
+    julesConcurrentLimit: number
   ) => void;
   initialEndpoint: string;
   initialApiKey: string;
@@ -29,17 +29,17 @@ interface SettingsModalProps {
   initialSourceId: string;
   initialApiProvider: string;
   initialGeminiModel: string;
-  initialGeminiKey: string;
   initialOpenaiUrl: string;
   initialOpenaiKey: string;
   initialOpenaiModel: string;
-  initialProxyUrl?: string;
+  initialJulesDailyLimit: number;
+  initialJulesConcurrentLimit: number;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
   initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-  initialApiProvider, initialGeminiModel, initialGeminiKey, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialProxyUrl
+  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
@@ -50,11 +50,11 @@ export default function SettingsModal({
   
   const [apiProvider, setApiProvider] = useState(initialApiProvider);
   const [geminiModel, setGeminiModel] = useState(initialGeminiModel);
-  const [geminiKey, setGeminiKey] = useState(initialGeminiKey);
   const [openaiUrl, setOpenaiUrl] = useState(initialOpenaiUrl);
   const [openaiKey, setOpenaiKey] = useState(initialOpenaiKey);
   const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
-  const [proxyUrl, setProxyUrl] = useState(initialProxyUrl || '');
+  const [julesDailyLimit, setJulesDailyLimit] = useState(initialJulesDailyLimit);
+  const [julesConcurrentLimit, setJulesConcurrentLimit] = useState(initialJulesConcurrentLimit);
   
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
@@ -70,15 +70,15 @@ export default function SettingsModal({
       setSourceId(initialSourceId);
       setApiProvider(initialApiProvider);
       setGeminiModel(initialGeminiModel);
-      setGeminiKey(initialGeminiKey);
       setOpenaiUrl(initialOpenaiUrl);
       setOpenaiKey(initialOpenaiKey);
       setOpenaiModel(initialOpenaiModel);
-      setProxyUrl(initialProxyUrl || '');
+      setJulesDailyLimit(initialJulesDailyLimit);
+      setJulesConcurrentLimit(initialJulesConcurrentLimit);
     }
   }, [
     isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-    initialApiProvider, initialGeminiModel, initialGeminiKey, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialProxyUrl
+    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit
   ]);
 
   useEffect(() => {
@@ -108,7 +108,7 @@ export default function SettingsModal({
     e.preventDefault();
     onSave(
       endpoint, apiKey, repoUrl, branch, sourceName, sourceId,
-      apiProvider, geminiModel, geminiKey, openaiUrl, openaiKey, openaiModel, proxyUrl
+      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, julesDailyLimit, julesConcurrentLimit
     );
     onClose();
   };
@@ -166,16 +166,6 @@ export default function SettingsModal({
 
             {apiProvider === 'gemini' ? (
               <div>
-                <div>
-                  <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Gemini API Key</label>
-                  <input
-                    type="password"
-                    value={geminiKey}
-                    onChange={(e) => setGeminiKey(e.target.value)}
-                    className="w-full mb-3 bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                    placeholder="AIzaSy..."
-                  />
-                </div>
                 <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Gemini Model</label>
                 <select
                   value={geminiModel}
@@ -221,17 +211,6 @@ export default function SettingsModal({
                 </div>
               </div>
             )}
-            <div>
-              <label className="block text-xs font-mono text-neutral-400 mt-4 mb-1 uppercase tracking-wider">Proxy URL (SOCKS5)</label>
-              <input
-                type="text"
-                value={proxyUrl}
-                onChange={(e) => setProxyUrl(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                placeholder="socks5://127.0.0.1:1080"
-              />
-              <p className="text-[10px] text-neutral-500 mt-1">Leave blank to use direct connection. Applies to all LLM and Jules API calls.</p>
-            </div>
           </div>
 
           <div className="space-y-4 pb-4 border-b border-neutral-800">
@@ -246,6 +225,28 @@ export default function SettingsModal({
                 placeholder="AIzaSy..."
               />
               <p className="text-[10px] text-neutral-500 mt-1">Your Google Jules API key.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Daily Task Limit</label>
+              <input
+                type="number"
+                min="0"
+                value={julesDailyLimit}
+                onChange={(e) => setJulesDailyLimit(parseInt(e.target.value) || 0)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+              />
+              <p className="text-[10px] text-neutral-500 mt-1">Maximum number of tasks Jules can process per day. Set to 0 for unlimited. If limit is reached, tasks will fallback to Local Agent.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Concurrent Task Limit</label>
+              <input
+                type="number"
+                min="1"
+                value={julesConcurrentLimit}
+                onChange={(e) => setJulesConcurrentLimit(parseInt(e.target.value) || 1)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+              />
+              <p className="text-[10px] text-neutral-500 mt-1">Maximum number of tasks Jules can process at the same time.</p>
             </div>
           </div>
 

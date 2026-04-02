@@ -33,6 +33,17 @@ import { cn } from './lib/utils';
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+
+  useEffect(() => {
+    const loadTasks = async () => {
+      const storedTasks = await db.tasks.toArray();
+      if (storedTasks.length > 0) {
+        setTasks(storedTasks);
+      }
+    };
+    loadTasks();
+  }, []);
+
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => (localStorage.getItem('autonomyMode') as AutonomyMode) || 'assisted');
   const [isReviewing, setIsReviewing] = useState(false);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
@@ -40,6 +51,7 @@ export default function App() {
   const [isRepoBrowserOpen, setIsRepoBrowserOpen] = useState(false);
   const [sidebarMode, setSidebarMode] = useState<'repo' | 'mailbox'>('repo');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const processingRef = useRef<Set<string>>(new Set());
 
   // Jules Settings
@@ -49,6 +61,8 @@ export default function App() {
   const [repoBranch, setRepoBranch] = useState(() => localStorage.getItem('repoBranch') || 'main');
   const [julesSourceName, setJulesSourceName] = useState(() => localStorage.getItem('julesSourceName') || '');
   const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
+  const [julesDailyLimit, setJulesDailyLimit] = useState(() => parseInt(localStorage.getItem('julesDailyLimit') || '10'));
+  const [julesConcurrentLimit, setJulesConcurrentLimit] = useState(() => parseInt(localStorage.getItem('julesConcurrentLimit') || '2'));
 
   // Preview Tabs
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -59,13 +73,11 @@ export default function App() {
   // LLM Settings
   const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('apiProvider') || 'gemini');
   const [geminiModel, setGeminiModel] = useState(() => localStorage.getItem('geminiModel') || 'gemini-3-flash-preview');
-  const [geminiKey, setGeminiKey] = useState(localStorage.getItem('geminiKey') || import.meta.env.VITE_GEMINI_API_KEY || '');
   const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
-  const [proxyUrl, setProxyUrl] = useState(localStorage.getItem('proxyUrl') || '');
 
-    const handleSaveSettings = (
+  const handleSaveSettings = (
     endpoint: string, 
     apiKey: string, 
     repo: string, 
@@ -74,13 +86,13 @@ export default function App() {
     sourceId: string,
     provider: string,
     gModel: string,
-    gKey: string,
     oUrl: string,
     oKey: string,
     oModel: string,
-    pUrl: string
+    jDailyLimit: number,
+    jConcurrentLimit: number
   ) => {
-    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, gKey, oUrl, oKey, oModel, pUrl });
+    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, jDailyLimit, jConcurrentLimit });
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
@@ -89,25 +101,25 @@ export default function App() {
     setJulesSourceId(sourceId);
     setApiProvider(provider);
     setGeminiModel(gModel);
-    setGeminiKey(gKey);
     setOpenaiUrl(oUrl);
     setOpenaiKey(oKey);
     setOpenaiModel(oModel);
-    setProxyUrl(pUrl);
+    setJulesDailyLimit(jDailyLimit);
+    setJulesConcurrentLimit(jConcurrentLimit);
 
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
-    localStorage.setItem('julesRepoUrl', repo);
-    localStorage.setItem('julesRepoBranch', branch);
+    localStorage.setItem('repoUrl', repo);
+    localStorage.setItem('repoBranch', branch);
     localStorage.setItem('julesSourceName', sourceName);
     localStorage.setItem('julesSourceId', sourceId);
     localStorage.setItem('apiProvider', provider);
     localStorage.setItem('geminiModel', gModel);
-    localStorage.setItem('geminiKey', gKey);
     localStorage.setItem('openaiUrl', oUrl);
     localStorage.setItem('openaiKey', oKey);
     localStorage.setItem('openaiModel', oModel);
-    localStorage.setItem('proxyUrl', pUrl);
+    localStorage.setItem('julesDailyLimit', jDailyLimit.toString());
+    localStorage.setItem('julesConcurrentLimit', jConcurrentLimit.toString());
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
     if (token && repo) {
@@ -124,15 +136,14 @@ export default function App() {
     if (isReviewing) return;
     setIsReviewing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: geminiKey || 'dummy_key' });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const agentConfig: AgentConfig = {
         apiProvider,
         geminiModel,
         openaiUrl,
         openaiKey,
         openaiModel,
-        proxyUrl,
-        geminiApiKey: geminiKey
+        geminiApiKey: process.env.GEMINI_API_KEY || ''
       };
       const processAgent = new ProcessAgent(ai, agentConfig, repoUrl, repoBranch);
       await processAgent.runReview();
@@ -151,12 +162,14 @@ export default function App() {
         id: uuidv4(),
         title: message.proposedTask.title,
         description: message.proposedTask.description,
-        status: options?.autoStart ? 'in-progress' : 'todo',
+        status: options?.autoStart ? 'WORKING' : 'INITIATED',
         createdAt: Date.now(),
       };
       setTasks(prev => [...prev, newTask]);
+      await db.tasks.add(newTask);
       if (message.id) {
         await db.messages.delete(message.id);
+        handleTabClose(`mail-${message.id}`);
       }
       if (options?.autoStart) {
         processTask(newTask);
@@ -183,14 +196,45 @@ export default function App() {
   useEffect(() => {
     if (autonomyMode === 'manual') return;
 
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       // Prevent concurrent task processing to avoid rate limits
       if (processingRef.current.size > 0) return;
 
-      const todoTask = tasks.find(t => t.status === 'todo');
+      const taskToProcess = tasks.find(t => (t.status === 'INITIATED' || t.status === 'WORKING') && !processingRef.current.has(t.id));
       
-      if (todoTask) {
-        processTask(todoTask);
+      if (taskToProcess) {
+        processTask(taskToProcess);
+      }
+
+      // Poll Jules for messages
+      const activeJulesTasks = tasks.filter(t => t.status === 'WORKING' && t.agentId === 'jules-agent');
+      for (const task of activeJulesTasks) {
+        await db.tasks.update(task.id, { status: 'POLLING' });
+        const session = await db.julesSessions.where('taskId').equals(task.id).first();
+        if (session) {
+          try {
+            const activities = await julesApi.listActivities(julesApiKey, session.name, 10);
+            for (const activity of activities.activities) {
+              if (activity.agentMessaged) {
+                // Check if already processed
+                const exists = await db.messages.where('content').equals(activity.agentMessaged.agentMessage).and(m => m.taskId === task.id).first();
+                if (!exists) {
+                  await db.messages.add({
+                    sender: `${task.title} {Jules}`,
+                    taskId: task.id,
+                    type: 'chat',
+                    content: activity.agentMessaged.agentMessage,
+                    status: 'unread',
+                    timestamp: new Date(activity.createTime).getTime()
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            console.error(`Failed to poll Jules activities for task ${task.id}:`, e);
+          }
+        }
+        await db.tasks.update(task.id, { status: 'WORKING' });
       }
     }, 3000);
 
@@ -203,15 +247,17 @@ export default function App() {
     
     setTasks(prev => prev.map(t => {
       if (t.id === task.id) {
+        const isResuming = t.status === 'WORKING';
         const updatedTask = { 
           ...t, 
-          status: 'in-progress' as TaskStatus, 
-          agentId: 'jules-agent', 
-          logs: (t.logs ? t.logs + '\n\n---\n\n' : '') + '> Initializing Jules Session...\n' 
+          status: 'WORKING' as TaskStatus, 
+          agentId: t.agentId || 'jules-agent', 
+          logs: isResuming ? t.logs : (t.logs ? t.logs + '\n\n---\n\n' : '') + '> Initializing Jules Session...\n' 
         };
         db.tasks.update(task.id, { 
           status: updatedTask.status, 
-          agentId: updatedTask.agentId 
+          agentId: updatedTask.agentId,
+          logs: updatedTask.logs
         });
         return updatedTask;
       }
@@ -231,11 +277,11 @@ export default function App() {
 
       if (!repoUrl) {
         appendLog(`> [Error] Execution requires a repository source. Please select a repository.\n`);
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'todo', agentId: undefined } : t));
+        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'INITIATED', agentId: undefined } : t));
         return;
       }
 
-      const ai = new GoogleGenAI({ apiKey: geminiKey || 'dummy_key' });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       
       const agentConfig = {
         apiProvider,
@@ -243,8 +289,7 @@ export default function App() {
         openaiUrl,
         openaiKey,
         openaiModel,
-        geminiApiKey: geminiKey || 'dummy_key',
-        proxyUrl
+        geminiApiKey: process.env.GEMINI_API_KEY || ''
       };
 
       const availableTools: Tool[] = [
@@ -256,29 +301,54 @@ export default function App() {
         { name: 'analyzeCode', description: 'Analyzes the code for sensitive information.' }
       ];
       
-      const location = await routeTask(ai, task.title, task.description, availableTools, agentConfig);
+      let location = await routeTask(ai, task.title, task.description, availableTools, agentConfig);
       
+      if (location === 'jules') {
+        let fallbackReason = '';
+        
+        // Check concurrent limit
+        const julesTasksInProgress = tasks.filter(t => t.status === 'WORKING' && t.agentId === 'jules-agent').length;
+        if (julesTasksInProgress >= julesConcurrentLimit) {
+          fallbackReason = `Concurrent limit (${julesConcurrentLimit}) reached`;
+        }
+        
+        // Check daily limit
+        if (!fallbackReason && julesDailyLimit > 0) {
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
+          const julesTasksToday = await db.julesSessions.where('createdAt').above(startOfDay.getTime()).count();
+          if (julesTasksToday >= julesDailyLimit) {
+            fallbackReason = `Daily limit (${julesDailyLimit}) reached`;
+          }
+        }
+
+        if (fallbackReason) {
+          appendLog(`> [Warning] Jules ${fallbackReason}. Falling back to Local Agent.\n`);
+          location = 'local';
+        }
+      }
+
       appendLog(`> Routing decision: ${location.toUpperCase()}\n`);
 
       if (location === 'local') {
         const token = import.meta.env.VITE_GITHUB_TOKEN;
         if (!token) {
           appendLog(`> [Error] GitHub token not configured.\n`);
-          setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'todo', agentId: undefined } : t));
+          setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'INITIATED', agentId: undefined } : t));
           return;
         }
         appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
         
         const agent = new LocalAgent(ai, repoUrl, repoBranch || 'main', token, task.id, task.title, agentConfig);
         
-        const { findings, savedArtifactIds } = await agent.runTask(task.title, task.description, appendLog);
+        const { findings, savedArtifactIds, status } = await agent.runTask(task.title, task.description, (task.logs || '') + (task.chat || ''), appendLog);
         
         appendLog(`> [Local] Analysis complete. Found ${findings.length} findings and ${savedArtifactIds.length} artifacts.\n`);
         setTasks(prev => prev.map(t => {
           if (t.id === task.id) {
             const updatedTask = { 
               ...t, 
-              status: 'done' as TaskStatus, 
+              status: (status || 'DONE') as TaskStatus, 
               agentId: 'local-agent', 
               artifacts: findings,
               artifactIds: [...(t.artifactIds || []), ...savedArtifactIds]
@@ -299,32 +369,41 @@ export default function App() {
         return;
       }
 
-      // 1. Create Jules Session
-      const sourceContext = {
-        source: julesSourceName,
-        githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
-      };
+      // Check for existing Jules session
+      const existingSession = await db.julesSessions.where('taskId').equals(task.id).first();
+      let session;
+      
+      if (existingSession) {
+        appendLog(`> Resuming existing Jules session: ${existingSession.name}\n`);
+        session = await julesApi.getSession(julesApiKey, existingSession.name);
+      } else {
+        // 1. Create Jules Session
+        const sourceContext = {
+          source: julesSourceName,
+          githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
+        };
 
-      const sessionRequest = {
-        title: task.title,
-        prompt: task.description,
-        sourceContext,
-        requirePlanApproval: true,
-      };
-      console.log("Creating Jules session with request:", JSON.stringify(sessionRequest, null, 2));
-      appendLog(`> Creating session with source: ${julesSourceId}\n`);
+        const sessionRequest = {
+          title: task.title,
+          prompt: task.description + "\n\nSystem Instruction: Asking the user for clarification is a highly encouraged tool. If you are unsure about the next steps, use the askUser tool instead of guessing." + (task.logs || task.chat ? "\n\nTask Logs/Chat History:\n" + (task.logs || '') + (task.chat || '') : ""),
+          sourceContext,
+          requirePlanApproval: true,
+        };
+        console.log("Creating Jules session with request:", JSON.stringify(sessionRequest, null, 2));
+        appendLog(`> Creating session with source: ${julesSourceId}\n`);
 
-      const session = await julesApi.createSession(julesApiKey, sessionRequest);
+        session = await julesApi.createSession(julesApiKey, sessionRequest);
 
-      // Save session to DB
-      await db.julesSessions.add({
-        id: session.name, // Using session name as ID
-        name: session.name,
-        title: task.title,
-        taskId: task.id,
-        status: session.state,
-        createdAt: Date.now()
-      });
+        // Save session to DB
+        await db.julesSessions.add({
+          id: session.name, // Using session name as ID
+          name: session.name,
+          title: task.title,
+          taskId: task.id,
+          status: session.state,
+          createdAt: Date.now()
+        });
+      }
 
       console.log("SESSION CREATED:", session);
 
@@ -397,32 +476,25 @@ export default function App() {
             await julesApi.approvePlan(julesApiKey, session.name);
             appendLog(`> Plan approved.\n`);
           } else if (currentState === 'AWAITING_USER_FEEDBACK') {
-            appendLog(`\n> SUPERVISOR: Analyzing feedback request...\n`);
-            
-            // Find the last message from Jules to give Gemini context
             const allActivities = activitiesRes.activities || [];
             const lastAgentActivity = allActivities.find(a => a.agentMessaged);
-            const lastJulesMessage = lastAgentActivity?.agentMessaged?.agentMessage || "Unknown (no recent message found)";
+            const lastJulesMessage = lastAgentActivity?.agentMessaged?.agentMessage || "Jules is waiting for feedback.";
 
-            // Use Gemini to act as the user/supervisor and answer Jules
-            const prompt = `You are a supervisor managing a coding agent named Jules.
-Task: ${task.title}
-Description: ${task.description}
-
-Jules's last message to you: "${lastJulesMessage}"
-
-Jules is currently awaiting your feedback or answer. 
-If Jules is just reporting progress, stating what it did, or doesn't actually need a specific answer, just reply with "ok" or "proceed".
-Otherwise, based on the task description, provide a short, direct answer or instruction to keep Jules moving forward. Do not ask questions back. Just give the instruction.`;
-            
-            const response = await ai.models.generateContent({
-              model: 'gemini-3.1-pro-preview',
-              contents: prompt,
+            appendLog(`\n> [Jules] Pausing task to wait for user input.\n`);
+            await db.messages.add({
+              sender: 'jules-agent',
+              taskId: task.id,
+              type: 'alert',
+              content: `**Question regarding task "${task.title}":**\n\n${lastJulesMessage}`,
+              status: 'unread',
+              timestamp: Date.now()
             });
-            
-            const reply = response.text || "Please proceed with the best approach.";
-            appendLog(`> SUPERVISOR Reply: ${reply}\n`);
-            await julesApi.sendMessage(julesApiKey, session.name, reply);
+            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, chat: (t.chat || '') + `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${lastJulesMessage}\n` } : t));
+            const currentTask = await db.tasks.get(task.id);
+            if (currentTask) {
+              await db.tasks.update(task.id, { chat: (currentTask.chat || '') + `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${lastJulesMessage}\n` });
+            }
+            isDone = true; // Stop polling so user can answer
           } else if (currentState === 'COMPLETED' || currentState === 'FAILED') {
             isDone = true;
             if (currentSession.outputs && currentSession.outputs.length > 0) {
@@ -442,10 +514,10 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       }
 
       if (!isDone) {
-        appendLog(`\n> SUPERVISOR: Reached maximum polling time. Marking as review.\n`);
+        appendLog(`\n> SUPERVISOR: Reached maximum polling time. Marking as REVIEW.\n`);
       }
 
-      const finalStatus = currentState === 'COMPLETED' ? 'done' : 'review';
+      const finalStatus = currentState === 'COMPLETED' ? 'DONE' : 'REVIEW';
       setTasks(prev => prev.map(t => 
         t.id === task.id ? { ...t, status: finalStatus } : t
       ));
@@ -453,13 +525,13 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       processingRef.current.delete(task.id);
 
       // Trigger automatic review after a task is completed
-      if (finalStatus === 'done') {
+      if (finalStatus === 'DONE') {
         handleReviewProject();
       }
 
     } catch (error: any) {
       const isSessionMissing = error.status === 404;
-      const nextStatus = isSessionMissing ? 'todo' : 'review';
+      const nextStatus = isSessionMissing ? 'INITIATED' : 'REVIEW';
       
       appendLog(`\n\n[FATAL ERROR] ${error.message}`);
       setTasks(prev => prev.map(t => 
@@ -475,7 +547,32 @@ Otherwise, based on the task description, provide a short, direct answer or inst
   const handleDeleteTask = async (taskId: string) => {
     setTasks(prev => prev.filter(t => t.id !== taskId));
     if (selectedTask?.id === taskId) setSelectedTask(null);
+    
+    // Remove associated messages
+    await db.messages.where('taskId').equals(taskId).delete();
+    
+    // Remove associated Jules sessions
+    const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();
+    for (const session of sessions) {
+      try {
+        // Attempt to stop/delete session via API if possible
+        await julesApi.deleteSession(julesApiKey, session.id);
+      } catch (e) {
+        console.error(`Failed to delete Jules session ${session.id}:`, e);
+      }
+      await db.julesSessions.delete(session.id);
+    }
+    
     await db.tasks.delete(taskId);
+  };
+
+  const confirmDeleteTask = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (task && (task.status !== 'INITIATED' || (task.chat && task.chat.trim().length > 0))) {
+      setTaskToDelete(task);
+    } else {
+      handleDeleteTask(taskId);
+    }
   };
 
   const handleMoveTask = async (taskId: string, newStatus: TaskStatus) => {
@@ -488,7 +585,8 @@ Otherwise, based on the task description, provide a short, direct answer or inst
       id: uuidv4(),
       title,
       description,
-      status: 'todo',
+      status: 'INITIATED',
+      forwardJulesMessages: true,
       createdAt: Date.now(),
       artifactIds: artifactIds
     };
@@ -573,6 +671,111 @@ Otherwise, based on the task description, provide a short, direct answer or inst
     setIsViewingBoard(false);
   };
 
+  const handleDeclineProposal = async (messageId: number) => {
+    await db.messages.delete(messageId);
+    handleTabClose(`mail-${messageId}`);
+  };
+
+  const handleReplyToMail = async (message: AgentMessage, replyText: string) => {
+    if (!message.taskId) return;
+    
+    const task = tasks.find(t => t.id === message.taskId);
+    if (task) {
+      const timestamp = new Date().toLocaleTimeString();
+      // Include the agent's question and the user's reply
+      const chatUpdate = `\n\n> [Agent] ${message.content}\n\n> [User - ${timestamp}] ${replyText}\n`;
+      
+      const updatedTask = {
+        ...task,
+        status: 'WORKING' as TaskStatus,
+        chat: (task.chat || '') + chatUpdate
+      };
+      
+      await db.tasks.update(task.id, { 
+        status: 'WORKING',
+        chat: updatedTask.chat
+      });
+      
+      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+      
+      // Send to Jules if it's a Jules task
+      if (task.agentId === 'jules-agent') {
+        const session = await db.julesSessions.where('taskId').equals(task.id).first();
+        if (session) {
+          try {
+            await julesApi.sendMessage(julesApiKey, session.name, `{Task} ${replyText}`);
+          } catch (e) {
+            console.error(`Failed to send message to Jules for task ${task.id}:`, e);
+          }
+        }
+      }
+      
+      // Resume task processing
+      processTask(updatedTask);
+      
+      // Mark message as read/archived
+      if (message.id) {
+        await db.messages.update(message.id, { status: 'archived' });
+        handleTabClose(`mail-${message.id}`);
+      }
+    }
+  };
+
+  const handleSendMessageToTask = async (taskId: string, message: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const timestamp = new Date().toLocaleTimeString();
+    const chatUpdate = `\n\n> [User - ${timestamp}] ${message}\n`;
+
+    const updatedTask = {
+      ...task,
+      status: 'WORKING' as TaskStatus,
+      chat: (task.chat || '') + chatUpdate
+    };
+
+    await db.tasks.update(task.id, {
+      status: 'WORKING',
+      chat: updatedTask.chat
+    });
+
+    setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+
+    if (task.agentId === 'jules-agent') {
+      const session = await db.julesSessions.where('taskId').equals(task.id).first();
+      if (session) {
+        try {
+          await julesApi.sendMessage(julesApiKey, session.name, `{Task} ${message}`);
+        } catch (e) {
+          console.error(`Failed to send message to Jules for task ${task.id}:`, e);
+        }
+      }
+    }
+    
+    processTask(updatedTask);
+  };
+
+  const handleOpenMail = (message: AgentMessage) => {
+    const tabId = `mail-${message.id}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+
+    const task = tasks.find(t => t.id === message.taskId);
+    const newTab: Tab = {
+      id: tabId,
+      name: task ? task.title : `Message from ${message.sender}`,
+      content: message.content,
+      type: 'mail',
+      message: message
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
   const handleTabClose = (id: string) => {
     setTabs(prev => {
       const newTabs = prev.filter(t => t.id !== id);
@@ -588,7 +791,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
 
   const handleTestXmlTool = async () => {
     console.log("Starting XML Tool Debug Test...");
-    const ai = new GoogleGenAI({ apiKey: geminiKey || 'dummy_key' });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const prompt = `
       You are a local agent executing a task on a repository.
@@ -683,7 +886,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
           <button
             onClick={() => {
               if (isRepoBrowserOpen && sidebarMode === 'mailbox') {
-                setSidebarMode('repo');
+                setIsRepoBrowserOpen(false);
               } else {
                 setIsRepoBrowserOpen(true);
                 setSidebarMode('mailbox');
@@ -706,7 +909,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
           </button>
           <button
             onClick={() => {
-              if (isRepoBrowserOpen) {
+              if (isRepoBrowserOpen && sidebarMode === 'repo') {
                 setIsRepoBrowserOpen(false);
               } else {
                 setIsRepoBrowserOpen(true);
@@ -722,20 +925,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
             <Folder className="w-5 h-5" />
           </button>
           
-          {tabs.length > 0 && (
-            <button
-              onClick={() => setIsViewingBoard(!isViewingBoard)}
-              className={cn(
-                "p-2 rounded-md transition-colors border",
-                isViewingBoard 
-                  ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20" 
-                  : "bg-blue-500/10 border-blue-500/50 text-blue-400 hover:bg-blue-500/20"
-              )}
-              title={isViewingBoard ? "Return to Tabs" : "View Board"}
-            >
-              <Bot className="w-5 h-5" />
-            </button>
-          )}
+          
           <button
             onClick={() => setIsSettingsModalOpen(true)}
             className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md transition-colors"
@@ -827,7 +1017,7 @@ Otherwise, based on the task description, provide a short, direct answer or inst
                 </CollapsiblePane>
 
                 <CollapsiblePane title="Jules Processes" defaultExpanded={false}>
-                  <JulesProcessBrowser tasks={tasks} />
+                  <JulesProcessBrowser tasks={tasks} julesApiKey={julesApiKey} />
                 </CollapsiblePane>
 
                 <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
@@ -841,12 +1031,30 @@ Otherwise, based on the task description, provide a short, direct answer or inst
             ) : (
               <MailboxView 
                 onAcceptProposal={handleAcceptProposal} 
+                onOpenMail={handleOpenMail}
+                onSendMessageToTask={handleSendMessageToTask}
                 autonomyMode={autonomyMode}
               />
             )}
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col">
+          {tabs.length > 0 && !isConstitutionOpen && (
+            <PreviewTabs 
+              tabs={tabs} 
+              activeTabId={isViewingBoard ? 'board' : activeTabId} 
+              onTabSelect={(id) => {
+                if (id === 'board') {
+                  setIsViewingBoard(true);
+                } else {
+                  setActiveTabId(id);
+                  setIsViewingBoard(false);
+                }
+              }} 
+              onTabClose={handleTabClose} 
+              onShowBoard={() => setIsViewingBoard(true)}
+            />
+          )}
           {isConstitutionOpen ? (
             <ConstitutionEditor 
               repoUrl={repoUrl} 
@@ -854,22 +1062,20 @@ Otherwise, based on the task description, provide a short, direct answer or inst
               onSave={() => setIsConstitutionOpen(false)}
             />
           ) : tabs.length > 0 && !isViewingBoard ? (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <PreviewTabs 
-                tabs={tabs} 
-                activeTabId={activeTabId} 
-                onTabSelect={setActiveTabId} 
-                onTabClose={handleTabClose} 
-              />
-              <PreviewPane activeTab={tabs.find(t => t.id === activeTabId) || null} />
-            </div>
+            <PreviewPane 
+              activeTab={tabs.find(t => t.id === activeTabId) || null} 
+              onAcceptProposal={handleAcceptProposal}
+              onDeclineProposal={handleDeclineProposal}
+              onReplyToMail={handleReplyToMail}
+              autonomyMode={autonomyMode}
+            />
           ) : (
             <KanbanBoard 
               tasks={tasks} 
               onMoveTask={handleMoveTask} 
               onTaskClick={setSelectedTask}
               onStartTask={processTask}
-              onDeleteTask={handleDeleteTask}
+              onDeleteTask={confirmDeleteTask}
               onAttachArtifact={handleAttachArtifact}
             />
           )}
@@ -896,11 +1102,11 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         initialSourceId={julesSourceId}
         initialApiProvider={apiProvider}
         initialGeminiModel={geminiModel}
-        initialGeminiKey={geminiKey}
         initialOpenaiUrl={openaiUrl}
         initialOpenaiKey={openaiKey}
         initialOpenaiModel={openaiModel}
-        initialProxyUrl={proxyUrl}
+        initialJulesDailyLimit={julesDailyLimit}
+        initialJulesConcurrentLimit={julesConcurrentLimit}
       />
 
       <TaskDetailsModal
@@ -908,7 +1114,49 @@ Otherwise, based on the task description, provide a short, direct answer or inst
         onClose={() => setSelectedTask(null)}
         tasks={tasks}
         onDeleteTask={handleDeleteTask}
+        onUpdateTask={(updatedTask) => {
+          setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+          db.tasks.update(updatedTask.id, {
+            title: updatedTask.title,
+            description: updatedTask.description
+          });
+          setSelectedTask(updatedTask);
+        }}
       />
+
+      {taskToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-white mb-2">Delete Task?</h3>
+              <p className="text-sm text-neutral-400 mb-6">
+                {taskToDelete.status !== 'INITIATED' ? (
+                  <>This task is currently in <span className="font-mono text-blue-400">{taskToDelete.status}</span>. Deleting it will stop any active agent work and remove it permanently. Are you sure?</>
+                ) : (
+                  <>This task has chat history. Deleting it will remove it permanently. Are you sure?</>
+                )}
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setTaskToDelete(null)}
+                  className="px-4 py-2 text-sm font-medium text-neutral-300 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    handleDeleteTask(taskToDelete.id);
+                    setTaskToDelete(null);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-md transition-colors"
+                >
+                  Delete Task
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Task } from '../types';
-import { X, Terminal, Paperclip, Trash2, Eye, Brain } from 'lucide-react';
+import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
 import { Artifact, db } from '../services/db';
@@ -13,12 +13,16 @@ interface TaskDetailsModalProps {
   onClose: () => void;
   tasks: Task[];
   onDeleteTask?: (taskId: string) => void;
+  onUpdateTask?: (task: Task) => void;
   onAnalyzeArtifact?: (artifactId: number) => void;
 }
 
-export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, onAnalyzeArtifact }: TaskDetailsModalProps) {
+export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, onUpdateTask, onAnalyzeArtifact }: TaskDetailsModalProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [activeTab, setActiveTab] = useState<'logs' | 'chat'>('chat');
+  const [userMessage, setUserMessage] = useState('');
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
@@ -46,6 +50,20 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
   }, [task?.logs]);
 
   if (!task) return null;
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userMessage.trim() || !onUpdateTask) return;
+
+    const timestamp = new Date().toLocaleTimeString();
+    const messageLog = `\n\n> [User - ${timestamp}] ${userMessage}\n`;
+
+    onUpdateTask({
+      ...task,
+      chat: (task.chat || '') + messageLog
+    });
+    setUserMessage('');
+  };
 
   const handleAttach = async (artifactIds: number[]) => {
     const taskFs = new TaskFs();
@@ -88,7 +106,7 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
     setIsAnalyzing(true);
     setAnalysisResult(null);
     try {
-      const ai = new GoogleGenAI({ apiKey: localStorage.getItem('geminiKey') || import.meta.env.VITE_GEMINI_API_KEY || 'dummy_key' });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Analyze the following artifact content from a software task. 
@@ -112,13 +130,13 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-4xl max-h-full flex flex-col shadow-2xl overflow-hidden">
         
         <div className="flex items-center justify-between p-4 border-b border-neutral-800 bg-neutral-950/50">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 flex-1 mr-4">
             <h2 className="text-lg font-semibold text-neutral-100">{task.title}</h2>
-            <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
+            <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700 shrink-0">
               {task.status}
             </span>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 shrink-0">
             {onDeleteTask && (
               <button 
                 onClick={handleDeleteTask}
@@ -231,23 +249,72 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
             </div>
           </div>
           
-          {/* Right Panel: Terminal Logs */}
+          {/* Right Panel: Terminal Logs & Chat */}
           <div className="w-full md:w-2/3 flex flex-col bg-[#0d1117]">
-            <div className="flex items-center px-4 py-2 border-b border-neutral-800 bg-[#161b22]">
-              <Terminal className="w-4 h-4 text-neutral-400 mr-2" />
-              <span className="text-xs font-mono text-neutral-400">Agent Supervisor & Logs</span>
+            <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800 bg-[#161b22]">
+              <div className="flex items-center space-x-4">
+                <button 
+                  onClick={() => setActiveTab('logs')}
+                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'logs' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                >
+                  Logs
+                </button>
+                <button 
+                  onClick={() => setActiveTab('chat')}
+                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'chat' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                >
+                  Chat
+                </button>
+              </div>
+              {activeTab === 'logs' && (
+                <button 
+                  onClick={() => setShowLogs(!showLogs)}
+                  className="text-[10px] font-mono text-blue-400 hover:text-blue-300 transition-colors uppercase"
+                >
+                  {showLogs ? 'Hide Logs' : 'Show Logs'}
+                </button>
+              )}
             </div>
             <div className="flex-1 p-4 overflow-y-auto font-mono text-sm text-neutral-300 custom-scrollbar">
-              {task.logs ? (
-                <pre className="whitespace-pre-wrap break-words leading-relaxed">
-                  {task.logs}
-                </pre>
+              {activeTab === 'logs' ? (
+                !showLogs ? (
+                  <div className="h-full flex items-center justify-center text-neutral-600 italic">
+                    Logs are hidden. Click "Show Logs" to view.
+                  </div>
+                ) : task.logs ? (
+                  <pre className="whitespace-pre-wrap break-words leading-relaxed">
+                    {task.logs}
+                  </pre>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-neutral-600 italic">
+                    Waiting for agent to start processing...
+                  </div>
+                )
               ) : (
-                <div className="h-full flex items-center justify-center text-neutral-600 italic">
-                  Waiting for agent to start processing...
+                <div className="whitespace-pre-wrap break-words leading-relaxed font-sans">
+                  {task.chat || <div className="text-neutral-600 italic">No chat messages yet.</div>}
                 </div>
               )}
               <div ref={logsEndRef} />
+            </div>
+            
+            <div className="p-3 border-t border-neutral-800 bg-[#161b22]">
+              <form onSubmit={handleSendMessage} className="flex gap-2">
+                <input
+                  type="text"
+                  value={userMessage}
+                  onChange={(e) => setUserMessage(e.target.value)}
+                  placeholder={`Send a message to the agent ${activeTab}...`}
+                  className="flex-1 bg-[#0d1117] border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-300 focus:outline-none focus:border-blue-500 font-mono"
+                />
+                <button
+                  type="submit"
+                  disabled={!userMessage.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Send
+                </button>
+              </form>
             </div>
           </div>
         </div>

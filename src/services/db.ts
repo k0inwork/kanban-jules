@@ -35,7 +35,7 @@ export interface AgentMessage {
   id?: number;
   sender: string;
   taskId?: string;
-  type: 'info' | 'proposal' | 'alert';
+  type: 'info' | 'proposal' | 'alert' | 'chat';
   content: string;
   proposedTask?: {
     title: string;

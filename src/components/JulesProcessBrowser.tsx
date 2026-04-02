@@ -1,16 +1,40 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../services/db';
 import { Task } from '../types';
 import { Bot, Terminal, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { julesApi } from '../lib/julesApi';
 
 interface JulesProcessBrowserProps {
   tasks: Task[];
+  julesApiKey: string;
 }
 
-export default function JulesProcessBrowser({ tasks }: JulesProcessBrowserProps) {
+export default function JulesProcessBrowser({ tasks, julesApiKey }: JulesProcessBrowserProps) {
   const sessions = useLiveQuery(() => db.julesSessions.orderBy('createdAt').reverse().toArray()) || [];
+
+  useEffect(() => {
+    const pruneSessions = async () => {
+      if (!julesApiKey) return;
+      try {
+        const res = await julesApi.listSessions(julesApiKey, 100);
+        const remoteSessionNames = new Set(res.sessions.map(s => s.name));
+        
+        const localSessions = await db.julesSessions.toArray();
+        for (const localSession of localSessions) {
+          if (!remoteSessionNames.has(localSession.name)) {
+            console.log(`Pruning inactive Jules session: ${localSession.name}`);
+            await db.julesSessions.delete(localSession.id);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to prune Jules sessions", e);
+      }
+    };
+    
+    pruneSessions();
+  }, [julesApiKey]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
