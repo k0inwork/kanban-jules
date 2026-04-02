@@ -13,14 +13,10 @@ interface MailboxViewProps {
 }
 
 export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessageToTask, autonomyMode }: MailboxViewProps) {
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string>('');
+  const [newMessageTaskId, setNewMessageTaskId] = useState<string>('');
   const [newMessageContent, setNewMessageContent] = useState('');
-
-  const toggleSection = (section: string) => {
-    setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
 
   const messages = useLiveQuery(async () => {
     const all = await db.messages.orderBy('timestamp').reverse().toArray();
@@ -28,6 +24,23 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
   });
 
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
+
+  const threads = React.useMemo(() => {
+    if (!messages) return [];
+    const groups: Record<string, AgentMessage[]> = {};
+    messages.forEach(m => {
+      const key = m.taskId || 'system';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
+    });
+    return Object.entries(groups).map(([taskId, msgs]) => ({
+      taskId,
+      task: tasks.find(t => t.id === taskId),
+      messages: msgs,
+      latestTimestamp: msgs[0].timestamp,
+      unreadCount: msgs.filter(m => m.status === 'unread').length
+    })).sort((a, b) => b.latestTimestamp - a.latestTimestamp);
+  }, [messages, tasks]);
 
   const handleMessageClick = async (msg: AgentMessage) => {
     if (msg.id) {
@@ -49,10 +62,11 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
   const activeTasks = tasks.filter(t => ['INITIATED', 'WORKING', 'PAUSED', 'POLLING', 'REVIEW'].includes(t.status));
 
   const handleSendNewMessage = () => {
-    if (selectedTaskId && newMessageContent.trim() && onSendMessageToTask) {
-      onSendMessageToTask(selectedTaskId, newMessageContent);
+    const targetId = selectedTaskId || newMessageTaskId;
+    if (targetId && targetId !== 'system' && newMessageContent.trim() && onSendMessageToTask) {
+      onSendMessageToTask(targetId, newMessageContent);
       setNewMessageContent('');
-      setSelectedTaskId('');
+      setNewMessageTaskId('');
       setIsNewMessageOpen(false);
     }
   };
@@ -61,7 +75,7 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
     <div 
       key={msg.id}
       className={cn(
-        "p-3 rounded-lg border transition-all cursor-pointer",
+        "p-3 rounded-lg border transition-all cursor-pointer mb-2",
         msg.status === 'unread' 
           ? "bg-neutral-800 border-blue-500/50 shadow-lg shadow-blue-500/5" 
           : "bg-neutral-900/50 border-neutral-800 opacity-80"
@@ -74,7 +88,7 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
           {msg.type === 'proposal' && <CheckCircle className="w-3 h-3 text-green-400" />}
           {msg.type === 'alert' && <AlertTriangle className="w-3 h-3 text-amber-400" />}
           <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">
-            {tasks.find(t => t.id === msg.taskId)?.title || msg.sender}
+            {msg.sender}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -96,7 +110,7 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
       </div>
 
       <div className="text-sm text-neutral-300 prose prose-invert prose-xs max-w-none">
-        <div className="line-clamp-3">
+        <div className={cn(selectedTaskId ? "" : "line-clamp-2")}>
           <Markdown>{msg.content}</Markdown>
         </div>
       </div>
@@ -115,27 +129,41 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
     </div>
   );
 
+  const selectedThread = threads.find(t => t.taskId === selectedTaskId);
+
   return (
-    <div className="flex flex-col h-full bg-neutral-900/50">
-      <div className="p-4 border-b border-neutral-800 flex justify-between items-center bg-neutral-900">
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <Mail className="w-4 h-4" />
-          Mailbox
-        </h2>
-        <button 
-          className={cn(
-            "p-1 hover:bg-neutral-800 rounded transition-colors",
-            isNewMessageOpen && "bg-neutral-800 text-blue-400"
-          )} 
-          onClick={() => setIsNewMessageOpen(!isNewMessageOpen)}
-          title="New Message to Task"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
+    <div className="flex flex-col h-full bg-neutral-900/50 overflow-hidden">
+      <div className="p-4 border-b border-neutral-800 flex justify-between items-center bg-neutral-900 shrink-0">
+        <div className="flex items-center gap-2">
+          {selectedTaskId && (
+            <button 
+              onClick={() => setSelectedTaskId(null)}
+              className="p-1 hover:bg-neutral-800 rounded text-neutral-400"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Mail className="w-4 h-4" />
+            {selectedTaskId ? (selectedThread?.task?.title || 'System') : 'Mailbox'}
+          </h2>
+        </div>
+        {!selectedTaskId && (
+          <button 
+            className={cn(
+              "p-1 hover:bg-neutral-800 rounded transition-colors",
+              isNewMessageOpen && "bg-neutral-800 text-blue-400"
+            )} 
+            onClick={() => setIsNewMessageOpen(!isNewMessageOpen)}
+            title="New Message to Task"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
-      {isNewMessageOpen && (
-        <div className="p-4 border-b border-neutral-800 bg-neutral-900/80 animate-in slide-in-from-top duration-200">
+      {isNewMessageOpen && !selectedTaskId && (
+        <div className="p-4 border-b border-neutral-800 bg-neutral-900/80 animate-in slide-in-from-top duration-200 shrink-0">
           <div className="flex justify-between items-center mb-3">
             <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">New Message to Task</span>
             <button onClick={() => setIsNewMessageOpen(false)} className="text-neutral-500 hover:text-white">
@@ -147,8 +175,8 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
             <div>
               <label className="block text-[10px] text-neutral-500 mb-1 uppercase">Select Task</label>
               <select 
-                value={selectedTaskId}
-                onChange={(e) => setSelectedTaskId(e.target.value)}
+                value={newMessageTaskId}
+                onChange={(e) => setNewMessageTaskId(e.target.value)}
                 className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="">Select a running task...</option>
@@ -172,7 +200,7 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
             
             <button 
               onClick={handleSendNewMessage}
-              disabled={!selectedTaskId || !newMessageContent.trim()}
+              disabled={!newMessageTaskId || !newMessageContent.trim()}
               className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold py-2 rounded transition-colors flex items-center justify-center gap-2"
             >
               <Zap className="w-3 h-3" />
@@ -182,12 +210,65 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        {messages?.map(renderMessage)}
-        {messages?.length === 0 && !isNewMessageOpen && (
-          <div className="flex flex-col items-center justify-center h-full text-neutral-600 space-y-2">
-            <Mail className="w-8 h-8 opacity-20" />
-            <span className="text-xs font-mono">Mailbox is empty</span>
+      <div className="flex-1 overflow-y-auto p-2">
+        {selectedTaskId ? (
+          <div className="flex flex-col h-full">
+            <div className="flex-1">
+              {selectedThread?.messages.map(renderMessage)}
+            </div>
+            
+            {selectedTaskId !== 'system' && (
+              <div className="mt-4 p-3 border-t border-neutral-800 bg-neutral-900/30 rounded-lg">
+                <textarea 
+                  value={newMessageContent}
+                  onChange={(e) => setNewMessageContent(e.target.value)}
+                  placeholder="Reply to this task..."
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 min-h-[60px] resize-none mb-2"
+                />
+                <button 
+                  onClick={handleSendNewMessage}
+                  disabled={!newMessageContent.trim()}
+                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold py-1.5 rounded transition-colors flex items-center justify-center gap-2"
+                >
+                  <Zap className="w-3 h-3" />
+                  Send Reply
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {threads.map(thread => (
+              <button
+                key={thread.taskId}
+                onClick={() => setSelectedTaskId(thread.taskId)}
+                className="w-full text-left p-3 rounded-lg border border-neutral-800 bg-neutral-900/30 hover:bg-neutral-800 transition-all group relative"
+              >
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-xs font-semibold text-neutral-200 truncate pr-8">
+                    {thread.task?.title || 'System Notifications'}
+                  </span>
+                  {thread.unreadCount > 0 && (
+                    <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                      {thread.unreadCount}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-neutral-500 line-clamp-1 mb-2">
+                  {thread.messages[0].content}
+                </div>
+                <div className="text-[9px] text-neutral-600 font-mono flex justify-between items-center">
+                  <span>{new Date(thread.latestTimestamp).toLocaleTimeString()}</span>
+                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-400">View Thread →</span>
+                </div>
+              </button>
+            ))}
+            {threads.length === 0 && !isNewMessageOpen && (
+              <div className="flex flex-col items-center justify-center h-full py-20 text-neutral-600 space-y-2">
+                <Mail className="w-8 h-8 opacity-20" />
+                <span className="text-xs font-mono">Mailbox is empty</span>
+              </div>
+            )}
           </div>
         )}
       </div>

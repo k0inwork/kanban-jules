@@ -32,7 +32,7 @@ export class ProcessAgent {
 
     const context = {
       tasks: tasks.map(t => ({ title: t.title, status: t.status, description: t.description })),
-      artifacts: artifacts.map(a => ({ name: a.name, content: a.content.substring(0, 500) })),
+      artifacts: artifacts.map(a => ({ name: a.name, content: (a.content || '').substring(0, 500) })),
       unreadMessages: unreadMessages.map(m => ({ sender: m.sender, content: m.content, type: m.type })),
       constitution
     };

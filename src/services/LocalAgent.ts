@@ -262,6 +262,17 @@ export class LocalAgent {
         
         currentContents.push({ role: 'model', parts: [{ text: responseText }] });
 
+        // Add model text to task chat history (cleaned of XML tags)
+        const cleanText = responseText.replace(/<[^>]*>?/gm, '').trim();
+        if (cleanText) {
+          const task = await db.tasks.get(this.taskId);
+          if (task) {
+            await db.tasks.update(this.taskId, { 
+              chat: (task.chat || '') + `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${cleanText}\n`
+            });
+          }
+        }
+
         // Parse XML-like tool calls
         // Regex to match <toolName attr1="val1" attr2="val2" /> or <toolName />
         const toolCallRegex = /<(\w+)\s*([^>]*?)\/?>/g;
@@ -348,16 +359,10 @@ export class LocalAgent {
                   status: 'unread',
                   timestamp: Date.now()
                 });
-                // We can't easily update the task.chat from here without passing a callback, 
-                // but we can update it in the DB directly or pass a callback.
-                // Let's just update the DB directly since we have the task ID.
-                const task = await db.tasks.get(this.taskId);
-                if (task) {
-                  await db.tasks.update(this.taskId, { 
-                    chat: (task.chat || '') + `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${call.args.question}\n`,
-                    status: 'PAUSED'
-                  });
-                }
+                // Status update to PAUSED. Chat history is updated at the start of the turn.
+                await db.tasks.update(this.taskId, { 
+                  status: 'PAUSED'
+                });
                 appendLog(`> [LocalAgent] Pausing task to wait for user input.\n`);
                 return { findings, savedArtifactIds, status: 'PAUSED' };
               } else {
@@ -367,7 +372,7 @@ export class LocalAgent {
               result = { error: e.message };
             }
             
-            const resultStr = JSON.stringify(result, null, 2);
+            const resultStr = JSON.stringify(result, null, 2) || '';
             toolResults.push(`<tool_response name="${call.name}">\n${resultStr}\n</tool_response>`);
             appendLog(`> [Tool Response] ${call.name} result: ${resultStr.substring(0, 200)}${resultStr.length > 200 ? '...' : ''}\n`);
           }

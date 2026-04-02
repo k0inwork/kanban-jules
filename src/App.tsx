@@ -448,7 +448,19 @@ export default function App() {
             if (activity.progressUpdated) {
               appendLog(`> [Progress] ${activity.progressUpdated.title}\n`);
             } else if (activity.agentMessaged) {
-              appendLog(`> [Jules] ${activity.agentMessaged.agentMessage}\n`);
+              const msg = activity.agentMessaged.agentMessage;
+              appendLog(`> [Jules] ${msg}\n`);
+              
+              // Add to task chat history
+              const chatMsg = `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${msg}\n`;
+              setTasks(prev => prev.map(t => {
+                if (t.id === task.id) {
+                  const updatedChat = (t.chat || '') + chatMsg;
+                  db.tasks.update(t.id, { chat: updatedChat });
+                  return { ...t, chat: updatedChat };
+                }
+                return t;
+              }));
             } else if (activity.planGenerated) {
               appendLog(`> [Plan Generated]\n`);
               activity.planGenerated.plan.steps.forEach(step => {
@@ -489,10 +501,10 @@ export default function App() {
               status: 'unread',
               timestamp: Date.now()
             });
-            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, chat: (t.chat || '') + `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${lastJulesMessage}\n` } : t));
+            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'PAUSED' } : t));
             const currentTask = await db.tasks.get(task.id);
             if (currentTask) {
-              await db.tasks.update(task.id, { chat: (currentTask.chat || '') + `\n\n> [Agent - ${new Date().toLocaleTimeString()}] ${lastJulesMessage}\n` });
+              await db.tasks.update(task.id, { status: 'PAUSED' });
             }
             isDone = true; // Stop polling so user can answer
           } else if (currentState === 'COMPLETED' || currentState === 'FAILED') {
