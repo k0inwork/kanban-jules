@@ -1,6 +1,76 @@
 import { GoogleGenAI } from '@google/genai';
 import { TaskProtocol } from '../types';
 
+export const parseTasksFromMessage = async (
+  messageContent: string,
+  apiProvider: string,
+  geminiModel: string,
+  openaiUrl: string,
+  openaiKey: string,
+  openaiModel: string,
+  geminiApiKey: string
+): Promise<{ title: string; description: string }[]> => {
+  const prompt = `You are a Task Architect. Analyze the following message and extract one or more concrete software tasks.
+A task should be a specific, actionable piece of work.
+If the message contains multiple distinct requests, break them into separate tasks.
+If the message is a single request, return it as one task.
+
+Message Content:
+${messageContent}
+
+Output ONLY valid JSON matching this schema:
+{
+  "tasks": [
+    {
+      "title": "Short, descriptive title",
+      "description": "Detailed instructions for the task"
+    }
+  ]
+}`;
+
+  try {
+    if (apiProvider === 'gemini') {
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey || process.env.GEMINI_API_KEY || '' });
+      const response = await ai.models.generateContent({
+        model: geminiModel,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+      const data = JSON.parse(response.text || '{"tasks": []}');
+      return data.tasks || [];
+    } else {
+      const response = await fetch(`${openaiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openaiKey}`
+        },
+        body: JSON.stringify({
+          model: openaiModel,
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          temperature: 0.1
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const parsed = JSON.parse(data.choices[0].message.content || '{"tasks": []}');
+        return parsed.tasks || [];
+      }
+    }
+  } catch (e) {
+    console.error("Failed to parse tasks from message:", e);
+  }
+  
+  // Fallback: return the original message as a single task
+  return [{
+    title: "Task from Mailbox",
+    description: messageContent
+  }];
+};
+
 export const generateTaskProtocol = async (
   taskTitle: string,
   taskDescription: string,
@@ -8,7 +78,8 @@ export const generateTaskProtocol = async (
   geminiModel: string,
   openaiUrl: string,
   openaiKey: string,
-  openaiModel: string
+  openaiModel: string,
+  geminiApiKey: string
 ): Promise<TaskProtocol> => {
   const prompt = `You are a Task Architect. Your job is to break down a task into a strict protocol of steps.
 For each step, decide if it should be delegated to 'jules' or 'local'.
@@ -42,7 +113,7 @@ Output ONLY valid JSON matching this schema:
 
   try {
     if (apiProvider === 'gemini') {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey || process.env.GEMINI_API_KEY || '' });
       const response = await ai.models.generateContent({
         model: geminiModel,
         contents: prompt,

@@ -3,17 +3,29 @@ import { Tab } from './PreviewTabs';
 import Markdown from 'react-markdown';
 import { Plus, X, Zap, Send } from 'lucide-react';
 import { AgentMessage } from '../services/db';
+import { parseTasksFromMessage } from '../services/TaskArchitect';
 
 interface PreviewPaneProps {
   activeTab: Tab | null;
-  onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean }) => void;
+  onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean; skipDelete?: boolean }) => void;
   onDeclineProposal?: (messageId: number) => void;
   onReplyToMail?: (message: AgentMessage, replyText: string) => void;
   autonomyMode?: 'manual' | 'assisted' | 'full';
+  apiProvider?: string;
+  geminiModel?: string;
+  openaiUrl?: string;
+  openaiKey?: string;
+  openaiModel?: string;
+  geminiApiKey?: string;
 }
 
-export default function PreviewPane({ activeTab, onAcceptProposal, onDeclineProposal, onReplyToMail, autonomyMode }: PreviewPaneProps) {
+export default function PreviewPane({ 
+  activeTab, onAcceptProposal, onDeclineProposal, onReplyToMail, autonomyMode,
+  apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview',
+  openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = ''
+}: PreviewPaneProps) {
   const [replyText, setReplyText] = useState('');
+  const [isExtracting, setIsExtracting] = useState(false);
 
   if (!activeTab) {
     return (
@@ -25,6 +37,43 @@ export default function PreviewPane({ activeTab, onAcceptProposal, onDeclineProp
 
   if (activeTab.type === 'mail') {
     const msg = activeTab.message;
+    
+    const handleExtractTasks = async () => {
+      if (!msg || !onAcceptProposal) return;
+      setIsExtracting(true);
+      try {
+        const extractedTasks = await parseTasksFromMessage(
+          msg.content,
+          apiProvider,
+          geminiModel,
+          openaiUrl,
+          openaiKey,
+          openaiModel,
+          geminiApiKey
+        );
+
+        if (extractedTasks.length === 0) {
+          onAcceptProposal({
+            ...msg,
+            proposedTask: {
+              title: `Task from Mailbox`,
+              description: msg.content
+            }
+          });
+        } else {
+          for (let i = 0; i < extractedTasks.length; i++) {
+            onAcceptProposal({
+              ...msg,
+              proposedTask: extractedTasks[i]
+            }, {
+              skipDelete: i < extractedTasks.length - 1
+            });
+          }
+        }
+      } finally {
+        setIsExtracting(false);
+      }
+    };
     
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-[#0d1117]">
@@ -62,6 +111,23 @@ export default function PreviewPane({ activeTab, onAcceptProposal, onDeclineProp
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {msg?.type !== 'proposal' && (
+            <div className="mt-6">
+              <button 
+                disabled={isExtracting}
+                onClick={handleExtractTasks}
+                className="flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold py-2 px-4 rounded uppercase tracking-wider transition-colors border border-neutral-700 disabled:opacity-50"
+              >
+                {isExtracting ? (
+                  <Zap className="w-4 h-4 animate-pulse" />
+                ) : (
+                  <Plus className="w-4 h-4" />
+                )}
+                {isExtracting ? 'Extracting Tasks...' : 'Create Task(s) from Message'}
+              </button>
             </div>
           )}
         </div>

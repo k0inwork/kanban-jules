@@ -4,19 +4,31 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, AgentMessage } from '../services/db';
 import { cn } from '../lib/utils';
 import Markdown from 'react-markdown';
+import { parseTasksFromMessage } from '../services/TaskArchitect';
 
 interface MailboxViewProps {
-  onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean }) => void;
+  onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean; skipDelete?: boolean }) => void;
   onOpenMail?: (message: AgentMessage) => void;
   onSendMessageToTask?: (taskId: string, message: string) => void;
   autonomyMode: 'manual' | 'assisted' | 'full';
+  apiProvider?: string;
+  geminiModel?: string;
+  openaiUrl?: string;
+  openaiKey?: string;
+  openaiModel?: string;
+  geminiApiKey?: string;
 }
 
-export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessageToTask, autonomyMode }: MailboxViewProps) {
+export default function MailboxView({ 
+  onAcceptProposal, onOpenMail, onSendMessageToTask, autonomyMode,
+  apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview', 
+  openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = ''
+}: MailboxViewProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
   const [newMessageTaskId, setNewMessageTaskId] = useState<string>('');
   const [newMessageContent, setNewMessageContent] = useState('');
+  const [extractingMsgId, setExtractingMsgId] = useState<number | null>(null);
 
   const messages = useLiveQuery(async () => {
     const all = await db.messages.orderBy('timestamp').reverse().toArray();
@@ -57,6 +69,46 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
 
   const deleteMessage = async (id: number) => {
     await db.messages.delete(id);
+  };
+
+  const handleCreateTaskFromMessage = async (msg: AgentMessage) => {
+    if (!msg.id || !onAcceptProposal) return;
+    
+    setExtractingMsgId(msg.id);
+    try {
+      const extractedTasks = await parseTasksFromMessage(
+        msg.content,
+        apiProvider,
+        geminiModel,
+        openaiUrl,
+        openaiKey,
+        openaiModel,
+        geminiApiKey
+      );
+
+      if (extractedTasks.length === 0) {
+        // Fallback if no tasks extracted
+        onAcceptProposal({
+          ...msg,
+          proposedTask: {
+            title: `Task from Mailbox`,
+            description: msg.content
+          }
+        });
+      } else {
+        // Create a task for each extracted one
+        for (let i = 0; i < extractedTasks.length; i++) {
+          onAcceptProposal({
+            ...msg,
+            proposedTask: extractedTasks[i]
+          }, {
+            skipDelete: i < extractedTasks.length - 1
+          });
+        }
+      }
+    } finally {
+      setExtractingMsgId(null);
+    }
   };
 
   const activeTasks = tasks.filter(t => t.workflowStatus === 'IN_PROGRESS' || t.workflowStatus === 'IN_REVIEW');
@@ -145,22 +197,19 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
       {msg.type !== 'proposal' && (
         <div className="mt-3 flex justify-end">
           <button
+            disabled={extractingMsgId === msg.id}
             onClick={(e) => {
               e.stopPropagation();
-              if (onAcceptProposal) {
-                onAcceptProposal({
-                  ...msg,
-                  proposedTask: {
-                    title: `Task from Mailbox`,
-                    description: msg.content
-                  }
-                });
-              }
+              handleCreateTaskFromMessage(msg);
             }}
-            className="text-[10px] bg-neutral-800 hover:bg-neutral-700 text-neutral-300 px-2 py-1 rounded border border-neutral-700 flex items-center gap-1 transition-colors"
+            className="text-[10px] bg-neutral-800 hover:bg-neutral-700 text-neutral-300 px-2 py-1 rounded border border-neutral-700 flex items-center gap-1 transition-colors disabled:opacity-50"
           >
-            <Plus className="w-3 h-3" />
-            Create Task
+            {extractingMsgId === msg.id ? (
+              <Zap className="w-3 h-3 animate-pulse" />
+            ) : (
+              <Plus className="w-3 h-3" />
+            )}
+            {extractingMsgId === msg.id ? 'Extracting...' : 'Create Task'}
           </button>
         </div>
       )}

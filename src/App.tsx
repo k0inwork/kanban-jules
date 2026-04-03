@@ -31,7 +31,7 @@ import { RepositoryTool, repositoryToolDeclarations } from './services/Repositor
 import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
-import { generateTaskProtocol } from './services/TaskArchitect';
+import { generateTaskProtocol, parseTasksFromMessage } from './services/TaskArchitect';
 
 export default function App() {
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
@@ -166,26 +166,52 @@ export default function App() {
     }
   };
 
-  const handleAcceptProposal = async (message: AgentMessage, options?: { autoStart?: boolean }) => {
+  const handleAcceptProposal = async (message: AgentMessage, options?: { autoStart?: boolean; skipDelete?: boolean }) => {
+    console.log("[App] handleAcceptProposal", message);
+    
+    // If it's a direct proposal, use it. Otherwise, parse the message content.
+    let tasksToCreate: { title: string; description: string }[] = [];
+    
     if (message.proposedTask) {
+      tasksToCreate = [{
+        title: message.proposedTask.title,
+        description: message.proposedTask.description
+      }];
+    } else {
+      // Use LLM to extract tasks from the message content
+      tasksToCreate = await parseTasksFromMessage(
+        message.content,
+        apiProvider,
+        geminiModel,
+        openaiUrl,
+        openaiKey,
+        openaiModel,
+        geminiApiKey
+      );
+    }
+
+    for (const taskData of tasksToCreate) {
       const newTask: Task = {
         id: uuidv4(),
-        title: message.proposedTask.title,
-        description: message.proposedTask.description,
+        title: taskData.title,
+        description: taskData.description,
         workflowStatus: options?.autoStart ? 'IN_PROGRESS' : 'TODO',
         agentState: options?.autoStart ? 'EXECUTING' : 'IDLE',
         createdAt: Date.now(),
-        actionLog: `> [Decision] Task created based on proposal: ${message.content}\n`
+        actionLog: `> [Decision] Task created based on message: ${message.content.substring(0, 50)}...\n`
       };
       await db.tasks.add(newTask);
-      if (message.id) {
-        await db.messages.delete(message.id);
-        handleTabClose(`mail-${message.id}`);
-      }
       if (options?.autoStart) {
         processTask(newTask);
       }
     }
+
+    if (message.id && !options?.skipDelete) {
+      await db.messages.delete(message.id);
+      handleTabClose(`mail-${message.id}`);
+    }
+    
+    setIsViewingBoard(true);
   };
 
   const unreadMessagesCount = useLiveQuery(() => 
@@ -433,7 +459,7 @@ export default function App() {
 
       let ai: GoogleGenAI | undefined;
       if (apiProvider === 'gemini') {
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        ai = new GoogleGenAI({ apiKey: geminiApiKey || process.env.GEMINI_API_KEY || '' });
       }
       
       const agentConfig = {
@@ -442,7 +468,7 @@ export default function App() {
         openaiUrl,
         openaiKey,
         openaiModel,
-        geminiApiKey: process.env.GEMINI_API_KEY || ''
+        geminiApiKey: geminiApiKey || process.env.GEMINI_API_KEY || ''
       };
 
       // Generate Protocol if not exists
@@ -456,7 +482,8 @@ export default function App() {
           geminiModel,
           openaiUrl,
           openaiKey,
-          openaiModel
+          openaiModel,
+          geminiApiKey
         );
         await db.tasks.update(task.id, { protocol });
         currentTask = { ...currentTask!, protocol };
@@ -1032,6 +1059,12 @@ export default function App() {
                 onOpenMail={handleOpenMail}
                 onSendMessageToTask={handleSendMessageToTask}
                 autonomyMode={autonomyMode}
+                apiProvider={apiProvider}
+                geminiModel={geminiModel}
+                geminiApiKey={geminiApiKey}
+                openaiUrl={openaiUrl}
+                openaiKey={openaiKey}
+                openaiModel={openaiModel}
               />
             )}
           </div>
@@ -1066,6 +1099,12 @@ export default function App() {
               onDeclineProposal={handleDeclineProposal}
               onReplyToMail={handleReplyToMail}
               autonomyMode={autonomyMode}
+              apiProvider={apiProvider}
+              geminiModel={geminiModel}
+              openaiUrl={openaiUrl}
+              openaiKey={openaiKey}
+              openaiModel={openaiModel}
+              geminiApiKey={geminiApiKey}
             />
           ) : (
             <KanbanBoard 
