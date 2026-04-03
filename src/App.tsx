@@ -34,16 +34,16 @@ import { cn } from './lib/utils';
 import { generateTaskProtocol } from './services/TaskArchitect';
 
 export default function App() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
 
   useEffect(() => {
-    const loadTasks = async () => {
-      const storedTasks = await db.tasks.toArray();
-      if (storedTasks.length > 0) {
-        setTasks(storedTasks);
+    const initDb = async () => {
+      const count = await db.tasks.count();
+      if (count === 0) {
+        await db.tasks.bulkAdd(initialTasks);
       }
     };
-    loadTasks();
+    initDb();
   }, []);
 
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => (localStorage.getItem('autonomyMode') as AutonomyMode) || 'assisted');
@@ -177,7 +177,6 @@ export default function App() {
         createdAt: Date.now(),
         actionLog: `> [Decision] Task created based on proposal: ${message.content}\n`
       };
-      setTasks(prev => [...prev, newTask]);
       await db.tasks.add(newTask);
       if (message.id) {
         await db.messages.delete(message.id);
@@ -222,224 +221,166 @@ export default function App() {
       // 2. Jules Postman (Polling & Classification)
       const waitingTasks = tasks.filter(t => t.agentState === 'WAITING_FOR_JULES');
       for (const task of waitingTasks) {
-        let session = await db.julesSessions.where('taskId').equals(task.id).first();
-        
-        // If no session exists for this task, we might need to create one or find a taskless one
-        if (!session && julesApiKey) {
-          try {
-            // Find a taskless session in the same repo/branch
-            const tasklessSession = await db.julesSessions
-              .where('repoUrl').equals(repoUrl || '')
-              .and(s => s.branchName === repoBranch && !s.taskId)
-              .first();
-            
-            if (tasklessSession) {
-              console.log(`[Postman] Reusing taskless session ${tasklessSession.name} for task ${task.id}`);
-              await db.julesSessions.update(tasklessSession.id, { taskId: task.id, title: task.title });
-              session = { ...tasklessSession, taskId: task.id };
-              
-              // Send context to Jules
-              const reusePrompt = `IMPORTANT: We are starting new work.\n\nTask: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
-              await JulesSessionManager.sendMessage(julesApiKey, session.name, reusePrompt);
-            } else {
-              // Create new session
-              console.log(`[Postman] Creating new Jules session for task ${task.id}`);
-              const sourceContext = {
-                source: julesSourceName,
-                githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
-              };
-              const sessionRes = await JulesSessionManager.createSession(julesApiKey, task, sourceContext);
-              const newSession = {
-                id: sessionRes.name,
-                name: sessionRes.name,
-                title: task.title,
-                taskId: task.id,
-                status: sessionRes.state,
-                createdAt: Date.now(),
-                repoUrl: repoUrl || '',
-                branchName: repoBranch
-              };
-              await db.julesSessions.add(newSession);
-              session = newSession;
-            }
-          } catch (e: any) {
-            const errorMsg = `[Postman] Failed to initialize session for task ${task.id}: ${e.message}`;
-            console.error(errorMsg);
-            setGlobalLogs(prev => [...prev.slice(-49), errorMsg]);
-            continue;
+        if (!julesApiKey) continue;
+
+        try {
+          const session = await JulesSessionManager.findOrCreateSession(julesApiKey, task, repoUrl || '', repoBranch || '', julesSourceName);
+          if (!session) continue;
+
+          if (task.pendingJulesPrompt) {
+            console.log(`[Postman] Sending pending prompt to Jules for task ${task.id}`);
+            await JulesSessionManager.sendMessage(julesApiKey, session.name, task.pendingJulesPrompt);
+            await db.tasks.update(task.id, { pendingJulesPrompt: undefined });
           }
-        }
 
-        if (session && julesApiKey) {
-          try {
-            if (task.pendingJulesPrompt) {
-              console.log(`[Postman] Sending pending prompt to Jules for task ${task.id}`);
-              await JulesSessionManager.sendMessage(julesApiKey, session.name, task.pendingJulesPrompt);
-              await db.tasks.update(task.id, { pendingJulesPrompt: undefined });
-              setTasks(prev => prev.map(t => t.id === task.id ? { ...t, pendingJulesPrompt: undefined } : t));
-            }
+          const activitiesRes = await julesApi.listActivities(julesApiKey, session.name, 10);
+          const activities = activitiesRes.activities || [];
+          
+          for (const activity of activities) {
+            // Check if already processed using activity.name as unique ID
+            const existingMsg = await db.messages.where('activityName').equals(activity.name).first();
+            if (existingMsg) continue;
 
-            const activitiesRes = await julesApi.listActivities(julesApiKey, session.name, 10);
-            const activities = activitiesRes.activities || [];
-            
-            for (const activity of activities) {
-              // Check if already processed
-              const existingMsg = await db.messages.where('taskId').equals(task.id).filter(m => m.content === JSON.stringify(activity)).first();
-              if (existingMsg) continue;
+            let category: 'SIGNAL' | 'NOISE' = 'NOISE';
+            let content = '';
+            let type: 'info' | 'chat' | 'alert' = 'info';
 
-              let category: 'SIGNAL' | 'NOISE' = 'NOISE';
-              let content = '';
-              let type: 'info' | 'chat' | 'alert' = 'info';
-
-              if (activity.agentMessaged) {
-                const rawContent = activity.agentMessaged.agentMessage;
-                
-                // Parse tags
-                const chatMatch = rawContent.match(/<chat>(.*?)<\/chat>/s);
-                const dataMatch = rawContent.match(/<data type="(.*?)">(.*?)<\/data>/s);
-                
-                const chatContent = chatMatch ? chatMatch[1].trim() : rawContent;
-                const dataContent = dataMatch ? dataMatch[2].trim() : null;
-                const dataType = dataMatch ? dataMatch[1] : null;
-
-                // Log chat content
-                if (chatContent) {
-                  await db.tasks.update(task.id, { 
-                    chat: (task.chat || '') + `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${chatContent}\n`
-                  });
-                }
-
-                // Handle data content
-                if (dataContent) {
-                  // Save as artifact
-                  await db.taskArtifacts.add({
-                    taskId: task.id,
-                    repoName: '',
-                    branchName: '',
-                    name: `_jules_data_${Date.now()}`,
-                    content: dataContent
-                  });
-                  
-                  // Update protocol status (simplified)
-                  if (task.protocol) {
-                    const updatedProtocol = {
-                      ...task.protocol,
-                      steps: task.protocol.steps.map(s => s.status === 'in_progress' ? { ...s, status: 'completed' as const } : s)
-                    };
-                    await db.tasks.update(task.id, { protocol: updatedProtocol });
-                  }
-                }
-                
-                content = chatContent;
-                type = 'chat';
-                
-                // Classify agent message
-                if (apiProvider === 'gemini') {
-                  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-                  const classification = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
-                    SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                    NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-                    
-                    Message: "${content}"
-                    
-                    Return only "SIGNAL" or "NOISE".`,
-                  });
-                  category = (classification.text?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
-                } else {
-                  const response = await fetch(`${openaiUrl}/chat/completions`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${openaiKey}`
-                    },
-                    body: JSON.stringify({
-                      model: openaiModel,
-                      messages: [{ role: 'user', content: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
-                    SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                    NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-                    
-                    Message: "${content}"
-                    
-                    Return only "SIGNAL" or "NOISE".` }],
-                      temperature: 0.1
-                    })
-                  });
-                  if (response.ok) {
-                    const data = await response.json();
-                    category = (data.choices[0].message.content?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
-                  }
-                }
-              } else if (activity.progressUpdated) {
-                content = `Progress: ${activity.progressUpdated.title}`;
-                category = 'NOISE';
-              } else if (activity.planGenerated) {
-                content = `Plan Generated: ${activity.planGenerated.plan.steps.map(s => s.title).join(', ')}`;
-                category = 'SIGNAL'; // Plans usually need approval/review
-                type = 'alert';
-              }
-
-              if (content) {
-                await db.messages.add({
-                  sender: `Jules (${session.name})`,
-                  taskId: task.id,
-                  type,
-                  category,
-                  content,
-                  status: 'unread',
-                  timestamp: new Date(activity.createTime).getTime()
-                });
-
-                // If it's a SIGNAL, wake up the LocalAgent
-                if (category === 'SIGNAL') {
-                  const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${content}\n`;
-                  setTasks(prev => prev.map(t => {
-                    if (t.id === task.id) {
-                      const updatedChat = (t.chat || '') + chatMsg;
-                      db.tasks.update(t.id, { chat: updatedChat, agentState: 'IDLE' });
-                      return { ...t, chat: updatedChat, agentState: 'IDLE' };
-                    }
-                    return t;
-                  }));
-                }
-              }
+            if (activity.agentMessaged) {
+              const rawContent = activity.agentMessaged.agentMessage;
               
-              // Mark activity as processed by saving its JSON as content (hacky but works for uniqueness)
-              await db.messages.add({
-                sender: 'system',
-                taskId: task.id,
-                type: 'info',
-                content: JSON.stringify(activity),
-                status: 'read',
-                timestamp: Date.now()
+              // Robust tag parsing (handles literal and escaped brackets)
+              const chatRegex = /(?:<|&lt;)chat(?:>|&gt;)(.*?)(?:(?:<|&lt;)\/chat(?:>|&gt;)|$)/s;
+              const dataRegex = /(?:<|&lt;)data\s+type=["']?(.*?)["']?\s*(?:>|&gt;)(.*?)(?:(?:<|&lt;)\/data(?:>|&gt;)|$)/s;
+              
+              const chatMatch = rawContent.match(chatRegex);
+              const dataMatch = rawContent.match(dataRegex);
+              
+              const chatContent = chatMatch ? chatMatch[1].trim() : rawContent;
+              const dataContent = dataMatch ? dataMatch[2].trim() : null;
+              const dataType = dataMatch ? dataMatch[1] : null;
+
+              // Log RAW content to chat history so the LocalAgent can see the tags
+              // We use the rawContent to ensure the Active Assessor has all the context
+              await db.tasks.update(task.id, { 
+                chat: (task.chat || '') + `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${rawContent}\n`
               });
-            }
 
-            // Update session status
-            const currentSession = await julesApi.getSession(julesApiKey, session.name);
-            await db.julesSessions.update(session.id, { status: currentSession.state });
-
-            if (currentSession.state === 'COMPLETED' || currentSession.state === 'FAILED') {
-              // Mark session as taskless so it can be reused
-              await db.julesSessions.update(session.id, { taskId: undefined });
+              // Handle data content
+              if (dataContent) {
+                // Save as artifact
+                await db.taskArtifacts.add({
+                  taskId: task.id,
+                  repoName: '',
+                  branchName: '',
+                  name: `_jules_data_${Date.now()}`,
+                  content: dataContent
+                });
+              }
               
-              const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] Session ${currentSession.state}.\n`;
-              setTasks(prev => prev.map(t => {
-                if (t.id === task.id) {
-                  const updatedChat = (t.chat || '') + chatMsg;
-                  db.tasks.update(t.id, { chat: updatedChat, agentState: 'EXECUTING' });
-                  return { ...t, chat: updatedChat, agentState: 'EXECUTING' };
+              content = chatContent;
+              type = 'chat';
+              
+              // Classify agent message
+              if (apiProvider === 'gemini') {
+                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+                const classification = await ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
+                  SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
+                  NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
+                  
+                  Message: "${content}"
+                  
+                  Return only "SIGNAL" or "NOISE".`,
+                });
+                category = (classification.text?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
+              } else {
+                const response = await fetch(`${openaiUrl}/chat/completions`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${openaiKey}`
+                  },
+                  body: JSON.stringify({
+                    model: openaiModel,
+                    messages: [{ role: 'user', content: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
+                  SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
+                  NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
+                  
+                  Message: "${content}"
+                  
+                  Return only "SIGNAL" or "NOISE".` }],
+                    temperature: 0.1
+                  })
+                });
+                if (response.ok) {
+                  const data = await response.json();
+                  category = (data.choices[0].message.content?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
                 }
-                return t;
-              }));
+              }
+            } else if (activity.progressUpdated) {
+              content = `Progress: ${activity.progressUpdated.title}`;
+              category = 'NOISE';
+            } else if (activity.planGenerated) {
+              content = `Plan Generated: ${activity.planGenerated.plan.steps.map(s => s.title).join(', ')}`;
+              category = 'SIGNAL'; // Plans usually need approval/review
+              type = 'alert';
             }
-          } catch (e: any) {
-            console.error(`[Postman] Error polling session ${session.name}:`, e);
-            if (e.status === 404 || e.message?.includes('not found')) {
-              // Only delete if truly not found in Jules
-              await db.julesSessions.delete(session.id);
+
+            if (content) {
+              await db.messages.add({
+                sender: `Jules (${session.name})`,
+                taskId: task.id,
+                type,
+                category,
+                content,
+                activityName: activity.name,
+                status: 'unread',
+                timestamp: new Date(activity.createTime).getTime()
+              });
+
+              // If it's a SIGNAL, wake up the LocalAgent
+              if (category === 'SIGNAL') {
+                const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${content}\n`;
+                const t = await db.tasks.get(task.id);
+                if (t) {
+                  const updatedChat = (t.chat || '') + chatMsg;
+                  await db.tasks.update(t.id, { chat: updatedChat, agentState: 'IDLE' });
+                }
+              }
             }
+            
+            // Mark activity as processed by saving its JSON as content (hacky but works for uniqueness)
+            await db.messages.add({
+              sender: 'system',
+              taskId: task.id,
+              type: 'info',
+              content: JSON.stringify(activity),
+              status: 'read',
+              timestamp: Date.now()
+            });
+          }
+
+          // Update session status
+          const currentSession = await julesApi.getSession(julesApiKey, session.name);
+          await db.julesSessions.update(session.id, { status: currentSession.state });
+
+          if (currentSession.state === 'COMPLETED' || currentSession.state === 'FAILED') {
+            // Mark session as taskless so it can be reused
+            await db.julesSessions.update(session.id, { taskId: undefined });
+            
+            const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] Session ${currentSession.state}.\n`;
+            const t = await db.tasks.get(task.id);
+            if (t) {
+              const updatedChat = (t.chat || '') + chatMsg;
+              await db.tasks.update(t.id, { chat: updatedChat, agentState: 'EXECUTING' });
+            }
+          }
+        } catch (e: any) {
+          console.error(`[Postman] Error polling session for task ${task.id}:`, e);
+          if (e.status === 404 || e.message?.includes('not found')) {
+            // Only delete if truly not found in Jules
+            await db.julesSessions.where('taskId').equals(task.id).delete();
           }
         }
       }
@@ -455,7 +396,6 @@ export default function App() {
     if (task) {
       const updatedLog = (task.actionLog || '') + logEntry;
       await db.tasks.update(taskId, { actionLog: updatedLog });
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, actionLog: updatedLog } : t));
     }
   };
 
@@ -463,31 +403,21 @@ export default function App() {
     if (processingRef.current.has(task.id)) return;
     processingRef.current.add(task.id);
     
-    setTasks(prev => prev.map(t => {
-      if (t.id === task.id) {
-        const isResuming = t.workflowStatus === 'IN_PROGRESS';
-        const updatedTask = { 
-          ...t, 
-          workflowStatus: 'IN_PROGRESS' as WorkflowStatus,
-          agentState: 'EXECUTING' as AgentState,
-          agentId: t.agentId || 'jules-agent', 
-          logs: isResuming ? t.logs : (t.logs ? t.logs + '\n\n---\n\n' : '') + '> Initializing Agent Session...\n' 
-        };
-        db.tasks.update(task.id, { 
-          workflowStatus: updatedTask.workflowStatus,
-          agentState: updatedTask.agentState,
-          agentId: updatedTask.agentId,
-          logs: updatedTask.logs
-        });
-        return updatedTask;
-      }
-      return t;
-    }));
+    const isResuming = task.workflowStatus === 'IN_PROGRESS';
+    const updatedTaskData = { 
+      workflowStatus: 'IN_PROGRESS' as WorkflowStatus,
+      agentState: 'EXECUTING' as AgentState,
+      agentId: task.agentId || 'jules-agent', 
+      logs: isResuming ? task.logs : (task.logs ? task.logs + '\n\n---\n\n' : '') + '> Initializing Agent Session...\n' 
+    };
+    await db.tasks.update(task.id, updatedTaskData);
+    const updatedTask = { ...task, ...updatedTaskData };
 
-    const appendLog = (text: string) => {
-      setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, logs: (t.logs || '') + text } : t
-      ));
+    const appendLog = async (text: string) => {
+      const t = await db.tasks.get(task.id);
+      if (t) {
+        await db.tasks.update(task.id, { logs: (t.logs || '') + text });
+      }
     };
 
     try {
@@ -496,8 +426,8 @@ export default function App() {
       }
 
       if (!repoUrl) {
-        appendLog(`> [Error] Execution requires a repository source. Please select a repository.\n`);
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined } : t));
+        await appendLog(`> [Error] Execution requires a repository source. Please select a repository.\n`);
+        await db.tasks.update(task.id, { workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined });
         return;
       }
 
@@ -529,26 +459,25 @@ export default function App() {
           openaiModel
         );
         await db.tasks.update(task.id, { protocol });
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, protocol } : t));
         currentTask = { ...currentTask!, protocol };
-        appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);
+        await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);
       }
 
       const token = import.meta.env.VITE_GITHUB_TOKEN;
       if (!token) {
-        appendLog(`> [Error] GitHub token not configured.\n`);
-        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined } : t));
+        await appendLog(`> [Error] GitHub token not configured.\n`);
+        await db.tasks.update(task.id, { workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined });
         return;
       }
       
-      appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
+      await appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
       const agent = new LocalAgent(ai as any, repoUrl, repoBranch || 'main', token, task.id, task.title, agentConfig);
       
       let taskContext = `Protocol: ${JSON.stringify(task.protocol, null, 2)}\n\n` + (task.logs || '') + (task.chat || '');
 
       const { findings, savedArtifactIds, status } = await agent.runTask(task.title, task.description, taskContext, appendLog);
       
-      appendLog(`> [Local] Analysis complete. Status: ${status}\n`);
+      await appendLog(`> [Local] Analysis complete. Status: ${status}\n`);
       
       // Determine new workflow status and agent state
       let nextWorkflowStatus: WorkflowStatus = 'IN_REVIEW';
@@ -563,25 +492,12 @@ export default function App() {
         nextAgentState = 'IDLE';
       }
 
-      setTasks(prev => prev.map(t => {
-        if (t.id === task.id) {
-          const updatedTask = { 
-            ...t, 
-            workflowStatus: nextWorkflowStatus,
-            agentState: nextAgentState,
-            agentId: 'local-agent', 
-            artifactIds: [...(t.artifactIds || []), ...savedArtifactIds]
-          };
-          db.tasks.update(task.id, { 
-            workflowStatus: updatedTask.workflowStatus,
-            agentState: updatedTask.agentState,
-            agentId: updatedTask.agentId, 
-            artifactIds: updatedTask.artifactIds 
-          });
-          return updatedTask;
-        }
-        return t;
-      }));
+      await db.tasks.update(task.id, { 
+        workflowStatus: nextWorkflowStatus,
+        agentState: nextAgentState,
+        agentId: 'local-agent', 
+        artifactIds: [...(task.artifactIds || []), ...savedArtifactIds]
+      });
       processingRef.current.delete(task.id);
       
       // Trigger automatic review after a task is completed
@@ -596,9 +512,6 @@ export default function App() {
       appendLog(`\n\n[FATAL ERROR] ${error.message}`);
       await appendActionLogToTask(task.id, `Fatal error: ${error.message}. Resetting status to ${nextWorkflowStatus}.`);
       
-      setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, workflowStatus: nextWorkflowStatus, agentState: nextAgentState, agentId: undefined } : t
-      ));
       await db.tasks.update(task.id, { workflowStatus: nextWorkflowStatus, agentState: nextAgentState, agentId: undefined });
       processingRef.current.delete(task.id);
       setAutonomyMode('manual');
@@ -607,9 +520,6 @@ export default function App() {
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
-    if (selectedTask?.id === taskId) setSelectedTask(null);
-    
     // Remove associated messages
     await db.messages.where('taskId').equals(taskId).delete();
     
@@ -646,7 +556,6 @@ export default function App() {
     }
 
     const updatedTask = { ...task, workflowStatus: newStatus, agentState: newAgentState };
-    setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
     await db.tasks.update(taskId, { 
       workflowStatus: newStatus,
       agentState: newAgentState,
@@ -678,7 +587,6 @@ export default function App() {
       }
     }
     
-    setTasks(prev => [...prev, newTask]);
     await db.tasks.add(newTask);
     setIsNewTaskModalOpen(false);
   };
@@ -692,17 +600,16 @@ export default function App() {
   }, [tasks, selectedTask?.id]);
 
   const handleAttachArtifact = async (taskId: string, artifactId: number) => {
+    const task = await db.tasks.get(taskId);
+    if (!task) return;
+    
     const taskFs = new TaskFs();
     await taskFs.attachArtifact(taskId, artifactId);
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const currentIds = t.artifactIds || [];
-        if (!currentIds.includes(artifactId)) {
-          return { ...t, artifactIds: [...currentIds, artifactId] };
-        }
-      }
-      return t;
-    }));
+    
+    const currentIds = task.artifactIds || [];
+    if (!currentIds.includes(artifactId)) {
+      await db.tasks.update(taskId, { artifactIds: [...currentIds, artifactId] });
+    }
   };
 
   const handleFileSelect = async (file: GitFile) => {
@@ -785,8 +692,6 @@ export default function App() {
         actionLog: (task.actionLog || '') + `> [${timestamp}] Replied to message: ${replyText.substring(0, 50)}...\n`
       });
       
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...updatedTask, actionLog: (task.actionLog || '') + `> [${timestamp}] Replied to message: ${replyText.substring(0, 50)}...\n` } : t));
-      
       // Send to Jules if it's a Jules task
       if (task.agentId === 'jules-agent') {
         const session = await db.julesSessions.where('taskId').equals(task.id).first();
@@ -830,8 +735,6 @@ export default function App() {
       chat: updatedTask.chat,
       actionLog: (task.actionLog || '') + `> [${timestamp}] Sent message: ${message.substring(0, 50)}...\n`
     });
-
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...updatedTask, actionLog: (task.actionLog || '') + `> [${timestamp}] Sent message: ${message.substring(0, 50)}...\n` } : t));
 
     if (task.agentId === 'jules-agent') {
       const session = await db.julesSessions.where('taskId').equals(task.id).first();
@@ -1212,7 +1115,6 @@ export default function App() {
         onDeleteTask={handleDeleteTask}
         onSendMessage={handleSendMessageToTask}
         onUpdateTask={(updatedTask) => {
-          setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
           db.tasks.update(updatedTask.id, {
             title: updatedTask.title,
             description: updatedTask.description,

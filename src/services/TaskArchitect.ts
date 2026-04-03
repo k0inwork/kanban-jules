@@ -11,8 +11,17 @@ export const generateTaskProtocol = async (
   openaiModel: string
 ): Promise<TaskProtocol> => {
   const prompt = `You are a Task Architect. Your job is to break down a task into a strict protocol of steps.
-For each step, decide if it should be delegated to 'jules' (for CLI execution, running code, searching the codebase, modifying files) or 'local' (for API calls, asking the user, reading artifacts, or simple reasoning).
-CRITICAL: If a task or step is CLI heavy, requires running scripts, or modifying the repository, you MUST send it to 'jules'.
+For each step, decide if it should be delegated to 'jules' or 'local'.
+
+JULES CAPABILITIES:
+Jules is a highly intelligent remote agent with full access to the repository, CLI, and file system. 
+CRITICAL: Do NOT micro-manage Jules with many small, fragmented steps. Jules is capable of handling complex, multi-step instructions in a single turn.
+If a task involves searching the codebase, modifying multiple files, and running tests/scripts, GROUP these into a single, ambitious 'jules' step.
+
+DELEGATION RULES:
+- 'jules': Use for ALL repository work (CLI, code search, file modifications, running code). Group related repository work into large, comprehensive steps.
+- 'local': Use for high-level coordination, API calls to other services, asking the user for input, or simple reasoning that doesn't require repository access.
+
 If a step requires creating an internal/local artifact to store state or intermediate results, specify it in the description and ensure its name is prefixed with '_' (e.g., '_analysis.md').
 
 Task Title: ${taskTitle}
@@ -24,7 +33,7 @@ Output ONLY valid JSON matching this schema:
     {
       "id": 1,
       "title": "Step title",
-      "description": "Detailed description of what to do. Mention any _prefixed artifacts to create.",
+      "description": "Detailed, comprehensive instructions for the agent. For Jules, provide the full scope of the repository work needed.",
       "delegateTo": "local" | "jules",
       "status": "pending"
     }

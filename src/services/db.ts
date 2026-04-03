@@ -40,6 +40,7 @@ export interface AgentMessage {
   type: 'info' | 'proposal' | 'alert' | 'chat';
   category?: 'SIGNAL' | 'NOISE';
   content: string;
+  activityName?: string;
   proposedTask?: {
     title: string;
     description: string;
@@ -65,12 +66,12 @@ export class MyDatabase extends Dexie {
 
   constructor() {
     super('AgentKanbanDB');
-    this.version(14).stores({
+    this.version(15).stores({
       gitCache: 'path',
       taskArtifacts: '++id, taskId, repoName, branchName',
       taskArtifactLinks: '++id, taskId, artifactId',
       julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
-      messages: '++id, sender, taskId, type, status, category, timestamp',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
       tasks: 'id, workflowStatus, agentState, createdAt',
       projectConfigs: 'id'
     });

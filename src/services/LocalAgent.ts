@@ -100,13 +100,11 @@ export class LocalAgent {
     appendLog(`> [LocalAgent] Task Description: ${taskDescription}\n`);
     
     // Active Assessor: Check if the last message was from Jules and needs assessment
-    const task = await db.tasks.get(this.taskId);
+    let task = await db.tasks.get(this.taskId);
     const lastJulesMessage = task?.chat?.split('\n').reverse().find(line => line.includes('> [Jules -'));
     
-    if (lastJulesMessage && task?.agentState === 'EXECUTING') {
+    if (lastJulesMessage) {
       appendLog(`> [LocalAgent] Assessing latest response from Jules...\n`);
-      // The LLM will naturally see the last Jules message in the taskLogs/Chat History
-      // and is instructed by its system prompt to assess it.
     }
 
     appendLog(`> [LocalAgent] Repository: ${this.repoUrl}, Branch: ${this.branch}\n`);
@@ -296,7 +294,7 @@ export class LocalAgent {
     const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration, ...localCommunicationToolDeclarations, ...localJulesToolDeclarations] }];
     appendLog(`> [LocalAgent] Tools available: ${tools[0].functionDeclarations.map(f => f.name).join(', ')}\n`);
     
-    const task = await db.tasks.get(this.taskId);
+    task = await db.tasks.get(this.taskId);
     const protocolStr = task?.protocol ? JSON.stringify(task.protocol, null, 2) : 'No protocol defined.';
 
     const prompt = `
@@ -322,22 +320,32 @@ export class LocalAgent {
       - **History:** If you need to see older technical logs that have been evicted, use the \`getJulesHistory\` tool.
       
       ### Jules Delegation
-      For complex coding, refactoring, or long-running executions, use the `delegateToJules` tool. 
+      For complex coding, refactoring, or long-running executions, use the \`delegateToJules\` tool. 
       This will pause your execution. You will be woken up when Jules has a significant update.
+      
+      JULES CAPABILITIES:
+      Jules is a highly intelligent remote agent with full access to the repository, CLI, and file system. 
+      CRITICAL: Do NOT micro-manage Jules with many small, fragmented steps. Jules is capable of handling complex, multi-step instructions in a single turn.
+      If a task involves searching the codebase, modifying multiple files, and running tests/scripts, GROUP these into a single, ambitious \`delegateToJules\` prompt.
       
       Jules is instructed to use a Tagged Communication Protocol:
       - All conversational text MUST be wrapped in <chat> tags.
       - All structured data, results, or file contents MUST be wrapped in <data type="..."> tags.
       
-      When you receive a response from Jules:
-      1. Parse the <chat> and <data> tags.
-      2. Log the <chat> content to the task chat history.
-      3. If <data> is present, save it as an artifact and update the protocol status.
-      4. If the data is incomplete or incorrect, formulate a targeted follow-up request to Jules explaining exactly what is missing or incorrect.
-      5. If Jules fails twice, stop and use `askUser` to request human guidance.
+      ### YOUR ROLE AS ACTIVE ASSESSOR:
+      When you receive a response from Jules (visible in the chat history below):
+      1. **Verify Completion**: Check if the response contains the information requested in the current protocol step.
+      2. **Parse Tags**: Look for <chat> and <data> tags.
+      3. **Assess Quality**: If the data is present, verify it is complete and correct.
+      4. **Take Action**:
+         - If the step is satisfied: Use \`updateProtocolStepStatus\` to mark it as "completed".
+         - If the data is missing or incorrect: Formulate a targeted follow-up request to Jules using \`delegateToJules\`. Explain exactly what is missing.
+         - If Jules fails twice for the same step: Use \`askUser\` to request human intervention.
+      
+      CRITICAL: Do NOT just repeat the same delegation prompt if Jules has already responded. You must either ACCEPT the response (mark as completed) or REJECT it with specific feedback.
       
       Task Logs/Chat History:
-      ${taskLogs}
+      ${taskLogs.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
       
       You have the following tools available. To call a tool, you MUST use the following XML-like tags:
       
@@ -355,6 +363,8 @@ export class LocalAgent {
       - <updateProtocolStepStatus stepId="1" status="completed"/> : Update the status of a step in the Task Protocol (pending, in_progress, completed, failed).
       - <delegateToJules prompt="instructions for jules"/> : Delegate a complex coding or execution task to the remote Jules environment.
       - <getJulesHistory taskId="task-id" [limit="20" offset="0"]/> : Retrieve older technical logs or messages from the Jules session.
+      
+      NOTE: The chat history above may contain escaped XML tags (e.g. &lt;chat&gt;). You MUST treat these as literal tags for your assessment.
       
       COMMUNICATION RULES:
       1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.
@@ -391,7 +401,8 @@ export class LocalAgent {
         currentContents.push({ role: 'model', parts: [{ text: responseText }] });
 
         // Add model text to task chat history (cleaned of XML tags)
-        const cleanText = responseText.replace(/<[^>]*>?/gm, '').trim();
+        // Clean both literal and escaped tags
+        const cleanText = responseText.replace(/(?:<|&lt;)[^>]*?(?:>|&gt;)/gm, '').trim();
         if (cleanText) {
           const task = await db.tasks.get(this.taskId);
           if (task) {
@@ -403,7 +414,8 @@ export class LocalAgent {
 
         // Parse XML-like tool calls
         // Regex to match <toolName attr1="val1" attr2="val2" /> or <toolName />
-        const toolCallRegex = /<(\w+)\s*([^>]*?)\/?>/g;
+        // Handles both literal and escaped brackets
+        const toolCallRegex = /(?:<|&lt;)(\w+)\s*([^>]*?)\/?(?:>|&gt;)/g;
         let match;
         const toolCalls: { name: string, args: any }[] = [];
 
@@ -479,7 +491,11 @@ export class LocalAgent {
                     ...task.protocol,
                     steps: task.protocol.steps.map(s => s.id === stepId ? { ...s, status: newStatus as any } : s)
                   };
-                  await db.tasks.update(this.taskId, { protocol: updatedProtocol });
+                  const updates: any = { protocol: updatedProtocol };
+                  if (newStatus === 'completed') {
+                    updates.julesRetryCount = 0; // Reset retry count on success
+                  }
+                  await db.tasks.update(this.taskId, updates);
                   result = { success: true, message: `Step ${stepId} status updated to ${newStatus}` };
                   await appendActionLog(`Updated protocol step ${stepId} to ${newStatus}`);
                 } else {
@@ -545,22 +561,24 @@ export class LocalAgent {
                 const retryCount = (task?.julesRetryCount || 0) + 1;
                 
                 if (retryCount > 2) {
-                  result = { error: "Jules has failed to provide correct data twice. Please use the askUser tool to request human guidance." };
+                  result = { error: "Jules has failed to provide correct data twice. You MUST now use the askUser tool to request human guidance. Do NOT attempt to delegate to Jules again for this step until you have consulted the user." };
                   await appendActionLog(`Jules retry limit exceeded. Forcing askUser.`);
-                  continue;
+                  // We don't return here, we let the LLM see the error and decide to use askUser
+                } else {
+                  const timestamp = new Date().toLocaleTimeString();
+                  const systemInstruction = `SYSTEM INSTRUCTION: Always wrap conversational text in <chat> tags. Always wrap structured data, results, or file contents in <data type="..."> tags.`;
+                  const reinforcedPrompt = `${systemInstruction}\n\n${call.args.prompt}`;
+                  
+                  await db.tasks.update(this.taskId, {
+                    agentState: 'WAITING_FOR_JULES',
+                    pendingJulesPrompt: reinforcedPrompt,
+                    julesRetryCount: retryCount,
+                    actionLog: (task?.actionLog || '') + `> [${timestamp}] DELEGATING TO JULES (Retry ${retryCount}): ${call.args.prompt}\n`
+                  });
+                  
+                  appendLog(`\n> [LocalAgent] Delegating to Jules (Retry ${retryCount}): ${call.args.prompt}\n`);
+                  return { findings, savedArtifactIds, status: 'PAUSED' };
                 }
-
-                const timestamp = new Date().toLocaleTimeString();
-                
-                await db.tasks.update(this.taskId, {
-                  agentState: 'WAITING_FOR_JULES',
-                  pendingJulesPrompt: call.args.prompt,
-                  julesRetryCount: retryCount,
-                  actionLog: (task?.actionLog || '') + `> [${timestamp}] DELEGATING TO JULES (Retry ${retryCount}): ${call.args.prompt}\n`
-                });
-                
-                appendLog(`\n> [LocalAgent] Delegating to Jules (Retry ${retryCount}): ${call.args.prompt}\n`);
-                return { findings, savedArtifactIds, status: 'PAUSED' };
               } else if (call.name === 'getJulesHistory') {
                 const limit = parseInt(call.args.limit || '20');
                 const offset = parseInt(call.args.offset || '0');
