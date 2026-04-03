@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Task } from '../types';
-import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save } from 'lucide-react';
+import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save, Download } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
 import { Artifact, db } from '../services/db';
@@ -106,6 +106,34 @@ export default function TaskDetailsModal({
     }
   };
 
+  const handleDownloadDebugInfo = async () => {
+    if (!task) return;
+    const debugInfo = {
+      task: {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        workflowStatus: task.workflowStatus,
+        agentState: task.agentState,
+        protocol: task.protocol,
+        chat: task.chat,
+        logs: task.logs,
+        actionLog: task.actionLog,
+      },
+      artifacts: taskArtifacts.map(a => ({
+        name: a.name,
+        content: a.content,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(debugInfo, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `debug-task-${task.id}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleAnalyze = async () => {
     if (!selectedArtifact) return;
     setIsAnalyzing(true);
@@ -170,6 +198,13 @@ export default function TaskDetailsModal({
             </div>
           </div>
           <div className="flex items-center space-x-2 shrink-0">
+            <button 
+              onClick={handleDownloadDebugInfo}
+              className="p-2 text-neutral-400 hover:text-blue-400 transition-colors"
+              title="Download Debug Info"
+            >
+              <Download className="w-5 h-5" />
+            </button>
             {onDeleteTask && (
               <button 
                 onClick={handleDeleteTask}

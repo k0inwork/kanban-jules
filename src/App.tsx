@@ -9,6 +9,7 @@ import NewTaskModal from './components/NewTaskModal';
 import TaskDetailsModal from './components/TaskDetailsModal';
 import SettingsModal from './components/SettingsModal';
 import { executeJulesCommand } from './lib/jules';
+import { JulesSessionManager } from './services/JulesSessionManager';
 import { julesApi, SessionState } from './lib/julesApi';
 import { LocalAgent, AgentConfig } from './services/LocalAgent';
 import { ProcessAgent } from './services/ProcessAgent';
@@ -46,6 +47,7 @@ export default function App() {
   }, []);
 
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => (localStorage.getItem('autonomyMode') as AutonomyMode) || 'assisted');
+  const [globalLogs, setGlobalLogs] = useState<string[]>([]);
   const [isReviewing, setIsReviewing] = useState(false);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -64,6 +66,7 @@ export default function App() {
   const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
   const [julesDailyLimit, setJulesDailyLimit] = useState(() => parseInt(localStorage.getItem('julesDailyLimit') || '10'));
   const [julesConcurrentLimit, setJulesConcurrentLimit] = useState(() => parseInt(localStorage.getItem('julesConcurrentLimit') || '2'));
+  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('geminiApiKey') || process.env.GEMINI_API_KEY || '');
 
   // Preview Tabs
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -91,9 +94,10 @@ export default function App() {
     oKey: string,
     oModel: string,
     jDailyLimit: number,
-    jConcurrentLimit: number
+    jConcurrentLimit: number,
+    gApiKey: string
   ) => {
-    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, jDailyLimit, jConcurrentLimit });
+    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, jDailyLimit, jConcurrentLimit, gApiKey });
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
@@ -107,6 +111,7 @@ export default function App() {
     setOpenaiModel(oModel);
     setJulesDailyLimit(jDailyLimit);
     setJulesConcurrentLimit(jConcurrentLimit);
+    setGeminiApiKey(gApiKey);
 
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
@@ -121,6 +126,7 @@ export default function App() {
     localStorage.setItem('openaiModel', oModel);
     localStorage.setItem('julesDailyLimit', jDailyLimit.toString());
     localStorage.setItem('julesConcurrentLimit', jConcurrentLimit.toString());
+    localStorage.setItem('geminiApiKey', gApiKey);
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
     if (token && repo) {
@@ -234,7 +240,7 @@ export default function App() {
               
               // Send context to Jules
               const reusePrompt = `IMPORTANT: We are starting new work.\n\nTask: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
-              await julesApi.sendMessage(julesApiKey, session.name, reusePrompt);
+              await JulesSessionManager.sendMessage(julesApiKey, session.name, reusePrompt);
             } else {
               // Create new session
               console.log(`[Postman] Creating new Jules session for task ${task.id}`);
@@ -242,12 +248,7 @@ export default function App() {
                 source: julesSourceName,
                 githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
               };
-              const sessionRes = await julesApi.createSession(julesApiKey, {
-                title: task.title,
-                prompt: task.description,
-                sourceContext,
-                requirePlanApproval: true,
-              });
+              const sessionRes = await JulesSessionManager.createSession(julesApiKey, task, sourceContext);
               const newSession = {
                 id: sessionRes.name,
                 name: sessionRes.name,
@@ -261,8 +262,10 @@ export default function App() {
               await db.julesSessions.add(newSession);
               session = newSession;
             }
-          } catch (e) {
-            console.error(`[Postman] Failed to initialize session for task ${task.id}:`, e);
+          } catch (e: any) {
+            const errorMsg = `[Postman] Failed to initialize session for task ${task.id}: ${e.message}`;
+            console.error(errorMsg);
+            setGlobalLogs(prev => [...prev.slice(-49), errorMsg]);
             continue;
           }
         }
@@ -271,7 +274,7 @@ export default function App() {
           try {
             if (task.pendingJulesPrompt) {
               console.log(`[Postman] Sending pending prompt to Jules for task ${task.id}`);
-              await julesApi.sendMessage(julesApiKey, session.name, task.pendingJulesPrompt);
+              await JulesSessionManager.sendMessage(julesApiKey, session.name, task.pendingJulesPrompt);
               await db.tasks.update(task.id, { pendingJulesPrompt: undefined });
               setTasks(prev => prev.map(t => t.id === task.id ? { ...t, pendingJulesPrompt: undefined } : t));
             }
@@ -281,7 +284,7 @@ export default function App() {
             
             for (const activity of activities) {
               // Check if already processed
-              const existingMsg = await db.messages.where('content').equals(JSON.stringify(activity)).first();
+              const existingMsg = await db.messages.where('taskId').equals(task.id).filter(m => m.content === JSON.stringify(activity)).first();
               if (existingMsg) continue;
 
               let category: 'SIGNAL' | 'NOISE' = 'NOISE';
@@ -289,7 +292,45 @@ export default function App() {
               let type: 'info' | 'chat' | 'alert' = 'info';
 
               if (activity.agentMessaged) {
-                content = activity.agentMessaged.agentMessage;
+                const rawContent = activity.agentMessaged.agentMessage;
+                
+                // Parse tags
+                const chatMatch = rawContent.match(/<chat>(.*?)<\/chat>/s);
+                const dataMatch = rawContent.match(/<data type="(.*?)">(.*?)<\/data>/s);
+                
+                const chatContent = chatMatch ? chatMatch[1].trim() : rawContent;
+                const dataContent = dataMatch ? dataMatch[2].trim() : null;
+                const dataType = dataMatch ? dataMatch[1] : null;
+
+                // Log chat content
+                if (chatContent) {
+                  await db.tasks.update(task.id, { 
+                    chat: (task.chat || '') + `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${chatContent}\n`
+                  });
+                }
+
+                // Handle data content
+                if (dataContent) {
+                  // Save as artifact
+                  await db.taskArtifacts.add({
+                    taskId: task.id,
+                    repoName: '',
+                    branchName: '',
+                    name: `_jules_data_${Date.now()}`,
+                    content: dataContent
+                  });
+                  
+                  // Update protocol status (simplified)
+                  if (task.protocol) {
+                    const updatedProtocol = {
+                      ...task.protocol,
+                      steps: task.protocol.steps.map(s => s.status === 'in_progress' ? { ...s, status: 'completed' as const } : s)
+                    };
+                    await db.tasks.update(task.id, { protocol: updatedProtocol });
+                  }
+                }
+                
+                content = chatContent;
                 type = 'chat';
                 
                 // Classify agent message
@@ -503,7 +544,7 @@ export default function App() {
       appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
       const agent = new LocalAgent(ai as any, repoUrl, repoBranch || 'main', token, task.id, task.title, agentConfig);
       
-      let taskContext = (task.logs || '') + (task.chat || '');
+      let taskContext = `Protocol: ${JSON.stringify(task.protocol, null, 2)}\n\n` + (task.logs || '') + (task.chat || '');
 
       const { findings, savedArtifactIds, status } = await agent.runTask(task.title, task.description, taskContext, appendLog);
       
@@ -751,7 +792,7 @@ export default function App() {
         const session = await db.julesSessions.where('taskId').equals(task.id).first();
         if (session) {
           try {
-            await julesApi.sendMessage(julesApiKey, session.name, `{Task} ${replyText}`);
+            await JulesSessionManager.sendMessage(julesApiKey, session.name, `{Task} ${replyText}`);
           } catch (e) {
             console.error(`Failed to send message to Jules for task ${task.id}:`, e);
           }
@@ -796,7 +837,7 @@ export default function App() {
       const session = await db.julesSessions.where('taskId').equals(task.id).first();
       if (session) {
         try {
-          await julesApi.sendMessage(julesApiKey, session.name, `{Task} ${message}`);
+          await JulesSessionManager.sendMessage(julesApiKey, session.name, `{Task} ${message}`);
         } catch (e) {
           console.error(`Failed to send message to Jules for task ${task.id}:`, e);
         }
@@ -1161,6 +1202,7 @@ export default function App() {
         initialOpenaiModel={openaiModel}
         initialJulesDailyLimit={julesDailyLimit}
         initialJulesConcurrentLimit={julesConcurrentLimit}
+        initialGeminiApiKey={geminiApiKey}
       />
 
       <TaskDetailsModal

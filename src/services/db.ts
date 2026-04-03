@@ -65,7 +65,7 @@ export class MyDatabase extends Dexie {
 
   constructor() {
     super('AgentKanbanDB');
-    this.version(13).stores({
+    this.version(14).stores({
       gitCache: 'path',
       taskArtifacts: '++id, taskId, repoName, branchName',
       taskArtifactLinks: '++id, taskId, artifactId',

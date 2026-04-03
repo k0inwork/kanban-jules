@@ -37,6 +37,14 @@ export class LocalAgent {
     console.log(`[LocalAgent] Initialized with repoUrl: ${repoUrl}, branch: ${branch}, taskId: ${taskId}, provider: ${config.apiProvider}`);
   }
 
+  private async logToChat(message: string) {
+    const task = await db.tasks.get(this.taskId);
+    if (task) {
+      const newChat = (task.chat || '') + `\n> [Agent] ${message}\n`;
+      await db.tasks.update(this.taskId, { chat: newChat });
+    }
+  }
+
   private async callLlm(contents: any[]): Promise<string> {
     if (this.config.apiProvider === 'gemini') {
       const response = await this.ai.models.generateContent({
@@ -90,6 +98,17 @@ export class LocalAgent {
     await appendActionLog(`Started local execution.`);
     appendLog(`> [LocalAgent] Task ID: ${this.taskId}\n`);
     appendLog(`> [LocalAgent] Task Description: ${taskDescription}\n`);
+    
+    // Active Assessor: Check if the last message was from Jules and needs assessment
+    const task = await db.tasks.get(this.taskId);
+    const lastJulesMessage = task?.chat?.split('\n').reverse().find(line => line.includes('> [Jules -'));
+    
+    if (lastJulesMessage && task?.agentState === 'EXECUTING') {
+      appendLog(`> [LocalAgent] Assessing latest response from Jules...\n`);
+      // The LLM will naturally see the last Jules message in the taskLogs/Chat History
+      // and is instructed by its system prompt to assess it.
+    }
+
     appendLog(`> [LocalAgent] Repository: ${this.repoUrl}, Branch: ${this.branch}\n`);
     appendLog(`> [LocalAgent] Using LLM to execute task with tools...\n`);
     appendLog(`> [System] Remember: Asking the user for clarification is a highly encouraged tool. If you are unsure about the next steps, use the askUser tool instead of guessing.\n`);
@@ -303,12 +322,19 @@ export class LocalAgent {
       - **History:** If you need to see older technical logs that have been evicted, use the \`getJulesHistory\` tool.
       
       ### Jules Delegation
-      For complex coding, refactoring, or long-running executions, use the \`delegateToJules\` tool. 
+      For complex coding, refactoring, or long-running executions, use the `delegateToJules` tool. 
       This will pause your execution. You will be woken up when Jules has a significant update.
-      When you receive a message starting with "FromJules:", analyze it and decide whether to:
-      1. Ask the user for feedback (using \`askUser\`).
-      2. Instruct Jules to change its plan (using \`delegateToJules\` again).
-      3. Complete the task if Jules has finished successfully.
+      
+      Jules is instructed to use a Tagged Communication Protocol:
+      - All conversational text MUST be wrapped in <chat> tags.
+      - All structured data, results, or file contents MUST be wrapped in <data type="..."> tags.
+      
+      When you receive a response from Jules:
+      1. Parse the <chat> and <data> tags.
+      2. Log the <chat> content to the task chat history.
+      3. If <data> is present, save it as an artifact and update the protocol status.
+      4. If the data is incomplete or incorrect, formulate a targeted follow-up request to Jules explaining exactly what is missing or incorrect.
+      5. If Jules fails twice, stop and use `askUser` to request human guidance.
       
       Task Logs/Chat History:
       ${taskLogs}
@@ -332,9 +358,13 @@ export class LocalAgent {
       
       COMMUNICATION RULES:
       1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.
-      2. Use <sendMessage type="proposal"/> if you discover a new task that needs to be done (e.g., "I found a bug in X, we should fix it").
+      2. Use <sendMessage type="proposal"/> if you discover a new task that needs to be done.
       3. Use <sendMessage type="alert"/> for critical blockers or security issues.
-      4. Do NOT spam the mailbox. Only send messages for important events.
+      4. Do NOT spam the mailbox.
+      5. **CONFIDENCE & AUTONOMY:**
+         - Assess your confidence in your findings or proposed actions.
+         - If you are HIGHLY CONFIDENT, proceed without asking the user. Log your action to the chat and continue.
+         - If you are NOT CONFIDENT or need clarification, use <askUser question="..."/> to request user intervention.
       
       CRITICAL INSTRUCTIONS:
       1. You MUST use these tags to take action. Do not just describe what you would do.
@@ -401,6 +431,7 @@ export class LocalAgent {
             let result: any;
             
             try {
+              await this.logToChat(`Executing tool: ${call.name} with args: ${JSON.stringify(call.args)}`);
               if (call.name === 'listFiles') {
                 result = await this.repositoryTool.listFiles(this.repoUrl, this.branch, this.token, call.args.path || '.');
               } else if (call.name === 'readFile') {
@@ -416,6 +447,18 @@ export class LocalAgent {
                   result = await this.artifactTool.listArtifacts(undefined, repoName, branch, this.taskId);
                 } else {
                   result = await this.artifactTool.listArtifacts(taskId, repoName, branch, this.taskId);
+                }
+              } else if (call.name === 'steppassed') {
+                const stepId = parseInt(call.args.id);
+                const task = await db.tasks.get(this.taskId);
+                if (task && task.protocol) {
+                  const updatedSteps = task.protocol.steps.map(s => 
+                    s.id === stepId ? { ...s, status: 'completed' as const } : s
+                  );
+                  await db.tasks.update(this.taskId, { protocol: { ...task.protocol, steps: updatedSteps } });
+                  result = `Step ${stepId} marked as completed.`;
+                } else {
+                  result = `Error: Task or protocol not found.`;
                 }
               } else if (call.name === 'readArtifact') {
                 result = await this.artifactTool.readArtifact(parseInt(call.args.artifactId));
@@ -499,15 +542,24 @@ export class LocalAgent {
                 return { findings, savedArtifactIds, status: 'PAUSED' };
               } else if (call.name === 'delegateToJules') {
                 const task = await db.tasks.get(this.taskId);
+                const retryCount = (task?.julesRetryCount || 0) + 1;
+                
+                if (retryCount > 2) {
+                  result = { error: "Jules has failed to provide correct data twice. Please use the askUser tool to request human guidance." };
+                  await appendActionLog(`Jules retry limit exceeded. Forcing askUser.`);
+                  continue;
+                }
+
                 const timestamp = new Date().toLocaleTimeString();
                 
                 await db.tasks.update(this.taskId, {
                   agentState: 'WAITING_FOR_JULES',
                   pendingJulesPrompt: call.args.prompt,
-                  actionLog: (task?.actionLog || '') + `> [${timestamp}] DELEGATING TO JULES: ${call.args.prompt}\n`
+                  julesRetryCount: retryCount,
+                  actionLog: (task?.actionLog || '') + `> [${timestamp}] DELEGATING TO JULES (Retry ${retryCount}): ${call.args.prompt}\n`
                 });
                 
-                appendLog(`\n> [LocalAgent] Delegating to Jules: ${call.args.prompt}\n`);
+                appendLog(`\n> [LocalAgent] Delegating to Jules (Retry ${retryCount}): ${call.args.prompt}\n`);
                 return { findings, savedArtifactIds, status: 'PAUSED' };
               } else if (call.name === 'getJulesHistory') {
                 const limit = parseInt(call.args.limit || '20');

@@ -16,6 +16,14 @@ export class ProcessAgent {
     this.branch = branch;
   }
 
+  private async logToChat(taskId: string, message: string) {
+    const task = await db.tasks.get(taskId);
+    if (task) {
+      const newChat = (task.chat || '') + `\n> [Agent] ${message}\n`;
+      await db.tasks.update(taskId, { chat: newChat });
+    }
+  }
+
   async runReview(): Promise<void> {
     console.log('[ProcessAgent] Starting project review...');
     

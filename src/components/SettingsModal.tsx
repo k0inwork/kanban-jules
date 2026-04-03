@@ -19,7 +19,8 @@ interface SettingsModalProps {
     openaiKey: string,
     openaiModel: string,
     julesDailyLimit: number,
-    julesConcurrentLimit: number
+    julesConcurrentLimit: number,
+    geminiApiKey: string
   ) => void;
   initialEndpoint: string;
   initialApiKey: string;
@@ -34,12 +35,14 @@ interface SettingsModalProps {
   initialOpenaiModel: string;
   initialJulesDailyLimit: number;
   initialJulesConcurrentLimit: number;
+  initialGeminiApiKey: string;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
   initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit
+  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit,
+  initialGeminiApiKey
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
@@ -55,6 +58,7 @@ export default function SettingsModal({
   const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
   const [julesDailyLimit, setJulesDailyLimit] = useState(initialJulesDailyLimit);
   const [julesConcurrentLimit, setJulesConcurrentLimit] = useState(initialJulesConcurrentLimit);
+  const [geminiApiKey, setGeminiApiKey] = useState(initialGeminiApiKey);
   
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
@@ -75,10 +79,12 @@ export default function SettingsModal({
       setOpenaiModel(initialOpenaiModel);
       setJulesDailyLimit(initialJulesDailyLimit);
       setJulesConcurrentLimit(initialJulesConcurrentLimit);
+      setGeminiApiKey(initialGeminiApiKey);
     }
   }, [
     isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit
+    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit,
+    initialGeminiApiKey
   ]);
 
   useEffect(() => {
@@ -108,7 +114,7 @@ export default function SettingsModal({
     e.preventDefault();
     onSave(
       endpoint, apiKey, repoUrl, branch, sourceName, sourceId,
-      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, julesDailyLimit, julesConcurrentLimit
+      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, julesDailyLimit, julesConcurrentLimit, geminiApiKey
     );
     onClose();
   };
@@ -165,17 +171,29 @@ export default function SettingsModal({
             </div>
 
             {apiProvider === 'gemini' ? (
-              <div>
-                <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Gemini Model</label>
-                <select
-                  value={geminiModel}
-                  onChange={(e) => setGeminiModel(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                >
-                  <option value="gemini-3.1-flash-preview">Gemini 3.1 Flash</option>
-                  <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
-                  <option value="gemini-3-flash-preview">Gemini 3.0 Flash</option>
-                </select>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Gemini API Key</label>
+                  <input
+                    type="password"
+                    value={geminiApiKey}
+                    onChange={(e) => setGeminiApiKey(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                    placeholder="AIza..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Gemini Model</label>
+                  <select
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                  >
+                    <option value="gemini-3.1-flash-preview">Gemini 3.1 Flash</option>
+                    <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+                    <option value="gemini-3-flash-preview">Gemini 3.0 Flash</option>
+                  </select>
+                </div>
               </div>
             ) : (
               <div className="space-y-3">

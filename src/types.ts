@@ -27,6 +27,7 @@ export interface Task {
   createdAt: number;
   forwardJulesMessages?: boolean;
   questionCount?: number;
+  julesRetryCount?: number;
   actionLog?: string;
   protocol?: TaskProtocol;
   pendingJulesPrompt?: string;
