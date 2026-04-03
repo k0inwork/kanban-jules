@@ -16,13 +16,20 @@ interface TaskDetailsModalProps {
   onUpdateTask?: (task: Task) => void;
   onSendMessage?: (taskId: string, message: string) => void;
   onAnalyzeArtifact?: (artifactId: number) => void;
+  apiProvider?: string;
+  openaiUrl?: string;
+  openaiKey?: string;
+  openaiModel?: string;
 }
 
-export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, onUpdateTask, onSendMessage, onAnalyzeArtifact }: TaskDetailsModalProps) {
+export default function TaskDetailsModal({ 
+  task, onClose, tasks, onDeleteTask, onUpdateTask, onSendMessage, onAnalyzeArtifact,
+  apiProvider = 'gemini', openaiUrl = '', openaiKey = '', openaiModel = ''
+}: TaskDetailsModalProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<'logs' | 'chat' | 'actions' | 'protocol'>('protocol');
+  const [activeTab, setActiveTab] = useState<'protocol' | 'logs' | 'chat' | 'actions'>('protocol');
   const [userMessage, setUserMessage] = useState('');
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -32,7 +39,10 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
     selectedArtifactId ? db.taskArtifacts.get(selectedArtifactId) : Promise.resolve(null)
   , [selectedArtifactId]);
 
-  const availableArtifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
+  const availableArtifacts = useLiveQuery(async () => {
+    const all = await db.taskArtifacts.toArray();
+    return all.filter(a => !a.name.startsWith('_') || a.taskId === task?.id);
+  }, [task?.id]) || [];
   const taskArtifacts = useLiveQuery(async () => {
     if (!task) return [];
     const direct = await db.taskArtifacts.where('taskId').equals(task.id).toArray();
@@ -43,9 +53,6 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
       : [];
     return [...direct, ...linked];
   }, [task?.id]) || [];
-
-  const protocolArtifact = taskArtifacts.find(a => a.name === 'task-protocol.json');
-  const protocol = protocolArtifact ? JSON.parse(protocolArtifact.content) : null;
 
   useEffect(() => {
     if (logsEndRef.current) {
@@ -103,15 +110,8 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
     if (!selectedArtifact) return;
     setIsAnalyzing(true);
     setAnalysisResult(null);
-    
-    const apiProvider = localStorage.getItem('apiProvider') || 'gemini';
-    const geminiKey = process.env.GEMINI_API_KEY || '';
-    const openaiUrl = localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1';
-    const openaiKey = localStorage.getItem('openaiKey') || '';
-    const openaiModel = localStorage.getItem('openaiModel') || 'gpt-4o';
-    const geminiModel = localStorage.getItem('geminiModel') || 'gemini-3-flash-preview';
-
-    const prompt = `Analyze the following artifact content from a software task. 
+    try {
+      const prompt = `Analyze the following artifact content from a software task. 
         Task: ${task.title}
         Artifact Name: ${selectedArtifact.name}
         Content:
@@ -119,17 +119,14 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
         
         Provide a concise summary of what this artifact is and how it relates to the task.`;
 
-    try {
       if (apiProvider === 'gemini') {
-        if (!geminiKey) throw new Error("Gemini API Key is missing.");
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
         const response = await ai.models.generateContent({
-          model: geminiModel,
+          model: 'gemini-3-flash-preview',
           contents: prompt,
         });
         setAnalysisResult(response.text || "No analysis generated.");
       } else {
-        if (!openaiKey) throw new Error("OpenAI API Key is missing.");
         const response = await fetch(`${openaiUrl}/chat/completions`, {
           method: 'POST',
           headers: {
@@ -138,11 +135,16 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
           },
           body: JSON.stringify({
             model: openaiModel,
-            messages: [{ role: 'user', content: prompt }]
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1
           })
         });
-        const data = await response.json();
-        setAnalysisResult(data.choices?.[0]?.message?.content || "No analysis generated.");
+        if (response.ok) {
+          const data = await response.json();
+          setAnalysisResult(data.choices[0].message.content || "No analysis generated.");
+        } else {
+          throw new Error(`OpenAI API error: ${await response.text()}`);
+        }
       }
     } catch (err: any) {
       setAnalysisResult(`Error analyzing artifact: ${err.message}`);
@@ -285,6 +287,12 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
             <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800 bg-[#161b22]">
               <div className="flex items-center space-x-4">
                 <button 
+                  onClick={() => setActiveTab('protocol')}
+                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'protocol' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                >
+                  Protocol
+                </button>
+                <button 
                   onClick={() => setActiveTab('logs')}
                   className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'logs' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
                 >
@@ -295,12 +303,6 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
                   className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'chat' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
                 >
                   Chat
-                </button>
-                <button 
-                  onClick={() => setActiveTab('protocol')}
-                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'protocol' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
-                >
-                  Protocol
                 </button>
                 <button 
                   onClick={() => setActiveTab('actions')}
@@ -319,7 +321,43 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
               )}
             </div>
             <div className="flex-1 p-4 overflow-y-auto font-mono text-sm text-neutral-300 custom-scrollbar">
-              {activeTab === 'logs' ? (
+              {activeTab === 'protocol' ? (
+                <div className="space-y-4 font-sans">
+                  {task.protocol ? (
+                    task.protocol.steps.map((step, idx) => (
+                      <div key={step.id} className="bg-neutral-900 border border-neutral-800 rounded p-3 flex flex-col gap-2 relative">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-neutral-800 text-neutral-400 text-xs px-2 py-0.5 rounded-full font-mono">Step {idx + 1}</span>
+                            <span className="text-sm font-semibold text-white">{step.title}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border",
+                              step.delegateTo === 'jules' ? "bg-purple-900/30 text-purple-400 border-purple-800/50" : "bg-blue-900/30 text-blue-400 border-blue-800/50"
+                            )}>
+                              {step.delegateTo === 'jules' ? '→ Jules' : 'Local'}
+                            </span>
+                            <span className={cn(
+                              "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border",
+                              step.status === 'completed' ? "bg-green-900/30 text-green-400 border-green-800/50" : 
+                              step.status === 'in_progress' ? "bg-blue-900/30 text-blue-400 border-blue-800/50" : 
+                              "bg-neutral-800 text-neutral-400 border-neutral-700"
+                            )}>
+                              {step.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-neutral-400">{step.description}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-neutral-600 italic">
+                      No protocol generated yet.
+                    </div>
+                  )}
+                </div>
+              ) : activeTab === 'logs' ? (
                 !showLogs ? (
                   <div className="h-full flex items-center justify-center text-neutral-600 italic">
                     Logs are hidden. Click "Show Logs" to view.
@@ -337,114 +375,12 @@ export default function TaskDetailsModal({ task, onClose, tasks, onDeleteTask, o
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-sans">
                   {task.chat || <div className="text-neutral-600 italic">No chat messages yet.</div>}
                 </div>
-              ) : activeTab === 'protocol' ? (
-                <div className="space-y-6 font-sans">
-                  {protocol ? (
-                    <>
-                      <div>
-                        <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-2">Objective</h3>
-                        <p className="text-sm text-neutral-200">{protocol.objective}</p>
-                      </div>
-                      
-                      <div>
-                        <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-3">Stages</h3>
-                        <div className="space-y-3">
-                          {protocol.stages?.map((stage: any, idx: number) => {
-                            const isCompleted = protocol.completed_stages?.includes(stage.name);
-                            const isCurrent = protocol.current_stage === stage.name;
-                            
-                            return (
-                              <div 
-                                key={idx} 
-                                className={cn(
-                                  "p-3 rounded-lg border transition-all",
-                                  isCurrent ? "bg-blue-900/20 border-blue-500/50 ring-1 ring-blue-500/20" : 
-                                  isCompleted ? "bg-neutral-800/30 border-green-900/30 opacity-60" : 
-                                  "bg-neutral-900/50 border-neutral-800"
-                                )}
-                              >
-                                <div className="flex items-center justify-between mb-1">
-                                  <div className="flex items-center space-x-2">
-                                    <span className={cn(
-                                      "w-2 h-2 rounded-full",
-                                      isCurrent ? "bg-blue-500 animate-pulse" : 
-                                      isCompleted ? "bg-green-500" : "bg-neutral-700"
-                                    )} />
-                                    <span className={cn(
-                                      "text-sm font-semibold",
-                                      isCurrent ? "text-blue-400" : isCompleted ? "text-green-500" : "text-neutral-400"
-                                    )}>
-                                      {stage.name}
-                                    </span>
-                                  </div>
-                                  {isCurrent && (
-                                    <span className="text-[10px] font-mono bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded uppercase">Active</span>
-                                  )}
-                                  {isCompleted && (
-                                    <span className="text-[10px] font-mono bg-green-500/10 text-green-500 px-2 py-0.5 rounded uppercase">Done</span>
-                                  )}
-                                  {stage.delegate_to === 'jules' && (
-                                    <span className="text-[10px] font-mono bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded uppercase">→ Jules</span>
-                                  )}
-                                  {stage.delegate_to === 'local' && (
-                                    <span className="text-[10px] font-mono bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded uppercase">Local</span>
-                                  )}
-                                </div>
-                                <p className="text-xs text-neutral-400 ml-4">{stage.description}</p>
-                                {stage.verification_criteria && (
-                                  <div className="mt-2 ml-4 text-[9px] text-green-500/70 italic">
-                                    <span className="font-semibold">Verification:</span> {stage.verification_criteria}
-                                  </div>
-                                )}
-                                {stage.required_artifacts?.length > 0 && (
-                                  <div className="mt-2 ml-4 flex flex-wrap gap-2">
-                                    {stage.required_artifacts.map((art: string, aidx: number) => (
-                                      <span key={aidx} className="text-[9px] font-mono bg-neutral-950 text-neutral-500 px-1.5 py-0.5 rounded border border-neutral-800">
-                                        {art}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                {stage.expected_outputs?.length > 0 && (
-                                  <div className="mt-2 ml-4 flex flex-wrap gap-2">
-                                    {stage.expected_outputs.map((out: string, oidx: number) => (
-                                      <span key={oidx} className="text-[9px] font-mono bg-blue-950/30 text-blue-400 px-1.5 py-0.5 rounded border border-blue-800/30">
-                                        {out}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {protocol.data && Object.keys(protocol.data).length > 0 && (
-                        <div>
-                          <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-2">Persisted Data</h3>
-                          <div className="bg-neutral-950 rounded-md p-3 border border-neutral-800">
-                            <pre className="text-[11px] font-mono text-neutral-500 overflow-x-auto">
-                              {JSON.stringify(protocol.data, null, 2)}
-                            </pre>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-neutral-600 italic py-12">
-                      <Brain className="w-12 h-12 mb-4 opacity-20" />
-                      <p>No protocol generated for this task yet.</p>
-                      <p className="text-xs mt-2">The Architect will create one when the task starts.</p>
-                    </div>
-                  )}
-                </div>
               ) : (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
                   {task.actionLog || <div className="text-neutral-600 italic">No actions recorded yet.</div>}
                 </div>
-              )
-            }  <div ref={logsEndRef} />
+              )}
+              <div ref={logsEndRef} />
             </div>
             
             <div className="p-3 border-t border-neutral-800 bg-[#161b22]">

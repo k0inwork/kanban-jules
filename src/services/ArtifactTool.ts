@@ -1,25 +1,23 @@
 import { db, Artifact } from './db';
 
 export const ArtifactTool = {
-  listArtifacts: async (taskId?: string, repoName?: string, branchName?: string): Promise<Artifact[]> => {
-    let results: Artifact[] = [];
-    
+  listArtifacts: async (taskId?: string, repoName?: string, branchName?: string, requestingTaskId?: string): Promise<Artifact[]> => {
+    let artifacts: Artifact[] = [];
     if (taskId) {
-      const ownArtifacts = await db.taskArtifacts.where('taskId').equals(taskId).toArray();
-      results.push(...ownArtifacts);
+      artifacts = await db.taskArtifacts.where('taskId').equals(taskId).toArray();
+    } else if (repoName && branchName) {
+      artifacts = await db.taskArtifacts.where({ repoName, branchName }).toArray();
+    } else {
+      artifacts = await db.taskArtifacts.toArray();
     }
-    
-    if (repoName && branchName) {
-      const allRepoArtifacts = await db.taskArtifacts.where({ repoName, branchName }).toArray();
-      const globalArtifacts = allRepoArtifacts.filter(a => !a.taskId && !a.name.startsWith('_'));
-      results.push(...globalArtifacts);
-    }
-    
-    if (!taskId && !repoName && !branchName) {
-      return await db.taskArtifacts.toArray();
-    }
-    
-    return results;
+
+    // Filter out '_' prefixed artifacts unless the requesting task is the owner
+    return artifacts.filter(a => {
+      if (a.name.startsWith('_')) {
+        return requestingTaskId && a.taskId === requestingTaskId;
+      }
+      return true;
+    });
   },
 
   readArtifact: async (artifactId: number): Promise<Artifact | undefined> => {
@@ -35,40 +33,6 @@ export const ArtifactTool = {
       content,
     };
     return await db.taskArtifacts.add(artifact);
-  },
-
-  finishStage: async (taskId: string, repoName: string, branchName: string, stageName: string, nextStage?: string, data?: any): Promise<number> => {
-    // Find existing protocol or create new one
-    const existing = await db.taskArtifacts
-      .where({ taskId, name: 'task-protocol.json' })
-      .first();
-    
-    let protocol = existing ? JSON.parse(existing.content) : { 
-      objective: '', 
-      completed_stages: [], 
-      current_stage: '', 
-      next_stage: '', 
-      data: {} 
-    };
-
-    protocol.completed_stages = Array.from(new Set([...(protocol.completed_stages || []), stageName]));
-    protocol.current_stage = nextStage || '';
-    protocol.data = { ...(protocol.data || {}), ...(data || {}) };
-
-    const content = JSON.stringify(protocol, null, 2);
-    
-    if (existing && existing.id) {
-      await db.taskArtifacts.update(existing.id, { content });
-      return existing.id;
-    } else {
-      return await db.taskArtifacts.add({
-        taskId,
-        repoName,
-        branchName,
-        name: 'task-protocol.json',
-        content
-      });
-    }
   }
 };
 
@@ -111,22 +75,6 @@ export const artifactToolDeclarations: FunctionDeclaration[] = [
         content: { type: Type.STRING, description: 'The artifact content.' }
       },
       required: ['taskId', 'repoName', 'branchName', 'name', 'content']
-    }
-  },
-  {
-    name: 'finishStage',
-    description: 'Mark a task stage as complete and update the task-protocol.json artifact. Use this to maintain hard state and avoid "vibish" execution.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        taskId: { type: Type.STRING, description: 'The task ID.' },
-        repoName: { type: Type.STRING, description: 'The repository name.' },
-        branchName: { type: Type.STRING, description: 'The branch name.' },
-        stageName: { type: Type.STRING, description: 'The name of the stage just completed.' },
-        nextStage: { type: Type.STRING, description: 'The name of the next stage to execute.' },
-        data: { type: Type.OBJECT, description: 'Optional JSON data to persist in the protocol (e.g., file lists, analysis results).' }
-      },
-      required: ['taskId', 'repoName', 'branchName', 'stageName']
     }
   }
 ];

@@ -196,6 +196,18 @@ export class LocalAgent {
 
     const localCommunicationToolDeclarations = [
       {
+        name: 'updateProtocolStepStatus',
+        description: 'Update the status of a step in the Task Protocol.',
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            stepId: { type: Type.NUMBER, description: 'The ID of the step to update.' },
+            status: { type: Type.STRING, description: 'The new status: pending, in_progress, completed, failed.' }
+          },
+          required: ['stepId', 'status']
+        }
+      },
+      {
         name: 'listTasks',
         description: 'List all tasks on the Kanban board to understand the project context.',
         parameters: {
@@ -236,15 +248,13 @@ export class LocalAgent {
     const localJulesToolDeclarations = [
       {
         name: 'delegateToJules',
-        description: 'Delegate a complex coding or execution task to the remote Jules environment. A session will be automatically created or assigned. You will be woken up when Jules has a significant update.',
+        description: 'Delegate a complex coding or execution task to the remote Jules environment. This is an asynchronous operation. You will be woken up when Jules has a significant update (Plan, Question, or Completion).',
         parameters: {
           type: Type.OBJECT,
           properties: {
             prompt: { type: Type.STRING, description: 'The detailed instructions for Jules.' },
             repoUrl: { type: Type.STRING, description: 'Optional. The repository URL.' },
-            branch: { type: Type.STRING, description: 'Optional. The branch name.' },
-            verificationCriteria: { type: Type.STRING, description: 'Optional. Criteria for verifying Jules completed correctly (e.g., All tests pass, No linting errors).' },
-            expectedArtifacts: { type: Type.STRING, description: 'Optional. Comma-separated list of expected artifacts Jules should produce.' }
+            branch: { type: Type.STRING, description: 'Optional. The branch name.' }
           },
           required: ['prompt']
         }
@@ -267,12 +277,24 @@ export class LocalAgent {
     const tools = [{ functionDeclarations: [...localRepositoryToolDeclarations, ...localArtifactToolDeclarations, analyzerToolDeclaration, ...localCommunicationToolDeclarations, ...localJulesToolDeclarations] }];
     appendLog(`> [LocalAgent] Tools available: ${tools[0].functionDeclarations.map(f => f.name).join(', ')}\n`);
     
+    const task = await db.tasks.get(this.taskId);
+    const protocolStr = task?.protocol ? JSON.stringify(task.protocol, null, 2) : 'No protocol defined.';
+
     const prompt = `
       You are a local agent executing a task on a repository.
       Task Title: ${taskTitle}
       Task Description: ${taskDescription}
       Repository: ${this.repoUrl}
       Branch: ${this.branch}
+
+      ### Task Protocol
+      You MUST strictly follow this protocol. Execute ONLY the current pending or in_progress step.
+      If the step says "delegateTo": "jules", you MUST use the \`delegateToJules\` tool.
+      If the step says "delegateTo": "local", you execute it using your local tools (readFile, askUser, saveArtifact, etc.).
+      When a step is completed, you MUST update its status using the \`updateProtocolStepStatus\` tool and move to the next step.
+      
+      Protocol:
+      ${protocolStr}
       
       ### Hybrid Memory System
       Your chat history contains a mix of user messages and "Signals" from the remote Jules environment.
@@ -304,26 +326,9 @@ export class LocalAgent {
       - <listTasks/> : List all tasks on the board to see what else is being worked on.
       - <sendMessage type="info|proposal|alert" content="message text" [title="task title" description="task desc"]/> : Send a message to the user's Mailbox.
       - <askUser question="your question here"/> : Ask the user a question or request missing information. Use this when you cannot proceed without user input. This will pause the task and wait for the user.
-      - <finishStage stageName="Current Stage" [nextStage="Next Stage"] [data='{"key": "val"}']/> : Mark a task stage as complete and update the task-protocol.json artifact. Use this to maintain hard state and avoid "vibish" execution.
-      
-      ARTIFACT NAMING CONVENTION:
-      - Artifacts starting with underscore (_) are LOCAL artifacts (working state, temporary data, debugging info).
-      - Artifacts without underscore are GLOBAL artifacts (deliverables, shared outputs, final results).
-      - Example: _file_list.json (local), code-metrics.json (global).
-      - When you save artifacts, use _ prefix for intermediate/temporary data, and NO prefix for final deliverables.
-      - Other tasks will NOT see your _ artifacts, but they WILL see your global artifacts.
-      - The Supervisor (ProcessAgent) only sees global artifacts to determine what to do next.
-      
-      PROTOCOL-DRIVEN EXECUTION:
-      1. Your first action in any task MUST be to check for a "task-protocol.json" artifact using <listArtifacts/> and <readArtifact/>.
-      2. If no protocol exists, you MUST create one using <saveArtifact name="task-protocol.json" content='{"objective": "...", "stages": [...], "current_stage": "..."}'/>.
-      3. You MUST follow the stages defined in the protocol.
-      4. SMART DELEGATION: Before executing a stage, check the "delegate_to" field:
-         - If "delegate_to": "jules", immediately call <delegateToJules/> with the stage description and verification criteria.
-         - If "delegate_to": "local" or missing, execute the stage locally.
-      5. When you finish a stage, you MUST call <finishStage stageName="..." nextStage="..." />. This is your primary way of signaling progress and maintaining state.
-      6. After calling <finishStage/>, you MUST also update the "task-protocol.json" artifact using <saveArtifact/> to reflect the new state if you have additional data to persist.
-      7. Do NOT "vibe" or guess your next step. Always refer to the protocol and its delegation rules.
+      - <updateProtocolStepStatus stepId="1" status="completed"/> : Update the status of a step in the Task Protocol (pending, in_progress, completed, failed).
+      - <delegateToJules prompt="instructions for jules"/> : Delegate a complex coding or execution task to the remote Jules environment.
+      - <getJulesHistory taskId="task-id" [limit="20" offset="0"]/> : Retrieve older technical logs or messages from the Jules session.
       
       COMMUNICATION RULES:
       1. Use <sendMessage type="info"/> to report significant progress or findings that don't fit in an artifact.
@@ -408,9 +413,9 @@ export class LocalAgent {
                 const taskId = call.args.taskId;
                 // If no taskId is provided, we default to repo/branch search to enable sharing
                 if (!taskId && !call.args.repo_name && !call.args.branch) {
-                  result = await this.artifactTool.listArtifacts(undefined, repoName, branch);
+                  result = await this.artifactTool.listArtifacts(undefined, repoName, branch, this.taskId);
                 } else {
-                  result = await this.artifactTool.listArtifacts(taskId, repoName, branch);
+                  result = await this.artifactTool.listArtifacts(taskId, repoName, branch, this.taskId);
                 }
               } else if (call.name === 'readArtifact') {
                 result = await this.artifactTool.readArtifact(parseInt(call.args.artifactId));
@@ -422,6 +427,21 @@ export class LocalAgent {
                 }
               } else if (call.name === 'analyzeCode') {
                 result = await this.analyzer.analyze();
+              } else if (call.name === 'updateProtocolStepStatus') {
+                const stepId = parseInt(call.args.stepId);
+                const newStatus = call.args.status;
+                const task = await db.tasks.get(this.taskId);
+                if (task && task.protocol) {
+                  const updatedProtocol = {
+                    ...task.protocol,
+                    steps: task.protocol.steps.map(s => s.id === stepId ? { ...s, status: newStatus as any } : s)
+                  };
+                  await db.tasks.update(this.taskId, { protocol: updatedProtocol });
+                  result = { success: true, message: `Step ${stepId} status updated to ${newStatus}` };
+                  await appendActionLog(`Updated protocol step ${stepId} to ${newStatus}`);
+                } else {
+                  result = { error: "No protocol found for this task." };
+                }
               } else if (call.name === 'listTasks') {
                 const workflowStatus = call.args.workflowStatus;
                 const agentState = call.args.agentState;
@@ -480,29 +500,15 @@ export class LocalAgent {
               } else if (call.name === 'delegateToJules') {
                 const task = await db.tasks.get(this.taskId);
                 const timestamp = new Date().toLocaleTimeString();
-                const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
-                
-                const verificationData = {
-                  verificationCriteria: call.args.verificationCriteria || 'Task completed successfully',
-                  expectedArtifacts: call.args.expectedArtifacts ? call.args.expectedArtifacts.split(',').map((a: string) => a.trim()) : [],
-                  delegatedAt: new Date().toISOString()
-                };
-                
-                await this.artifactTool.finishStage(this.taskId, repoName, this.branch, 'Delegating to Jules', 'Awaiting Jules Response', verificationData);
                 
                 await db.tasks.update(this.taskId, {
                   agentState: 'WAITING_FOR_JULES',
+                  pendingJulesPrompt: call.args.prompt,
                   actionLog: (task?.actionLog || '') + `> [${timestamp}] DELEGATING TO JULES: ${call.args.prompt}\n`
                 });
                 
-                appendLog(`\n> [LocalAgent] Delegating to Jules with verification criteria: ${call.args.verificationCriteria || 'default'}\n`);
-                appendLog(`> [LocalAgent] Expected artifacts: ${call.args.expectedArtifacts || 'none specified'}\n`);}
+                appendLog(`\n> [LocalAgent] Delegating to Jules: ${call.args.prompt}\n`);
                 return { findings, savedArtifactIds, status: 'PAUSED' };
-              } else if (call.name === 'finishStage') {
-                const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
-                const data = call.args.data ? JSON.parse(call.args.data) : {};
-                result = await this.artifactTool.finishStage(this.taskId, repoName, this.branch, call.args.stageName, call.args.nextStage, data);
-                appendLog(`> [LocalAgent] Finished stage: ${call.args.stageName}. Next: ${call.args.nextStage || 'None'}\n`);
               } else if (call.name === 'getJulesHistory') {
                 const limit = parseInt(call.args.limit || '20');
                 const offset = parseInt(call.args.offset || '0');

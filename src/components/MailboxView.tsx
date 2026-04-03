@@ -142,6 +142,29 @@ export default function MailboxView({ onAcceptProposal, onOpenMail, onSendMessag
         </div>
       )}
 
+      {msg.type !== 'proposal' && (
+        <div className="mt-3 flex justify-end">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onAcceptProposal) {
+                onAcceptProposal({
+                  ...msg,
+                  proposedTask: {
+                    title: `Task from Mailbox`,
+                    description: msg.content
+                  }
+                });
+              }
+            }}
+            className="text-[10px] bg-neutral-800 hover:bg-neutral-700 text-neutral-300 px-2 py-1 rounded border border-neutral-700 flex items-center gap-1 transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+            Create Task
+          </button>
+        </div>
+      )}
+
       <div className="mt-2 text-[9px] text-neutral-600 font-mono">
         {new Date(msg.timestamp).toLocaleString()}
       </div>

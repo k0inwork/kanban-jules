@@ -31,8 +31,6 @@ export interface JulesSession {
   createdAt: number;
   repoUrl?: string;
   branchName?: string;
-  verificationCriteria?: string;
-  expectedArtifacts?: string[];
 }
 
 export interface AgentMessage {
@@ -67,7 +65,7 @@ export class MyDatabase extends Dexie {
 
   constructor() {
     super('AgentKanbanDB');
-    this.version(12).stores({
+    this.version(13).stores({
       gitCache: 'path',
       taskArtifacts: '++id, taskId, repoName, branchName',
       taskArtifactLinks: '++id, taskId, artifactId',

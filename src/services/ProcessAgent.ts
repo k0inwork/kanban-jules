@@ -22,7 +22,8 @@ export class ProcessAgent {
     // 1. Get all tasks, artifacts, and unread messages
     const tasks = await db.tasks.toArray();
     const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
-    const artifacts = await db.taskArtifacts.where({ repoName, branchName: this.branch }).toArray();
+    let artifacts = await db.taskArtifacts.where({ repoName, branchName: this.branch }).toArray();
+    artifacts = artifacts.filter(a => !a.name.startsWith('_'));
     const unreadMessages = await db.messages.where('status').equals('unread').toArray();
     
     // Load Constitution
