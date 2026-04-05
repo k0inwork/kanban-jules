@@ -29,6 +29,8 @@ export interface Task {
   questionCount?: number;
   actionLog?: string;
   protocol?: TaskProtocol;
+  globalVars?: Record<string, any>;
   pendingJulesPrompt?: string;
   retryCount?: number;
+  julesRetryCount?: number;
 }

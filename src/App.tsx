@@ -11,7 +11,7 @@ import SettingsModal from './components/SettingsModal';
 import { executeJulesCommand } from './lib/jules';
 import { JulesSessionManager } from './services/JulesSessionManager';
 import { julesApi, SessionState } from './lib/julesApi';
-import { LocalAgent, AgentConfig } from './services/LocalAgent';
+import { Orchestrator, OrchestratorConfig } from './services/Orchestrator';
 import { ProcessAgent } from './services/ProcessAgent';
 import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
@@ -147,13 +147,16 @@ export default function App() {
       if (apiProvider === 'gemini') {
         ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       }
-      const agentConfig: AgentConfig = {
+      const agentConfig: OrchestratorConfig = {
         apiProvider,
         geminiModel,
         openaiUrl,
         openaiKey,
         openaiModel,
-        geminiApiKey: process.env.GEMINI_API_KEY || ''
+        geminiApiKey: process.env.GEMINI_API_KEY || '',
+        julesApiKey,
+        repoUrl,
+        repoBranch
       };
       const processAgent = new ProcessAgent(ai as any, agentConfig, repoUrl, repoBranch);
       await processAgent.runReview();
@@ -285,7 +288,7 @@ export default function App() {
               const dataContent = dataMatch ? dataMatch[2].trim() : null;
               const dataType = dataMatch ? dataMatch[1] : null;
 
-              // Log RAW content to chat history so the LocalAgent can see the tags
+              // Log RAW content to chat history so the Orchestrator can see the tags
               // We use the rawContent to ensure the Active Assessor has all the context
               await db.tasks.update(task.id, { 
                 chat: (task.chat || '') + `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${rawContent}\n`
@@ -365,7 +368,7 @@ export default function App() {
                 timestamp: new Date(activity.createTime).getTime()
               });
 
-              // If it's a SIGNAL, wake up the LocalAgent
+              // If it's a SIGNAL, wake up the Orchestrator
               if (category === 'SIGNAL') {
                 const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${content}\n`;
                 const t = await db.tasks.get(task.id);
@@ -468,7 +471,10 @@ export default function App() {
         openaiUrl,
         openaiKey,
         openaiModel,
-        geminiApiKey: geminiApiKey || process.env.GEMINI_API_KEY || ''
+        geminiApiKey: geminiApiKey || process.env.GEMINI_API_KEY || '',
+        julesApiKey,
+        repoUrl,
+        repoBranch: repoBranch || 'main'
       };
 
       // Generate Protocol if not exists
@@ -490,21 +496,42 @@ export default function App() {
         await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);
       }
 
-      const token = import.meta.env.VITE_GITHUB_TOKEN;
-      if (!token) {
-        await appendLog(`> [Error] GitHub token not configured.\n`);
-        await db.tasks.update(task.id, { workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined });
-        return;
+      await appendLog(`> [Orchestrator] Initializing Orchestrator...\n`);
+      const orchestrator = new Orchestrator(ai as any, task.id, agentConfig);
+      
+      let status = 'DONE';
+      
+      // Find the first pending step
+      const pendingStep = currentTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
+      
+      if (pendingStep) {
+        if (pendingStep.status === 'pending') {
+          const updatedSteps = currentTask!.protocol!.steps.map(s => 
+            s.id === pendingStep.id ? { ...s, status: 'in_progress' as const } : s
+          );
+          await db.tasks.update(task.id, { protocol: { ...currentTask!.protocol!, steps: updatedSteps } });
+        }
+
+        await orchestrator.runStep(pendingStep.id);
+        
+        // After runStep, check if the task was paused (e.g., WAITING_FOR_USER)
+        const updatedTask = await db.tasks.get(task.id);
+        if (updatedTask?.agentState === 'WAITING_FOR_USER' || updatedTask?.agentState === 'ERROR') {
+          status = 'PAUSED';
+        } else {
+          // If it completed the step, we should ideally loop to the next step.
+          // For now, we can just let the interval pick it up again if it's still IN_PROGRESS and IDLE.
+          // Wait, runStep marks the step as completed.
+          // Let's check if there are more steps.
+          const moreSteps = updatedTask?.protocol?.steps.some(s => s.status === 'pending');
+          if (moreSteps) {
+            status = 'PAUSED'; // Pause to let the loop pick it up again, or we could loop here.
+            await db.tasks.update(task.id, { agentState: 'IDLE' }); // Ready for next step
+          }
+        }
       }
       
-      await appendLog(`> [Local] Initializing LocalAgent for ${repoUrl}...\n`);
-      const agent = new LocalAgent(ai as any, repoUrl, repoBranch || 'main', token, task.id, task.title, agentConfig);
-      
-      let taskContext = `Protocol: ${JSON.stringify(task.protocol, null, 2)}\n\n` + (task.logs || '') + (task.chat || '');
-
-      const { findings, savedArtifactIds, status } = await agent.runTask(task.title, task.description, taskContext, appendLog);
-      
-      await appendLog(`> [Local] Analysis complete. Status: ${status}\n`);
+      await appendLog(`> [Orchestrator] Step execution complete. Status: ${status}\n`);
       
       // Determine new workflow status and agent state
       let nextWorkflowStatus: WorkflowStatus = 'IN_REVIEW';
@@ -522,8 +549,7 @@ export default function App() {
       await db.tasks.update(task.id, { 
         workflowStatus: nextWorkflowStatus,
         agentState: nextAgentState,
-        agentId: 'local-agent', 
-        artifactIds: [...(task.artifactIds || []), ...savedArtifactIds]
+        agentId: 'local-agent'
       });
       processingRef.current.delete(task.id);
       
@@ -697,48 +723,31 @@ export default function App() {
     if (task) {
       const timestamp = new Date().toLocaleTimeString();
       
-      // Extract Q-tag from message content if present
-      const qMatch = message.content.match(/\{Q\d+\}/);
-      const qTag = qMatch ? qMatch[0] : (task.questionCount ? `{Q${task.questionCount}}` : '');
-      const taggedReply = qTag ? `${qTag} ${replyText}` : replyText;
+      // Save the user's reply as a message in the DB so the Orchestrator can pick it up
+      await db.messages.add({
+        sender: 'user',
+        taskId: message.taskId,
+        type: 'chat',
+        content: replyText,
+        status: 'read',
+        timestamp: Date.now(),
+        replyToId: message.id
+      });
 
-      // Include the agent's question and the user's reply
-      const chatUpdate = `\n\n> [Agent] ${message.content}\n\n> [User - ${timestamp}] ${taggedReply}\n`;
-      
-      const updatedTask = {
-        ...task,
-        workflowStatus: 'IN_PROGRESS' as WorkflowStatus,
-        agentState: 'EXECUTING' as AgentState,
-        chat: (task.chat || '') + chatUpdate
-      };
-      
+      // Update task state back to IDLE so the orchestrator can pick it up again if it was paused
       await db.tasks.update(task.id, { 
         workflowStatus: 'IN_PROGRESS',
-        agentState: 'EXECUTING',
-        chat: updatedTask.chat,
+        agentState: processingRef.current.has(task.id) ? 'EXECUTING' : 'IDLE',
         actionLog: (task.actionLog || '') + `> [${timestamp}] Replied to message: ${replyText.substring(0, 50)}...\n`
       });
       
-      // Send to Jules if it's a Jules task
-      if (task.agentId === 'jules-agent') {
-        const session = await db.julesSessions.where('taskId').equals(task.id).first();
-        if (session) {
-          try {
-            await JulesSessionManager.sendMessage(julesApiKey, session.name, `{Task} ${replyText}`);
-          } catch (e) {
-            console.error(`Failed to send message to Jules for task ${task.id}:`, e);
-          }
-        }
-      }
-      
-      // Resume task processing
-      processTask(updatedTask);
-      
-      // Mark message as read/archived
+      // Mark original message as archived
       if (message.id) {
         await db.messages.update(message.id, { status: 'archived' });
         handleTabClose(`mail-${message.id}`);
       }
+      
+      setIsViewingBoard(true);
     }
   };
 

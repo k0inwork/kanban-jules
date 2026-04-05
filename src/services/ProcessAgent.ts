@@ -1,15 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
 import { db, Artifact } from './db';
 import { Task } from '../types';
-import { AgentConfig } from './LocalAgent';
+import { OrchestratorConfig } from './Orchestrator';
 
 export class ProcessAgent {
   private ai: GoogleGenAI;
-  private config: AgentConfig;
+  private config: OrchestratorConfig;
   private repoUrl: string;
   private branch: string;
 
-  constructor(ai: GoogleGenAI, config: AgentConfig, repoUrl: string, branch: string) {
+  constructor(ai: GoogleGenAI, config: OrchestratorConfig, repoUrl: string, branch: string) {
     this.ai = ai;
     this.config = config;
     this.repoUrl = repoUrl;

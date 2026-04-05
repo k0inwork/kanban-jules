@@ -47,6 +47,7 @@ export interface AgentMessage {
   };
   status: 'unread' | 'read' | 'archived';
   timestamp: number;
+  replyToId?: number;
 }
 
 export interface ProjectConfig {
