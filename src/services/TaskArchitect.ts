@@ -93,7 +93,7 @@ DELEGATION RULES:
 - 'jules': Use for ALL repository work (CLI, code search, file modifications, running code). Group related repository work into large, comprehensive steps.
 - 'local': Use for high-level coordination, API calls to other services, asking the user for input, or simple reasoning that doesn't require repository access.
 
-If a step requires creating an internal/local artifact to store state or intermediate results, specify it in the description and ensure its name is prefixed with '_' (e.g., '_analysis.md').
+If a step requires storing state across steps, use 'GlobalVars'. If a step requires creating a persistent artifact for the task (e.g., a generated file or final report), use 'Artifacts' (e.g., 'report.md'). Do not use '_' prefixes for artifacts.
 
 Task Title: ${taskTitle}
 Task Description: ${taskDescription}

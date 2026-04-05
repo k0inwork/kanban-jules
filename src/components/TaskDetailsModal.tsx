@@ -41,7 +41,7 @@ export default function TaskDetailsModal({
 
   const availableArtifacts = useLiveQuery(async () => {
     const all = await db.taskArtifacts.toArray();
-    return all.filter(a => !a.name.startsWith('_') || a.taskId === task?.id);
+    return all.filter(a => !a.name || !a.name.startsWith('_') || a.taskId === task?.id);
   }, [task?.id]) || [];
   const taskArtifacts = useLiveQuery(async () => {
     if (!task) return [];

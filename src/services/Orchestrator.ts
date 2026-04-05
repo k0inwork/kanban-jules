@@ -1,3 +1,8 @@
+/**
+ * File: /src/services/Orchestrator.ts
+ * Description: Task execution orchestrator.
+ * Responsibility: Manages the lifecycle of a task execution step, including code generation, sandbox execution, and subagent delegation.
+ */
 import { GoogleGenAI } from '@google/genai';
 import { db } from './db';
 import { Task } from '../types';
@@ -125,15 +130,20 @@ export class Orchestrator {
         Current Step: ${step.title}
         Step Description: ${step.description}
         
-        You have access to a persistent GlobalVars object (a standard JS object) to store state across steps.
+        You have access to a persistent GlobalVars object to store state across steps.
+        Use GlobalVars.set(key, value) to store data and GlobalVars.get(key) to retrieve it.
         Current GlobalVars: ${JSON.stringify(globalVars.getAll())}
         
         You have access to the following async Subagent functions:
-        - await askJules(prompt: string, successCriteria: string): Delegates repository/CLI work to Jules. NEVER use Jules to store or manage local data or artifacts.
+        - await askJules(prompt: string, successCriteria: string): Delegates repository/CLI work to Jules. 
+          CRITICAL: Jules has NO access to local state (GlobalVars or Artifacts). 
+          To use local data in Jules, you MUST explicitly pass the data in the prompt: "JULES: The following data is available: <varName>=<value>. Please perform <operation> using this value and explicitly return the result."
+          Jules will return the result as a string. You MUST then locally store this result in GlobalVars using GlobalVars.set().
+          CRITICAL: Before calling askJules, verify that the local variables you are passing are not 'undefined' or 'null'. If they are, you must first retrieve them from GlobalVars or ask the user for the missing information.
         - await askUser(question: string, format?: string): Asks the user a question and waits for their reply. If a format is provided (e.g., "must be a number"), the system will automatically validate and convert the user's input. If validation fails, it throws an error.
         
         You have access to the following local state management:
-        - GlobalVars: A persistent object to store state across steps.
+        - GlobalVars: A persistent object to store state across steps. Use GlobalVars.set(key, value) and GlobalVars.get(key).
         - Artifacts: Use Artifacts.saveArtifact, Artifacts.readArtifact, and Artifacts.listArtifacts to manage task-specific, local artifacts. These are local to the task and never shared.
         
         ${errorContext ? `\nPREVIOUS EXECUTION FAILED:\n${errorContext}\nPlease rewrite the code to fix this error, handle it gracefully, or use askUser() to request human intervention.\n` : ''}
@@ -143,6 +153,11 @@ export class Orchestrator {
         Return the final result of the step, or update GlobalVars.
         
         IMPORTANT: Do not use local files or artifacts to store intermediate data in Jules. Always use GlobalVars for cross-step state and Artifacts for local, task-specific storage.
+        For Jules steps, follow the pattern:
+        1. Retrieve local data from GlobalVars using GlobalVars.get(key).
+        2. Verify that the retrieved data is not undefined or null.
+        3. Call askJules() with the data explicitly passed in the prompt.
+        4. Store the result returned by askJules() back into GlobalVars using GlobalVars.set(key, value).
       `;
 
       try {
@@ -183,9 +198,19 @@ export class Orchestrator {
 
   private async executeInSandbox(code: string, stepId: number): Promise<void> {
     // Inject Subagent APIs
-    sandbox.injectAPI('Artifacts', ArtifactTool);
+    sandbox.injectAPI('Artifacts', {
+      listArtifacts: (taskId?: string, repoName?: string, branchName?: string, requestingTaskId?: string) =>
+        ArtifactTool.listArtifacts(taskId || this.taskId, repoName || this.config.repoUrl.split('/').pop() || this.config.repoUrl, branchName || this.config.repoBranch, requestingTaskId),
+      readArtifact: ArtifactTool.readArtifact,
+      saveArtifact: (name: string, content: string) =>
+        ArtifactTool.saveArtifact(this.taskId, this.config.repoUrl.split('/').pop() || this.config.repoUrl, this.config.repoBranch, name, content)
+    });
 
     sandbox.injectAPI('askJules', async (prompt: string, successCriteria: string) => {
+      if (prompt.includes('=undefined') || prompt.includes('=null')) {
+        await this.logToChat(`[Error] Attempted to call Jules with undefined or null data in prompt: ${prompt}`);
+        throw new Error("Attempted to call Jules with undefined or null data. Please ensure all variables are defined before calling askJules.");
+      }
       await this.logToChat(`Calling Subagent: JNA with args: ["${prompt}", "${successCriteria}"]`);
       const task = await db.tasks.get(this.taskId);
       if (!task) throw new Error("Task not found");

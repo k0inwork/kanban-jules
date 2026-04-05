@@ -92,15 +92,6 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
             <Play className="w-3.5 h-3.5" />
           </button>
         )}
-        {onDelete && (
-          <button 
-            onClick={handleDeleteClick}
-            className="p-1.5 bg-red-600/20 text-red-400 rounded-md hover:bg-red-600 hover:text-white transition-colors"
-            title="Delete Task"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )}
       </div>
 
       <p className="text-xs text-neutral-400 line-clamp-2 mb-4">

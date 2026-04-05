@@ -31,7 +31,7 @@ export class ProcessAgent {
     const tasks = await db.tasks.toArray();
     const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
     let artifacts = await db.taskArtifacts.where({ repoName, branchName: this.branch }).toArray();
-    artifacts = artifacts.filter(a => !a.name.startsWith('_'));
+    artifacts = artifacts.filter(a => !a.name || !a.name.startsWith('_'));
     const unreadMessages = await db.messages.where('status').equals('unread').toArray();
     
     // Load Constitution

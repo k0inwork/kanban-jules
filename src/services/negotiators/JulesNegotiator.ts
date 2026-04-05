@@ -15,12 +15,15 @@ export class JulesNegotiator {
     verifyFn: (julesOutput: string, criteria: string) => Promise<boolean>
   ): Promise<string> {
     
+    console.log(`[JulesNegotiator] Negotiating with key: ${julesApiKey ? 'PRESENT' : 'MISSING'}`);
     if (!julesApiKey) {
       throw new Error("Jules API Key is not configured.");
     }
 
     // 1. Get or create session
+    console.log(`[JulesNegotiator] Finding or creating session for task: ${task.id}`);
     const session = await JulesSessionManager.findOrCreateSession(julesApiKey, task, repoUrl, branch, 'Fleet Orchestrator');
+    console.log(`[JulesNegotiator] Session result: ${session ? session.name : 'null'}`);
     if (!session) throw new Error("Failed to create Jules session.");
 
     const appendJnaLog = async (msg: string) => {
@@ -65,7 +68,7 @@ export class JulesNegotiator {
       }
 
       // 4. Verify with LLM
-      await appendJnaLog(`Verifying response against success criteria...`);
+      await appendJnaLog(`Verifying response against success criteria: ${successCriteria}`);
       const isSuccess = await verifyFn(julesResponse, successCriteria);
 
       if (isSuccess) {
@@ -73,7 +76,7 @@ export class JulesNegotiator {
         return julesResponse;
       } else {
         attempts++;
-        await appendJnaLog(`Verification FAILED. Attempt ${attempts}/${maxAttempts}.`);
+        await appendJnaLog(`Verification FAILED. Response: ${julesResponse}. Attempt ${attempts}/${maxAttempts}.`);
         if (attempts >= maxAttempts) {
           await appendJnaLog(`Max attempts reached. Failing negotiation.`);
           throw new Error(`Jules failed to meet success criteria after ${maxAttempts} attempts.`);

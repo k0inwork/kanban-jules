@@ -1,8 +1,10 @@
+/**
+ * File: /src/services/Sandbox.ts
+ * Description: Secure code execution sandbox.
+ * Responsibility: Executes generated JavaScript code in an isolated environment (sval), providing injected APIs for system interaction.
+ */
 import Sval from 'sval';
 import { globalVars } from './GlobalVars';
-
-/**
- * The Sandbox service executes the Main Architect's JS code in a secure,
  * isolated environment using `sval`.
  */
 export class Sandbox {
@@ -14,7 +16,7 @@ export class Sandbox {
       sandBox: true,
     });
 
-    // Inject GlobalVars into the sandbox
+    // Inject GlobalVars as a global object
     this.interpreter.import('GlobalVars', {
       set: (key: string, value: any) => globalVars.set(key, value),
       get: (key: string) => globalVars.get(key),

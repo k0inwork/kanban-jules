@@ -1,3 +1,8 @@
+/**
+ * File: /src/App.tsx
+ * Description: Main application component and agent loop.
+ * Responsibility: Manages agent state, task polling, and orchestration of the task processing loop.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -236,13 +241,24 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(async () => {
       // 1. Task Orchestration
-      if (autonomyMode !== 'manual' && processingRef.current.size === 0) {
-        const taskToProcess = tasks.find(t => 
-          (t.workflowStatus === 'TODO' || t.workflowStatus === 'IN_PROGRESS') && 
-          t.agentState === 'IDLE' && 
-          !processingRef.current.has(t.id)
-        );
+      if (autonomyMode !== 'manual') {
+        console.log(`[Agent Loop] Checking tasks. Total tasks: ${tasks.length}`);
+        const taskToProcess = tasks.find(t => {
+          const isEligible = (t.workflowStatus === 'TODO' || t.workflowStatus === 'IN_PROGRESS') && 
+            t.agentState === 'IDLE';
+          
+          if (t.id === 'f9d1b957-3a4b-4f89-b76d-344c1d75b057') {
+            console.log(`[Agent Loop] Debugging task test7:`, {
+              workflowStatus: t.workflowStatus,
+              agentState: t.agentState,
+              isEligible
+            });
+          }
+          
+          return isEligible;
+        });
         if (taskToProcess) {
+          console.log(`[Agent Loop] Processing task: ${taskToProcess.title}`);
           processTask(taskToProcess);
         }
       }
@@ -525,8 +541,10 @@ export default function App() {
           // Let's check if there are more steps.
           const moreSteps = updatedTask?.protocol?.steps.some(s => s.status === 'pending');
           if (moreSteps) {
-            status = 'PAUSED'; // Pause to let the loop pick it up again, or we could loop here.
+            status = 'PAUSED'; // Pause to let the loop pick it up again
             await db.tasks.update(task.id, { agentState: 'IDLE' }); // Ready for next step
+          } else {
+            status = 'DONE';
           }
         }
       }
