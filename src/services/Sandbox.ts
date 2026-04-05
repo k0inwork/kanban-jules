@@ -5,6 +5,9 @@
  */
 import Sval from 'sval';
 import { globalVars } from './GlobalVars';
+
+/**
+ * The Sandbox service executes the Main Architect's JS code in a secure,
  * isolated environment using `sval`.
  */
 export class Sandbox {
