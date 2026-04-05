@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { JulesSessionManager } from '../JulesSessionManager';
 import { julesApi } from '../../lib/julesApi';
 import { Task } from '../../types';
+import { db } from '../db';
 
 export class JulesNegotiator {
   static async negotiate(
@@ -22,8 +23,17 @@ export class JulesNegotiator {
     const session = await JulesSessionManager.findOrCreateSession(julesApiKey, task, repoUrl, branch, 'Fleet Orchestrator');
     if (!session) throw new Error("Failed to create Jules session.");
 
+    const appendJnaLog = async (msg: string) => {
+      const t = await db.tasks.get(task.id);
+      if (t) {
+        const newLogs = (t.jnaLogs || '') + `[${new Date().toISOString()}] ${msg}\n`;
+        await db.tasks.update(task.id, { jnaLogs: newLogs });
+      }
+    };
+
     // 2. Send prompt
-    const systemInstruction = `SYSTEM INSTRUCTION: Always wrap conversational text in <chat> tags. Always wrap structured data, results, or file contents in <data type="..."> tags.`;
+    const systemInstruction = `SYSTEM INSTRUCTION: Always provide clear, concise, and actionable responses.`;
+    await appendJnaLog(`Sending prompt to Jules:\n${prompt}`);
     await JulesSessionManager.sendMessage(julesApiKey, session.name, `${systemInstruction}\n\n${prompt}`);
 
     // 3. Poll for response
@@ -49,26 +59,33 @@ export class JulesNegotiator {
         if (newMessages.length > 0) {
           lastActivityTime = Date.now();
           julesResponse = newMessages.map(m => m.agentMessaged?.agentMessage).join('\n');
+          await appendJnaLog(`Received response from Jules:\n${julesResponse}`);
           break;
         }
       }
 
       // 4. Verify with LLM
+      await appendJnaLog(`Verifying response against success criteria...`);
       const isSuccess = await verifyFn(julesResponse, successCriteria);
 
       if (isSuccess) {
+        await appendJnaLog(`Verification SUCCESS.`);
         return julesResponse;
       } else {
         attempts++;
+        await appendJnaLog(`Verification FAILED. Attempt ${attempts}/${maxAttempts}.`);
         if (attempts >= maxAttempts) {
+          await appendJnaLog(`Max attempts reached. Failing negotiation.`);
           throw new Error(`Jules failed to meet success criteria after ${maxAttempts} attempts.`);
         }
         // Send feedback to Jules
         const feedbackPrompt = `Your previous output did not meet the requirements. Please try again.`;
+        await appendJnaLog(`Sending feedback to Jules: ${feedbackPrompt}`);
         await JulesSessionManager.sendMessage(julesApiKey, session.name, feedbackPrompt);
       }
     }
     
+    await appendJnaLog(`Jules negotiation failed unexpectedly.`);
     throw new Error("Jules negotiation failed.");
   }
 }

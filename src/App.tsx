@@ -765,6 +765,15 @@ export default function App() {
       chat: (task.chat || '') + chatUpdate
     };
 
+    await db.messages.add({
+      sender: 'user',
+      taskId: task.id,
+      type: 'chat',
+      content: message,
+      status: 'read',
+      timestamp: Date.now()
+    });
+
     await db.tasks.update(task.id, {
       workflowStatus: 'IN_PROGRESS',
       agentState: 'EXECUTING',

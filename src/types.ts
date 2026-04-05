@@ -33,4 +33,7 @@ export interface Task {
   pendingJulesPrompt?: string;
   retryCount?: number;
   julesRetryCount?: number;
+  jnaLogs?: string;
+  unaLogs?: string;
+  programmingLog?: string;
 }

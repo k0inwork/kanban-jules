@@ -4,6 +4,7 @@ import { Task } from '../types';
 
 import { JulesNegotiator } from './negotiators/JulesNegotiator';
 import { UserNegotiator } from './negotiators/UserNegotiator';
+import { ArtifactTool } from './ArtifactTool';
 import { sandbox } from './Sandbox';
 import { globalVars } from './GlobalVars';
 
@@ -45,6 +46,15 @@ export class Orchestrator {
     if (task) {
       await db.tasks.update(this.taskId, {
         actionLog: (task.actionLog || '') + logEntry
+      });
+    }
+  }
+
+  private async appendProgrammingLog(msg: string) {
+    const task = await db.tasks.get(this.taskId);
+    if (task) {
+      await db.tasks.update(this.taskId, {
+        programmingLog: (task.programmingLog || '') + msg + '\n'
       });
     }
   }
@@ -119,14 +129,20 @@ export class Orchestrator {
         Current GlobalVars: ${JSON.stringify(globalVars.getAll())}
         
         You have access to the following async Subagent functions:
-        - await askJules(prompt: string, successCriteria: string): Delegates repository/CLI work to Jules.
-        - await askUser(question: string): Asks the user a question and waits for their reply.
+        - await askJules(prompt: string, successCriteria: string): Delegates repository/CLI work to Jules. NEVER use Jules to store or manage local data or artifacts.
+        - await askUser(question: string, format?: string): Asks the user a question and waits for their reply. If a format is provided (e.g., "must be a number"), the system will automatically validate and convert the user's input. If validation fails, it throws an error.
+        
+        You have access to the following local state management:
+        - GlobalVars: A persistent object to store state across steps.
+        - Artifacts: Use Artifacts.saveArtifact, Artifacts.readArtifact, and Artifacts.listArtifacts to manage task-specific, local artifacts. These are local to the task and never shared.
         
         ${errorContext ? `\nPREVIOUS EXECUTION FAILED:\n${errorContext}\nPlease rewrite the code to fix this error, handle it gracefully, or use askUser() to request human intervention.\n` : ''}
         
         Write ONLY valid JavaScript code. Do not include markdown formatting like \`\`\`javascript.
         The code will be executed in an async context. You can use await.
         Return the final result of the step, or update GlobalVars.
+        
+        IMPORTANT: Do not use local files or artifacts to store intermediate data in Jules. Always use GlobalVars for cross-step state and Artifacts for local, task-specific storage.
       `;
 
       try {
@@ -142,6 +158,7 @@ export class Orchestrator {
         }
         
         await this.logToChat(`Generated Code (Attempt ${attempt}):\n\`\`\`javascript\n${code}\n\`\`\``);
+        await this.appendProgrammingLog(`Step ${stepId} (Attempt ${attempt}) - code:\n"${code}"`);
 
         // 2. Execute Code in Sandbox
         await this.executeInSandbox(code, stepId);
@@ -166,6 +183,8 @@ export class Orchestrator {
 
   private async executeInSandbox(code: string, stepId: number): Promise<void> {
     // Inject Subagent APIs
+    sandbox.injectAPI('Artifacts', ArtifactTool);
+
     sandbox.injectAPI('askJules', async (prompt: string, successCriteria: string) => {
       await this.logToChat(`Calling Subagent: JNA with args: ["${prompt}", "${successCriteria}"]`);
       const task = await db.tasks.get(this.taskId);
@@ -193,9 +212,31 @@ export class Orchestrator {
       );
     });
 
-    sandbox.injectAPI('askUser', async (question: string) => {
-      await this.logToChat(`Calling Subagent: UNA with args: ["${question}"]`);
-      return await UserNegotiator.negotiate(this.taskId, question);
+    sandbox.injectAPI('askUser', async (question: string, format?: string) => {
+      await this.logToChat(`Calling Subagent: UNA with args: ["${question}", "${format || 'none'}"]`);
+      const rawReply = await UserNegotiator.negotiate(this.taskId, question);
+      
+      if (!format) return rawReply;
+
+      // Validate/Convert using LLM
+      const validationPrompt = `
+        You are a Data Validation and Conversion Agent.
+        Question: ${question}
+        Format/Constraint: ${format}
+        User Input: ${rawReply}
+        
+        If the input satisfies the format, return the input (or the converted value if requested).
+        If the input does not satisfy the format, return "ERROR: <reason>".
+        Return ONLY the result or the error message.
+      `;
+      
+      const validatedReply = await this.callLlm(validationPrompt);
+      await this.logToChat(`UNA Validation Result: ${validatedReply}`);
+      
+      if (validatedReply.startsWith('ERROR:')) {
+        throw new Error(validatedReply);
+      }
+      return validatedReply;
     });
 
     try {

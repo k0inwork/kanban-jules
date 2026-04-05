@@ -29,7 +29,7 @@ export default function TaskDetailsModal({
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<'protocol' | 'logs' | 'chat' | 'actions'>('protocol');
+  const [activeTab, setActiveTab] = useState<'protocol' | 'logs' | 'chat' | 'actions' | 'jna' | 'una' | 'code'>('protocol');
   const [userMessage, setUserMessage] = useState('');
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -119,6 +119,8 @@ export default function TaskDetailsModal({
         chat: task.chat,
         logs: task.logs,
         actionLog: task.actionLog,
+        jnaLogs: task.jnaLogs,
+        unaLogs: task.unaLogs,
       },
       artifacts: taskArtifacts.map(a => ({
         name: a.name,
@@ -345,6 +347,24 @@ export default function TaskDetailsModal({
                 >
                   Actions
                 </button>
+                <button 
+                  onClick={() => setActiveTab('jna')}
+                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'jna' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                >
+                  JNA
+                </button>
+                <button 
+                  onClick={() => setActiveTab('una')}
+                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'una' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                >
+                  UNA
+                </button>
+                <button 
+                  onClick={() => setActiveTab('code')}
+                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'code' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                >
+                  CODE
+                </button>
               </div>
               {activeTab === 'logs' && (
                 <button 
@@ -409,6 +429,18 @@ export default function TaskDetailsModal({
               ) : activeTab === 'chat' ? (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-sans">
                   {task.chat || <div className="text-neutral-600 italic">No chat messages yet.</div>}
+                </div>
+              ) : activeTab === 'jna' ? (
+                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
+                  {task.jnaLogs || <div className="text-neutral-600 italic">No JNA logs yet.</div>}
+                </div>
+              ) : activeTab === 'una' ? (
+                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
+                  {task.unaLogs || <div className="text-neutral-600 italic">No UNA logs yet.</div>}
+                </div>
+              ) : activeTab === 'code' ? (
+                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
+                  {task.programmingLog || <div className="text-neutral-600 italic">No code generated yet.</div>}
                 </div>
               ) : (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">

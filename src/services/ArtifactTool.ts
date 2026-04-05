@@ -13,7 +13,7 @@ export const ArtifactTool = {
 
     // Filter out '_' prefixed artifacts unless the requesting task is the owner
     return artifacts.filter(a => {
-      if (a.name.startsWith('_')) {
+      if (a.name && a.name.startsWith('_')) {
         return requestingTaskId && a.taskId === requestingTaskId;
       }
       return true;
