@@ -15,6 +15,20 @@ export class ModuleRegistry {
     { ...userNegotiatorManifest, enabled: true },
   ] as ModuleManifest[];
 
+  private handlers: Map<string, (toolName: string, args: any[]) => Promise<any>> = new Map();
+
+  registerHandler(toolName: string, handler: (toolName: string, args: any[]) => Promise<any>) {
+    this.handlers.set(toolName, handler);
+  }
+
+  async invokeHandler(toolName: string, args: any[]): Promise<any> {
+    const handler = this.handlers.get(toolName);
+    if (!handler) {
+      throw new Error(`No handler registered for tool: ${toolName}`);
+    }
+    return handler(toolName, args);
+  }
+
   getAll(): ModuleManifest[] {
     return this.modules;
   }

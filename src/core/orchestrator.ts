@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { Task, TaskStep, WorkflowStatus, AgentState } from '../types';
 import { registry } from './registry';
-import { composeProgrammerPrompt, composeArchitectPrompt } from './prompt';
+import { composeProgrammerPrompt } from './prompt';
 import { eventBus } from './event-bus';
 import { db } from '../services/db';
 import { OrchestratorConfig } from './types';
@@ -223,9 +223,7 @@ export class Orchestrator {
       // Generate Protocol if not exists
       if (!currentTask?.protocol) {
         await appendLog(`> [Architect] Generating Task Protocol...\n`);
-        const prompt = composeArchitectPrompt(registry.getEnabled()) + `\n\nTask Title: ${task.title}\nTask Description: ${task.description}`;
-        const responseText = await this.callLlm(prompt, true);
-        const protocol = JSON.parse(responseText || '{"steps": []}');
+        const protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
         await db.tasks.update(task.id, { protocol });
         currentTask = { ...currentTask!, protocol };
         await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);

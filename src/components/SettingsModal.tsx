@@ -407,9 +407,29 @@ export default function SettingsModal({
             
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1">
               {registry.getAll().map(module => (
-                <div key={module.id} className="bg-neutral-950 border border-neutral-800 rounded-lg p-3 hover:border-neutral-700 transition-colors">
+                <div key={module.id} className={cn(
+                  "bg-neutral-950 border rounded-lg p-3 transition-colors",
+                  module.enabled !== false ? "border-neutral-800 hover:border-neutral-700" : "border-neutral-900 opacity-60"
+                )}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => {
+                          registry.setEnabled(module.id, module.enabled === false);
+                          // Force re-render
+                          setActiveTab('general');
+                          setTimeout(() => setActiveTab('modules'), 0);
+                        }}
+                        className={cn(
+                          "w-8 h-4 rounded-full transition-colors relative",
+                          module.enabled !== false ? "bg-blue-600" : "bg-neutral-700"
+                        )}
+                      >
+                        <div className={cn(
+                          "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform",
+                          module.enabled !== false ? "left-4.5" : "left-0.5"
+                        )} />
+                      </button>
                       <span className="text-xs font-bold text-neutral-100">{module.name}</span>
                       <span className="text-[10px] font-mono text-neutral-500">v{module.version}</span>
                     </div>

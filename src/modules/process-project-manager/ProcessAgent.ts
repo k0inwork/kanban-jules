@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { db, Artifact } from '../../services/db';
 import { Task } from '../../types';
 import { OrchestratorConfig } from '../../core/types';
+import { eventBus } from '../../core/event-bus';
 
 export class ProcessAgent {
   private ai: GoogleGenAI;
@@ -17,11 +18,7 @@ export class ProcessAgent {
   }
 
   private async logToChat(taskId: string, message: string) {
-    const task = await db.tasks.get(taskId);
-    if (task) {
-      const newChat = (task.chat || '') + `\n> [Agent] ${message}\n`;
-      await db.tasks.update(taskId, { chat: newChat });
-    }
+    eventBus.emit('module:log', { taskId, moduleId: 'process-project-manager', message });
   }
 
   async runReview(): Promise<void> {
@@ -31,7 +28,7 @@ export class ProcessAgent {
     const tasks = await db.tasks.toArray();
     const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
     let artifacts = await db.taskArtifacts.where({ repoName, branchName: this.branch }).toArray();
-    artifacts = artifacts.filter(a => !a.name || !a.name.startsWith('_'));
+    artifacts = artifacts.filter(a => typeof a.name !== 'string' || !a.name.startsWith('_'));
     const unreadMessages = await db.messages.where('status').equals('unread').toArray();
     
     // Load Constitution

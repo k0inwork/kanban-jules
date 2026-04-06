@@ -1,6 +1,10 @@
 import { GitFs } from '../../services/GitFs';
+import { OrchestratorConfig } from '../../core/types';
 
 export const RepositoryTool = {
+  init: (config: OrchestratorConfig) => {
+    // RepositoryTool doesn't need config for now, but we'll keep the init method for consistency.
+  },
   listFiles: async (repoUrl: string, branch: string, token: string, path: string = ''): Promise<string[]> => {
     const gitFs = new GitFs(repoUrl, branch, token);
     const files = await gitFs.listFiles(path);
@@ -21,11 +25,11 @@ export const RepositoryTool = {
   handleRequest: async (toolName: string, args: any[]): Promise<any> => {
     switch (toolName) {
       case 'knowledge-repo-browser.listFiles':
-        return await RepositoryTool.listFiles(...args);
+        return await RepositoryTool.listFiles(args[0], args[1], args[2], args[3]);
       case 'knowledge-repo-browser.readFile':
-        return await RepositoryTool.readFile(...args);
+        return await RepositoryTool.readFile(args[0], args[1], args[2], args[3]);
       case 'knowledge-repo-browser.headFile':
-        return await RepositoryTool.headFile(...args);
+        return await RepositoryTool.headFile(args[0], args[1], args[2], args[3], args[4]);
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }

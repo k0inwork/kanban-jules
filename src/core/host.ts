@@ -7,6 +7,7 @@ import { GoogleGenAI } from '@google/genai';
 import { db } from '../services/db';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
+import { ArchitectTool } from '../modules/architect-codegen/Architect';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -38,14 +39,7 @@ export class ModuleHost {
 
     eventBus.on('module:request', async ({ requestId, taskId, toolName, args }) => {
       try {
-        let result: any;
-        if (toolName.startsWith('knowledge-artifacts.')) {
-          result = await ArtifactTool.handleRequest(toolName, args);
-        } else if (toolName.startsWith('knowledge-repo-browser.')) {
-          result = await RepositoryTool.handleRequest(toolName, args);
-        } else {
-          throw new Error(`Tool not found: ${toolName}`);
-        }
+        const result = await registry.invokeHandler(toolName, args);
         eventBus.emit('module:response', { requestId, result });
       } catch (error: any) {
         eventBus.emit('module:response', { requestId, result: null, error: error.message });
@@ -55,10 +49,24 @@ export class ModuleHost {
 
   async init(config: OrchestratorConfig) {
     this.config = config;
-    const modules = registry.getAll();
-    console.log(`Host initialized with ${modules.length} modules.`);
+    const modules = registry.getEnabled();
+    console.log(`Host initialized with ${modules.length} enabled modules.`);
 
-    if (registry.get('executor-jules')) {
+    // Initialize tools
+    ArtifactTool.init(config);
+    RepositoryTool.init(config);
+    ArchitectTool.init(config);
+
+    // Register handlers
+    registry.registerHandler('knowledge-artifacts.listArtifacts', ArtifactTool.handleRequest);
+    registry.registerHandler('knowledge-artifacts.readArtifact', ArtifactTool.handleRequest);
+    registry.registerHandler('knowledge-artifacts.saveArtifact', ArtifactTool.handleRequest);
+    registry.registerHandler('knowledge-repo-browser.listFiles', RepositoryTool.handleRequest);
+    registry.registerHandler('knowledge-repo-browser.readFile', RepositoryTool.handleRequest);
+    registry.registerHandler('knowledge-repo-browser.headFile', RepositoryTool.handleRequest);
+    registry.registerHandler('architect-codegen.generateProtocol', ArchitectTool.handleRequest);
+
+    if (registry.get('executor-jules')?.enabled !== false) {
       this.julesPostman = new JulesPostman(config);
       this.julesPostman.start();
       console.log('Jules Postman started.');

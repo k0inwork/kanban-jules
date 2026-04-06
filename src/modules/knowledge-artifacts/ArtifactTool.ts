@@ -1,6 +1,10 @@
 import { db, Artifact } from '../../services/db';
+import { OrchestratorConfig } from '../../core/types';
 
 export const ArtifactTool = {
+  init: (config: OrchestratorConfig) => {
+    // ArtifactTool doesn't need config for now, but we'll keep the init method for consistency.
+  },
   listArtifacts: async (taskId?: string, repoName?: string, branchName?: string, requestingTaskId?: string): Promise<Artifact[]> => {
     let artifacts: Artifact[] = [];
     if (taskId) {
@@ -13,7 +17,7 @@ export const ArtifactTool = {
 
     // Filter out '_' prefixed artifacts unless the requesting task is the owner
     return artifacts.filter(a => {
-      if (a.name && a.name.startsWith('_')) {
+      if (typeof a.name === 'string' && a.name.startsWith('_')) {
         return requestingTaskId && a.taskId === requestingTaskId;
       }
       return true;
@@ -38,11 +42,11 @@ export const ArtifactTool = {
   handleRequest: async (toolName: string, args: any[]): Promise<any> => {
     switch (toolName) {
       case 'knowledge-artifacts.listArtifacts':
-        return await ArtifactTool.listArtifacts(...args);
+        return await ArtifactTool.listArtifacts(args[0], args[1], args[2], args[3]);
       case 'knowledge-artifacts.readArtifact':
-        return await ArtifactTool.readArtifact(...args);
+        return await ArtifactTool.readArtifact(args[0]);
       case 'knowledge-artifacts.saveArtifact':
-        return await ArtifactTool.saveArtifact(...args);
+        return await ArtifactTool.saveArtifact(args[0], args[1], args[2], args[3], args[4]);
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }
