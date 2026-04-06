@@ -87,6 +87,10 @@ export default function App() {
   const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
+  const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(() => {
+    const saved = localStorage.getItem('moduleConfigs');
+    return saved ? JSON.parse(saved) : {};
+  });
 
   const handleSaveSettings = (
     endpoint: string, 
@@ -102,9 +106,10 @@ export default function App() {
     oModel: string,
     jDailyLimit: number,
     jConcurrentLimit: number,
-    gApiKey: string
+    gApiKey: string,
+    mConfigs: Record<string, any>
   ) => {
-    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, jDailyLimit, jConcurrentLimit, gApiKey });
+    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, jDailyLimit, jConcurrentLimit, gApiKey, mConfigs });
     setJulesEndpoint(endpoint);
     setJulesApiKey(apiKey);
     setRepoUrl(repo);
@@ -119,6 +124,7 @@ export default function App() {
     setJulesDailyLimit(jDailyLimit);
     setJulesConcurrentLimit(jConcurrentLimit);
     setGeminiApiKey(gApiKey);
+    setModuleConfigs(mConfigs);
 
     localStorage.setItem('julesEndpoint', endpoint);
     localStorage.setItem('julesApiKey', apiKey);
@@ -134,6 +140,7 @@ export default function App() {
     localStorage.setItem('julesDailyLimit', jDailyLimit.toString());
     localStorage.setItem('julesConcurrentLimit', jConcurrentLimit.toString());
     localStorage.setItem('geminiApiKey', gApiKey);
+    localStorage.setItem('moduleConfigs', JSON.stringify(mConfigs));
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
     if (token && repo) {
@@ -226,18 +233,24 @@ export default function App() {
       repoUrl,
       repoBranch,
       moduleConfigs: {
-        'executor-jules': { julesApiKey, julesDailyLimit, julesConcurrentLimit },
-        'knowledge-artifacts': {},
-        'knowledge-repo-browser': { repoUrl, repoBranch },
-        'architect-codegen': {},
-        'process-project-manager': {},
-        'channel-user-negotiator': {}
+        ...moduleConfigs,
+        'executor-jules': { 
+          ...(moduleConfigs['executor-jules'] || {}),
+          julesApiKey, 
+          julesDailyLimit, 
+          julesConcurrentLimit 
+        },
+        'knowledge-repo-browser': { 
+          ...(moduleConfigs['knowledge-repo-browser'] || {}),
+          repoUrl, 
+          repoBranch 
+        }
       }
     };
     host.init(config);
     orchestrator.init(config);
     return () => host.stop();
-  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, julesApiKey, repoUrl, repoBranch, julesDailyLimit, julesConcurrentLimit]);
+  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, julesApiKey, repoUrl, repoBranch, julesDailyLimit, julesConcurrentLimit, moduleConfigs]);
 
   // Auto-accept proposals in Full Autonomy mode
   const latestProposal = useLiveQuery(() => 
@@ -897,6 +910,7 @@ export default function App() {
         initialJulesDailyLimit={julesDailyLimit}
         initialJulesConcurrentLimit={julesConcurrentLimit}
         initialGeminiApiKey={geminiApiKey}
+        initialModuleConfigs={moduleConfigs}
       />
 
       <TaskDetailsModal

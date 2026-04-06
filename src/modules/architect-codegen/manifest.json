@@ -20,5 +20,8 @@
   "sandboxBindings": {
     "generateProtocol": "architect-codegen.generateProtocol"
   },
-  "permissions": ["llm"]
+  "permissions": ["llm"],
+  "configFields": [
+    { "name": "geminiApiKey", "type": "string", "description": "Gemini API Key" }
+  ]
 }

@@ -27,6 +27,16 @@ export class Orchestrator {
   private async moduleRequest(taskId: string, toolName: string, args: any[]): Promise<any> {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
+    // Handle host-provided tools
+    if (toolName === 'host.analyze' || toolName === 'host.addToContext') {
+      const text = args[0];
+      if (typeof text === 'string') {
+        this.context.accumulatedAnalysis.push(text);
+        this.appendActionLog(taskId, `Analysis added: ${text.substring(0, 50)}...`);
+      }
+      return true;
+    }
+
     const requestId = Math.random().toString(36).substring(7);
     
     return new Promise((resolve, reject) => {
@@ -167,7 +177,11 @@ export class Orchestrator {
     const executorId = step?.executor || 'executor-jules';
     const module = registry.get(executorId);
     const permissions = module?.permissions || [];
-    const sandboxBindings = module?.sandboxBindings || {};
+    const sandboxBindings = {
+      ...module?.sandboxBindings,
+      'analyze': 'host.analyze',
+      'addToContext': 'host.addToContext'
+    };
 
     this.context.accumulatedAnalysis = [];
     const sandbox = new Sandbox();

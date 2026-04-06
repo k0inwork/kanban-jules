@@ -44,5 +44,9 @@
     "repo.readFile": "knowledge-repo-browser.readFile",
     "repo.headFile": "knowledge-repo-browser.headFile"
   },
-  "permissions": []
+  "permissions": ["github-api"],
+  "configFields": [
+    { "name": "repoUrl", "type": "string", "description": "Repository URL (owner/repo)" },
+    { "name": "repoBranch", "type": "string", "description": "Repository Branch" }
+  ]
 }

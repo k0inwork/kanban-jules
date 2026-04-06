@@ -23,7 +23,8 @@ interface SettingsModalProps {
     openaiModel: string,
     julesDailyLimit: number,
     julesConcurrentLimit: number,
-    geminiApiKey: string
+    geminiApiKey: string,
+    moduleConfigs: Record<string, any>
   ) => void;
   initialEndpoint: string;
   initialApiKey: string;
@@ -39,13 +40,14 @@ interface SettingsModalProps {
   initialJulesDailyLimit: number;
   initialJulesConcurrentLimit: number;
   initialGeminiApiKey: string;
+  initialModuleConfigs: Record<string, any>;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
   initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
   initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit,
-  initialGeminiApiKey
+  initialGeminiApiKey, initialModuleConfigs
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [apiKey, setApiKey] = useState(initialApiKey);
@@ -62,6 +64,7 @@ export default function SettingsModal({
   const [julesDailyLimit, setJulesDailyLimit] = useState(initialJulesDailyLimit);
   const [julesConcurrentLimit, setJulesConcurrentLimit] = useState(initialJulesConcurrentLimit);
   const [geminiApiKey, setGeminiApiKey] = useState(initialGeminiApiKey);
+  const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialModuleConfigs);
   
   const [activeTab, setActiveTab] = useState<'general' | 'modules'>('general');
   const [sources, setSources] = useState<Source[]>([]);
@@ -84,11 +87,12 @@ export default function SettingsModal({
       setJulesDailyLimit(initialJulesDailyLimit);
       setJulesConcurrentLimit(initialJulesConcurrentLimit);
       setGeminiApiKey(initialGeminiApiKey);
+      setModuleConfigs(initialModuleConfigs);
     }
   }, [
     isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
     initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit,
-    initialGeminiApiKey
+    initialGeminiApiKey, initialModuleConfigs
   ]);
 
   useEffect(() => {
@@ -112,13 +116,24 @@ export default function SettingsModal({
     }
   };
 
+  const handleModuleConfigChange = (moduleId: string, fieldName: string, value: any) => {
+    setModuleConfigs(prev => ({
+      ...prev,
+      [moduleId]: {
+        ...(prev[moduleId] || {}),
+        [fieldName]: value
+      }
+    }));
+  };
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave(
       endpoint, apiKey, repoUrl, branch, sourceName, sourceId,
-      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, julesDailyLimit, julesConcurrentLimit, geminiApiKey
+      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, julesDailyLimit, julesConcurrentLimit, geminiApiKey,
+      moduleConfigs
     );
     onClose();
   };
@@ -447,15 +462,66 @@ export default function SettingsModal({
                     {module.description}
                   </p>
                   
-                  <div className="space-y-2">
-                    <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">Available Tools</div>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {module.tools.map(tool => (
-                        <div key={tool.name} className="flex flex-col p-1.5 bg-neutral-900 rounded border border-neutral-800/50">
-                          <div className="text-[10px] font-mono text-blue-400 font-bold">{tool.name.split('.').pop()}</div>
-                          <div className="text-[9px] text-neutral-500 italic">{tool.description}</div>
+                  <div className="space-y-4">
+                    {module.permissions && module.permissions.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">Permissions</div>
+                        <div className="flex flex-wrap gap-1">
+                          {module.permissions.map(p => (
+                            <span key={p} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700">
+                              {p}
+                            </span>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+                    )}
+
+                    {module.configFields && module.configFields.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">Configuration</div>
+                        <div className="space-y-2">
+                          {module.configFields.map(field => (
+                            <div key={field.name}>
+                              <label className="block text-[9px] font-mono text-neutral-400 mb-1 uppercase">{field.name}</label>
+                              {field.type === 'boolean' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleModuleConfigChange(module.id, field.name, !moduleConfigs[module.id]?.[field.name])}
+                                  className={cn(
+                                    "w-8 h-4 rounded-full transition-colors relative",
+                                    moduleConfigs[module.id]?.[field.name] ? "bg-blue-600" : "bg-neutral-700"
+                                  )}
+                                >
+                                  <div className={cn(
+                                    "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform",
+                                    moduleConfigs[module.id]?.[field.name] ? "left-4.5" : "left-0.5"
+                                  )} />
+                                </button>
+                              ) : (
+                                <input
+                                  type={field.type === 'number' ? 'number' : 'text'}
+                                  value={moduleConfigs[module.id]?.[field.name] ?? ''}
+                                  onChange={(e) => handleModuleConfigChange(module.id, field.name, field.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
+                                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-[10px] text-neutral-100 focus:outline-none focus:border-blue-500"
+                                  placeholder={field.description}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">Available Tools</div>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {module.tools.map(tool => (
+                          <div key={tool.name} className="flex flex-col p-1.5 bg-neutral-900 rounded border border-neutral-800/50">
+                            <div className="text-[10px] font-mono text-blue-400 font-bold">{tool.name.split('.').pop()}</div>
+                            <div className="text-[9px] text-neutral-500 italic">{tool.description}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>

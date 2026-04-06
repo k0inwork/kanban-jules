@@ -26,5 +26,5 @@
     "Artifacts.saveArtifact": "knowledge-artifacts.saveArtifact",
     "Artifacts.readArtifact": "knowledge-artifacts.readArtifact"
   },
-  "permissions": []
+  "permissions": ["storage"]
 }

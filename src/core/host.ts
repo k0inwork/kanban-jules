@@ -70,8 +70,11 @@ export class ModuleHost {
   }
 
   stop() {
-    if (this.julesPostman) {
-      this.julesPostman.stop();
+    const modules = registry.getEnabled();
+    for (const module of modules) {
+      if (module.destroy) {
+        module.destroy();
+      }
     }
   }
 }

@@ -19,7 +19,7 @@ import { ArchitectTool } from '../modules/architect-codegen/Architect';
 
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
-    { ...julesManifest, enabled: true, init: (config) => new JulesPostman(config).start(), destroy: () => {} },
+    { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
     { ...artifactsManifest, enabled: true, init: ArtifactTool.init, destroy: () => {} },
     { ...repoBrowserManifest, enabled: true, init: RepositoryTool.init, destroy: () => {} },
     { ...projectManagerManifest, enabled: true, init: () => {}, destroy: () => {} },

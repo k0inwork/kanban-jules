@@ -6,8 +6,22 @@ import { JulesConfig } from './types';
 import { eventBus } from '../../core/event-bus';
 
 export class JulesPostman {
+  private static instance: JulesPostman | null = null;
   private interval: any;
   private config: JulesConfig;
+
+  static init(config: JulesConfig) {
+    if (this.instance) this.instance.stop();
+    this.instance = new JulesPostman(config);
+    this.instance.start();
+  }
+
+  static destroy() {
+    if (this.instance) {
+      this.instance.stop();
+      this.instance = null;
+    }
+  }
 
   constructor(config: JulesConfig) {
     this.config = config;
