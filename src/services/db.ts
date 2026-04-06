@@ -14,6 +14,9 @@ export interface Artifact {
   branchName: string;
   name: string;
   content: string;
+  type?: string;
+  metadata?: any;
+  createdAt?: number;
 }
 
 export interface ArtifactLink {

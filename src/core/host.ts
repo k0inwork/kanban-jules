@@ -10,6 +10,8 @@ import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool
 import { ArchitectTool } from '../modules/architect-codegen/Architect';
 import { JulesHandler } from '../modules/executor-jules/JulesHandler';
 import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
+import { LocalHandler } from '../modules/executor-local/LocalHandler';
+import { GithubHandler } from '../modules/executor-github/GithubHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -116,9 +118,15 @@ export class ModuleHost {
       concurrentLimit: julesConfig.julesConcurrentLimit
     });
     const userHandler = new UserHandler();
+    const localHandler = new LocalHandler();
+    const githubHandler = new GithubHandler();
 
     registry.registerHandler('executor-jules.execute', julesHandler.handleRequest.bind(julesHandler));
     registry.registerHandler('channel-user-negotiator.askUser', userHandler.handleRequest.bind(userHandler));
+    registry.registerHandler('executor-local.execute', localHandler.handleRequest.bind(localHandler));
+    registry.registerHandler('executor-github.runWorkflow', githubHandler.handleRequest.bind(githubHandler));
+    registry.registerHandler('executor-github.getRunStatus', githubHandler.handleRequest.bind(githubHandler));
+    registry.registerHandler('executor-github.fetchArtifacts', githubHandler.handleRequest.bind(githubHandler));
     registry.registerHandler('knowledge-artifacts.listArtifacts', ArtifactTool.handleRequest);
     registry.registerHandler('knowledge-artifacts.readArtifact', ArtifactTool.handleRequest);
     registry.registerHandler('knowledge-artifacts.saveArtifact', ArtifactTool.handleRequest);

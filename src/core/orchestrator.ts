@@ -141,7 +141,7 @@ export class Orchestrator {
     const task = await db.tasks.get(taskId);
     if (!task || !task.protocol) throw new Error("Task or protocol not found");
     const step = task.protocol.steps.find(s => s.id === stepId);
-    const executorId = step?.executor || 'executor-jules';
+    const executorId = step?.executor || 'executor-local';
     const module = registry.get(executorId);
     const permissions = module?.permissions || [];
     const sandboxBindings = {

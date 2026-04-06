@@ -17,6 +17,9 @@ import userNegotiatorManifest from '../modules/channel-user-negotiator/manifest.
 import architectManifest from '../modules/architect-codegen/manifest.json';
 import { ArchitectTool } from '../modules/architect-codegen/Architect';
 
+import localExecutorManifest from '../modules/executor-local/manifest.json';
+import githubExecutorManifest from '../modules/executor-github/manifest.json';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -25,6 +28,8 @@ export class ModuleRegistry {
     { ...projectManagerManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...userNegotiatorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...architectManifest, enabled: true, init: ArchitectTool.init, destroy: () => {} },
+    { ...localExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...githubExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

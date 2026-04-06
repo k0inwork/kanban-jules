@@ -28,13 +28,16 @@ export const ArtifactTool = {
     return await db.taskArtifacts.get(artifactId);
   },
 
-  saveArtifact: async (taskId: string, repoName: string, branchName: string, name: string, content: string): Promise<number> => {
+  saveArtifact: async (taskId: string, repoName: string, branchName: string, name: string, content: string, type?: string, metadata?: any): Promise<number> => {
     const artifact: Artifact = {
       taskId,
       repoName,
       branchName,
       name,
       content,
+      type,
+      metadata,
+      createdAt: Date.now()
     };
     return await db.taskArtifacts.add(artifact);
   },
@@ -46,7 +49,7 @@ export const ArtifactTool = {
       case 'knowledge-artifacts.readArtifact':
         return await ArtifactTool.readArtifact(args[0]);
       case 'knowledge-artifacts.saveArtifact':
-        return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, args[0], args[1]);
+        return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, args[0], args[1], args[2], args[3]);
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }
@@ -89,7 +92,9 @@ export const artifactToolDeclarations: FunctionDeclaration[] = [
         repoName: { type: Type.STRING, description: 'The repository name.' },
         branchName: { type: Type.STRING, description: 'The branch name.' },
         name: { type: Type.STRING, description: 'The artifact name.' },
-        content: { type: Type.STRING, description: 'The artifact content.' }
+        content: { type: Type.STRING, description: 'The artifact content.' },
+        type: { type: Type.STRING, description: 'The artifact type (optional).' },
+        metadata: { type: Type.OBJECT, description: 'The artifact metadata (optional).' }
       },
       required: ['taskId', 'repoName', 'branchName', 'name', 'content']
     }

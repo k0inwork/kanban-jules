@@ -74,15 +74,23 @@ Output ONLY valid JSON matching this schema:
 
 export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, step: TaskStep, errorContext: string): string {
   const enabledModules = modules.filter(m => m.enabled !== false);
-  const apiSection = enabledModules.flatMap(m =>
-    Object.entries(m.sandboxBindings).map(([alias, toolName]) => {
-      const tool = m.tools.find(t => t.name === toolName);
-      return `- ${alias}: ${tool?.description || ''}`;
-    })
-  ).join('\n');
+  const executorId = step.executor || 'executor-local';
+  const executor = enabledModules.find(m => m.id === executorId);
+  
+  const apiSection = Object.entries(executor?.sandboxBindings || {}).map(([alias, toolName]) => {
+    const module = enabledModules.find(m => m.tools.some(t => t.name === toolName));
+    const tool = module?.tools.find(t => t.name === toolName);
+    return `- ${alias}: ${tool?.description || ''}`;
+  }).join('\n');
+
+  const commonTools = [
+    "- askUser(prompt): Asks the user for input or clarification.",
+    "- analyze(data): Sends data to the host for analysis (e.g., code analysis, log analysis).",
+    "- addToContext(key, value): Adds data to the task context for future steps."
+  ].join('\n');
 
   return `
-You are the Main Architect. Write executable JavaScript code to accomplish
+You are the Programmer Agent. Write executable JavaScript code to accomplish
 the following protocol step.
 
 Task Title: ${task.title}
@@ -94,13 +102,19 @@ Step Description: ${step.description}
 You have access to a persistent GlobalVars object.
 Current GlobalVars: ${JSON.stringify(task.globalVars || {})}
 
-You have access to the following async APIs:
+You have access to the following async APIs (injected into your scope):
 ${apiSection}
+${commonTools}
 
 ${errorContext ? `PREVIOUS EXECUTION FAILED:\n${errorContext}\nRewrite the code or use askUser().\n` : ''}
 
-Write ONLY valid JavaScript code. No markdown formatting.
-The code runs in an async context. You can use await.
+RULES:
+- Write ONLY valid JavaScript code.
+- No markdown formatting (no \`\`\` blocks).
+- The code runs in an async context. You can use await.
+- Use GlobalVars to store state between steps if needed.
+- If you need user input, use askUser(prompt).
+- If you are using executor-github, you must first runWorkflow, then poll getRunStatus, then fetchArtifacts.
   `;
 }
 
@@ -109,8 +123,9 @@ export function composeArchitectPrompt(modules: ModuleManifest[]): string {
   const executors = enabledModules.filter(m => m.type === 'executor');
 
   const executorSection = executors.map(e => `
-## Executor: "${e.name}"
-${e.description}
+## Executor ID: "${e.id}"
+Name: ${e.name}
+Description: ${e.description}
   `).join('\n---\n');
 
   return `
@@ -122,9 +137,23 @@ ${executorSection}
 
 RULES:
 - Read each executor's description carefully.
-- Assign each step to the executor that fits best.
+- Assign each step to the executor that fits best by using its "Executor ID".
 - Respect each executor's stated granularity preferences.
+- "executor-local" is best for small, tool-based tasks (file read/write, artifact creation).
+- "executor-jules" is best for large, ambitious coding tasks in a remote VM.
+- "executor-github" is best for heavy compute, CI/CD, or long-running processes.
 
-Output JSON: { steps: [{ id, title, description, executor, status }] }
+Output ONLY valid JSON matching this schema:
+{
+  "steps": [
+    {
+      "id": number,
+      "title": "Short title",
+      "description": "Detailed instructions",
+      "executor": "The Executor ID (e.g., 'executor-local')",
+      "status": "pending"
+    }
+  ]
+}
   `;
 }

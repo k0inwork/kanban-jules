@@ -1,0 +1,31 @@
+{
+  "id": "executor-local",
+  "name": "Local Tool Executor",
+  "version": "1.0.0",
+  "type": "executor",
+  "description": "Executes tool-based tasks directly in the browser sandbox. Ideal for file manipulation, artifact generation, and local code analysis. No remote compute required.",
+  "tools": [
+    {
+      "name": "executor-local.execute",
+      "description": "Executes the provided JavaScript code in the local sandbox with access to repository and artifact tools.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The JavaScript code to execute."
+          }
+        },
+        "required": ["code"]
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "readFile": "knowledge-repo-browser.readFile",
+    "writeFile": "knowledge-repo-browser.writeFile",
+    "createArtifact": "knowledge-artifacts.createArtifact",
+    "listArtifacts": "knowledge-artifacts.listArtifacts"
+  },
+  "permissions": ["storage", "sandbox"],
+  "enabled": true
+}

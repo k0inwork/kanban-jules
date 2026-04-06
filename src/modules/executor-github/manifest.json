@@ -1,0 +1,72 @@
+{
+  "id": "executor-github",
+  "name": "GitHub Actions Executor",
+  "version": "1.0.0",
+  "type": "executor",
+  "description": "Executes heavy-compute tasks via GitHub Actions. Ideal for running tests, building Docker images, or data processing. Requires a GitHub Token.",
+  "tools": [
+    {
+      "name": "executor-github.runWorkflow",
+      "description": "Creates and triggers a GitHub Actions workflow to perform a task. Returns the workflow run ID.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workflowYaml": {
+            "type": "string",
+            "description": "The YAML content for the GitHub Actions workflow."
+          },
+          "workflowName": {
+            "type": "string",
+            "description": "A descriptive name for the workflow file (e.g., 'fleet-test-run.yml')."
+          }
+        },
+        "required": ["workflowYaml", "workflowName"]
+      }
+    },
+    {
+      "name": "executor-github.getRunStatus",
+      "description": "Checks the status of a previously triggered GitHub Actions workflow run.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "number",
+            "description": "The ID of the workflow run to check."
+          }
+        },
+        "required": ["runId"]
+      }
+    },
+    {
+      "name": "executor-github.fetchArtifacts",
+      "description": "Downloads artifacts from a completed GitHub Actions workflow run and saves them to the Fleet artifact store.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "number",
+            "description": "The ID of the workflow run to fetch artifacts from."
+          }
+        },
+        "required": ["runId"]
+      }
+    }
+  ],
+  "configFields": [
+    {
+      "key": "githubToken",
+      "type": "string",
+      "label": "GitHub Token",
+      "description": "Personal Access Token with 'repo' and 'workflow' scopes.",
+      "required": true,
+      "secret": true
+    }
+  ],
+  "sandboxBindings": {
+    "runWorkflow": "executor-github.runWorkflow",
+    "getRunStatus": "executor-github.getRunStatus",
+    "fetchArtifacts": "executor-github.fetchArtifacts"
+  },
+  "permissions": ["network", "storage"],
+  "enabled": true
+}
