@@ -4,7 +4,9 @@ import { eventBus } from '../../core/event-bus';
 export class UserNegotiator {
   static async negotiate(
     taskId: string,
-    question: string
+    question: string,
+    format?: string,
+    llmCall?: (prompt: string) => Promise<string>
   ): Promise<string> {
     
     const task = await db.tasks.get(taskId);
@@ -63,7 +65,7 @@ export class UserNegotiator {
 
     // 3. Wait for reply via event bus
     appendUnaLog(`Waiting for user reply...`);
-    return new Promise<string>((resolve) => {
+    const reply = await new Promise<string>((resolve) => {
       const handler = (data: { taskId: string, content: string }) => {
         if (data.taskId === taskId) {
           appendUnaLog(`Received reply from user: "${data.content}"`);
@@ -73,5 +75,30 @@ export class UserNegotiator {
       };
       eventBus.on('user:reply', handler);
     });
+
+    if (format && llmCall) {
+      appendUnaLog(`Validating reply against format: "${format}"`);
+      const isValid = await this.validateReply(reply, format, llmCall);
+      if (!isValid) {
+        appendUnaLog(`Reply invalid. Re-asking user.`);
+        // In a real app, we'd loop or re-ask. For now, we'll just throw or return with a warning.
+        // Let's just return it but log the failure.
+        // Actually, the proposal says "throw new Error" which might trigger a retry in the agent loop.
+        throw new Error(`Reply "${reply}" doesn't match expected format: ${format}`);
+      }
+    }
+
+    return reply;
+  }
+
+  private static async validateReply(reply: string, format: string, llmCall: (prompt: string) => Promise<string>): Promise<boolean> {
+    const prompt = `Does the following user reply match the expected format?
+    Reply: "${reply}"
+    Format: "${format}"
+    
+    Return only "true" or "false".`;
+    
+    const result = await llmCall(prompt);
+    return result.trim().toLowerCase() === 'true';
   }
 }

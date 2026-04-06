@@ -229,7 +229,6 @@ export default function App() {
       openaiKey,
       openaiModel,
       geminiApiKey,
-      julesApiKey,
       repoUrl,
       repoBranch,
       moduleConfigs: {

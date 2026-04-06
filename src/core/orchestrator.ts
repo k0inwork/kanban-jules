@@ -232,10 +232,6 @@ export class Orchestrator {
     let currentTask = { ...task, ...updatedTaskData };
 
     try {
-      if (!this.config.julesApiKey) {
-        throw new Error("Jules API Key is required to use the real Jules API. Please configure it in Settings.");
-      }
-
       if (!this.config.repoUrl) {
         await appendLog(`> [Error] Execution requires a repository source. Please select a repository.\n`);
         await db.tasks.update(task.id, { workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined });

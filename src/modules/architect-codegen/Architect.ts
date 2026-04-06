@@ -1,68 +1,27 @@
-import { GoogleGenAI } from '@google/genai';
-import { ArchitectConfig } from './types';
+import { RequestContext } from '../../core/types';
 import { registry } from '../../core/registry';
 import { composeArchitectPrompt } from '../../core/prompt';
 
 export class Architect {
-  private ai: GoogleGenAI | null = null;
-  private config: ArchitectConfig;
-
-  constructor(config: ArchitectConfig) {
-    this.config = config;
-    if (config.apiProvider === 'gemini') {
-      this.ai = new GoogleGenAI({ apiKey: config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
-    }
-  }
-
-  async generateProtocol(title: string, description: string): Promise<any> {
+  async generateProtocol(title: string, description: string, context: RequestContext): Promise<any> {
     const prompt = composeArchitectPrompt(registry.getEnabled()) + `\n\nTask Title: ${title}\nTask Description: ${description}`;
     
-    let responseText = '';
-    if (this.config.apiProvider === 'gemini') {
-      if (!this.ai) throw new Error("AI not initialized");
-      const response = await this.ai.models.generateContent({
-        model: this.config.geminiModel,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      });
-      responseText = response.text || '{}';
-    } else {
-      const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.openaiKey}`
-        },
-        body: JSON.stringify({
-          model: this.config.openaiModel,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          response_format: { type: 'json_object' }
-        })
-      });
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${error}`);
-      }
-      const data = await response.json();
-      responseText = data.choices[0].message.content || '{}';
-    }
-    
-    return JSON.parse(responseText);
+    const responseText = await context.llmCall(prompt, true);
+    return JSON.parse(responseText || '{}');
   }
 }
 
 let architectInstance: Architect | null = null;
 
 export const ArchitectTool = {
-  init: (config: ArchitectConfig) => {
-    architectInstance = new Architect(config);
+  init: () => {
+    architectInstance = new Architect();
   },
-  handleRequest: async (toolName: string, args: any[]): Promise<any> => {
+  handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
     if (!architectInstance) throw new Error("Architect not initialized");
     switch (toolName) {
       case 'architect-codegen.generateProtocol':
-        return await architectInstance.generateProtocol(args[0], args[1]);
+        return await architectInstance.generateProtocol(args[0], args[1], context);
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }

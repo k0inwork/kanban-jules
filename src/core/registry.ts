@@ -1,4 +1,4 @@
-import { ModuleManifest } from './types';
+import { ModuleManifest, RequestContext } from './types';
 
 import julesManifest from '../modules/executor-jules/manifest.json';
 import { JulesPostman } from '../modules/executor-jules/JulesPostman';
@@ -27,18 +27,18 @@ export class ModuleRegistry {
     { ...architectManifest, enabled: true, init: ArchitectTool.init, destroy: () => {} },
   ] as ModuleManifest[];
 
-  private handlers: Map<string, (toolName: string, args: any[]) => Promise<any>> = new Map();
+  private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();
 
-  registerHandler(toolName: string, handler: (toolName: string, args: any[]) => Promise<any>) {
+  registerHandler(toolName: string, handler: (toolName: string, args: any[], context: RequestContext) => Promise<any>) {
     this.handlers.set(toolName, handler);
   }
 
-  async invokeHandler(toolName: string, args: any[]): Promise<any> {
+  async invokeHandler(toolName: string, args: any[], context: RequestContext): Promise<any> {
     const handler = this.handlers.get(toolName);
     if (!handler) {
       throw new Error(`No handler registered for tool: ${toolName}`);
     }
-    return handler(toolName, args);
+    return handler(toolName, args, context);
   }
 
   getAll(): ModuleManifest[] {

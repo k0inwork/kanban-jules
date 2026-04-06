@@ -116,12 +116,12 @@ export default function SettingsModal({
     }
   };
 
-  const handleModuleConfigChange = (moduleId: string, fieldName: string, value: any) => {
+  const handleModuleConfigChange = (moduleId: string, fieldKey: string, value: any) => {
     setModuleConfigs(prev => ({
       ...prev,
       [moduleId]: {
         ...(prev[moduleId] || {}),
-        [fieldName]: value
+        [fieldKey]: value
       }
     }));
   };
@@ -352,8 +352,8 @@ export default function SettingsModal({
                   className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                   disabled={isLoadingSources}
                 >
-                  <option value="">Select a source...</option>
-                  {isLoadingSources && <option value="" disabled>Loading sources...</option>}
+                  <option key="default-source" value="">Select a source...</option>
+                  {isLoadingSources && <option key="loading-sources" value="" disabled>Loading sources...</option>}
                   {sources.map(s => (
                     <option key={s.id} value={s.id}>
                       {s.githubRepo ? `${s.githubRepo.owner}/${s.githubRepo.repo}` : s.name}
@@ -373,14 +373,14 @@ export default function SettingsModal({
                   className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                   disabled={!repoUrl || (branches.length === 0 && !isLoadingSources)}
                 >
-                  <option value="">Select a branch...</option>
+                  <option key="default-branch" value="">Select a branch...</option>
                   {branches.map(b => (
                     <option key={b.displayName} value={b.displayName}>
                       {b.displayName}
                     </option>
                   ))}
                   {!selectedSource && branch && (
-                    <option value={branch}>{branch}</option>
+                    <option key="manual-branch" value={branch}>{branch}</option>
                   )}
                 </select>
               </div>
@@ -479,32 +479,48 @@ export default function SettingsModal({
                     {module.configFields && module.configFields.length > 0 && (
                       <div className="space-y-2">
                         <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">Configuration</div>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {module.configFields.map(field => (
-                            <div key={field.name}>
-                              <label className="block text-[9px] font-mono text-neutral-400 mb-1 uppercase">{field.name}</label>
+                            <div key={field.key}>
+                              <label className="block text-[9px] font-mono text-neutral-400 mb-1 uppercase">
+                                {field.label || field.key}
+                              </label>
                               {field.type === 'boolean' ? (
                                 <button
                                   type="button"
-                                  onClick={() => handleModuleConfigChange(module.id, field.name, !moduleConfigs[module.id]?.[field.name])}
+                                  onClick={() => handleModuleConfigChange(module.id, field.key, !moduleConfigs[module.id]?.[field.key])}
                                   className={cn(
                                     "w-8 h-4 rounded-full transition-colors relative",
-                                    moduleConfigs[module.id]?.[field.name] ? "bg-blue-600" : "bg-neutral-700"
+                                    moduleConfigs[module.id]?.[field.key] ? "bg-blue-600" : "bg-neutral-700"
                                   )}
                                 >
                                   <div className={cn(
                                     "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform",
-                                    moduleConfigs[module.id]?.[field.name] ? "left-4.5" : "left-0.5"
+                                    moduleConfigs[module.id]?.[field.key] ? "left-4.5" : "left-0.5"
                                   )} />
                                 </button>
+                              ) : field.type === 'select' ? (
+                                <select
+                                  value={moduleConfigs[module.id]?.[field.key] ?? field.default ?? ''}
+                                  onChange={(e) => handleModuleConfigChange(module.id, field.key, e.target.value)}
+                                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-[10px] text-neutral-100 focus:outline-none focus:border-blue-500"
+                                >
+                                  <option key="default-select" value="">Select...</option>
+                                  {field.options?.map(opt => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
                               ) : (
                                 <input
-                                  type={field.type === 'number' ? 'number' : 'text'}
-                                  value={moduleConfigs[module.id]?.[field.name] ?? ''}
-                                  onChange={(e) => handleModuleConfigChange(module.id, field.name, field.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
+                                  type={field.secret ? 'password' : (field.type === 'number' ? 'number' : 'text')}
+                                  value={moduleConfigs[module.id]?.[field.key] ?? field.default ?? ''}
+                                  onChange={(e) => handleModuleConfigChange(module.id, field.key, field.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
                                   className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-[10px] text-neutral-100 focus:outline-none focus:border-blue-500"
                                   placeholder={field.description}
                                 />
+                              )}
+                              {field.description && (
+                                <p className="text-[9px] text-neutral-500 mt-0.5">{field.description}</p>
                               )}
                             </div>
                           ))}

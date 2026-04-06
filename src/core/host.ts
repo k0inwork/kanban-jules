@@ -1,13 +1,15 @@
 import { registry } from './registry';
 import { eventBus } from './event-bus';
 import { JulesPostman } from '../modules/executor-jules/JulesPostman';
-import { OrchestratorConfig } from './types';
+import { ModuleManifest, OrchestratorConfig, RequestContext } from './types';
 import { ProcessAgent } from '../modules/process-project-manager/ProcessAgent';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 import { db } from '../services/db';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { ArchitectTool } from '../modules/architect-codegen/Architect';
+import { JulesHandler } from '../modules/executor-jules/JulesHandler';
+import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -39,12 +41,53 @@ export class ModuleHost {
 
     eventBus.on('module:request', async ({ requestId, taskId, toolName, args }) => {
       try {
-        const result = await registry.invokeHandler(toolName, args);
+        const context: RequestContext = {
+          taskId,
+          repoUrl: this.config?.repoUrl || '',
+          repoBranch: this.config?.repoBranch || '',
+          llmCall: this.llmCall.bind(this)
+        };
+        const result = await registry.invokeHandler(toolName, args, context);
         eventBus.emit('module:response', { requestId, result });
       } catch (error: any) {
         eventBus.emit('module:response', { requestId, result: null, error: error.message });
       }
     });
+  }
+
+  async llmCall(prompt: string, jsonMode?: boolean): Promise<string> {
+    if (!this.config) throw new Error("Host not initialized");
+    
+    if (this.config.apiProvider === 'gemini') {
+      const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: this.config.geminiModel,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: jsonMode ? { responseMimeType: 'application/json' } : undefined
+      });
+      return response.text || '';
+    } else {
+      const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: this.config.openaiModel,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          response_format: jsonMode ? { type: 'json_object' } : undefined
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.choices[0].message.content || '';
+      } else {
+        const error = await response.text();
+        throw new Error(`OpenAI API error: ${error}`);
+      }
+    }
   }
 
   async init(config: OrchestratorConfig) {
@@ -59,7 +102,17 @@ export class ModuleHost {
       }
     }
 
-    // Register handlers
+    // Instantiate and register handlers
+    const julesConfig = config.moduleConfigs['executor-jules'] || {};
+    const julesHandler = new JulesHandler({ 
+      apiKey: julesConfig.julesApiKey || '',
+      dailyLimit: julesConfig.julesDailyLimit,
+      concurrentLimit: julesConfig.julesConcurrentLimit
+    });
+    const userHandler = new UserHandler();
+
+    registry.registerHandler('executor-jules.execute', julesHandler.handleRequest.bind(julesHandler));
+    registry.registerHandler('channel-user-negotiator.askUser', userHandler.handleRequest.bind(userHandler));
     registry.registerHandler('knowledge-artifacts.listArtifacts', ArtifactTool.handleRequest);
     registry.registerHandler('knowledge-artifacts.readArtifact', ArtifactTool.handleRequest);
     registry.registerHandler('knowledge-artifacts.saveArtifact', ArtifactTool.handleRequest);

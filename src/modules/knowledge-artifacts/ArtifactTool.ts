@@ -1,5 +1,5 @@
 import { db, Artifact } from '../../services/db';
-import { OrchestratorConfig } from '../../core/types';
+import { OrchestratorConfig, RequestContext } from '../../core/types';
 
 export const ArtifactTool = {
   init: (config: OrchestratorConfig) => {
@@ -39,14 +39,14 @@ export const ArtifactTool = {
     return await db.taskArtifacts.add(artifact);
   },
 
-  handleRequest: async (toolName: string, args: any[]): Promise<any> => {
+  handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
     switch (toolName) {
       case 'knowledge-artifacts.listArtifacts':
-        return await ArtifactTool.listArtifacts(args[0], args[1], args[2], args[3]);
+        return await ArtifactTool.listArtifacts(args[0] || context.taskId, args[1] || context.repoUrl, args[2] || context.repoBranch, context.taskId);
       case 'knowledge-artifacts.readArtifact':
         return await ArtifactTool.readArtifact(args[0]);
       case 'knowledge-artifacts.saveArtifact':
-        return await ArtifactTool.saveArtifact(args[0], args[1], args[2], args[3], args[4]);
+        return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, args[0], args[1]);
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }

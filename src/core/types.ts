@@ -9,11 +9,20 @@ export interface ResourceLimit {
   value: number;
 }
 
+export interface ConfigOption {
+  value: string;
+  label: string;
+}
+
 export interface ConfigField {
-  name: string;
-  type: 'string' | 'number' | 'boolean';
+  key: string;
+  type: 'string' | 'number' | 'boolean' | 'select';
+  label: string;
   description: string;
   required: boolean;
+  secret?: boolean;
+  default?: any;
+  options?: ConfigOption[];
 }
 
 export interface ModulePresentation {
@@ -42,6 +51,13 @@ export interface ModuleManifest {
   destroy?: () => void;
 }
 
+export interface RequestContext {
+  taskId: string;
+  repoUrl: string;
+  repoBranch: string;
+  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
+}
+
 export interface OrchestratorConfig {
   apiProvider: string;
   geminiModel: string;
@@ -49,7 +65,6 @@ export interface OrchestratorConfig {
   openaiKey: string;
   openaiModel: string;
   geminiApiKey: string;
-  julesApiKey: string;
   repoUrl: string;
   repoBranch: string;
   moduleConfigs: Record<string, any>;

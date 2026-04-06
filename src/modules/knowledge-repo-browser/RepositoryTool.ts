@@ -1,5 +1,5 @@
 import { GitFs } from '../../services/GitFs';
-import { OrchestratorConfig } from '../../core/types';
+import { OrchestratorConfig, RequestContext } from '../../core/types';
 
 export const RepositoryTool = {
   init: (config: OrchestratorConfig) => {
@@ -22,14 +22,15 @@ export const RepositoryTool = {
     return content.split('\n').slice(0, lines).join('\n');
   },
 
-  handleRequest: async (toolName: string, args: any[]): Promise<any> => {
+  handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
+    const token = import.meta.env.VITE_GITHUB_TOKEN || '';
     switch (toolName) {
       case 'knowledge-repo-browser.listFiles':
-        return await RepositoryTool.listFiles(args[0], args[1], args[2], args[3]);
+        return await RepositoryTool.listFiles(args[0] || context.repoUrl, args[1] || context.repoBranch, token, args[2]);
       case 'knowledge-repo-browser.readFile':
-        return await RepositoryTool.readFile(args[0], args[1], args[2], args[3]);
+        return await RepositoryTool.readFile(args[0] || context.repoUrl, args[1] || context.repoBranch, token, args[2]);
       case 'knowledge-repo-browser.headFile':
-        return await RepositoryTool.headFile(args[0], args[1], args[2], args[3], args[4]);
+        return await RepositoryTool.headFile(args[0] || context.repoUrl, args[1] || context.repoBranch, token, args[2], args[3]);
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }
