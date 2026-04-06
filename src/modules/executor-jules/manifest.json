@@ -1,0 +1,18 @@
+{
+  "id": "executor-jules",
+  "name": "Google Jules",
+  "version": "1.0.0",
+  "type": "executor",
+  "description": "Fully autonomous coding agent in a cloud VM. Give it large ambitious tasks.",
+  "tools": [
+    {
+      "name": "executor-jules.execute",
+      "description": "Steering loop: send to Jules, poll, verify, feed back, repeat.",
+      "parameters": { "type": "object", "properties": { "prompt": { "type": "string" }, "successCriteria": { "type": "string" } } }
+    }
+  ],
+  "sandboxBindings": {
+    "askJules": "executor-jules.execute"
+  },
+  "permissions": ["network"]
+}

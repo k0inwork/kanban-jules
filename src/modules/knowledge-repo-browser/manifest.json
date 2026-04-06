@@ -1,0 +1,10 @@
+{
+  "id": "knowledge-repo-browser",
+  "name": "Repo Browser",
+  "version": "1.0.0",
+  "type": "knowledge",
+  "description": "Browses the repository.",
+  "tools": [],
+  "sandboxBindings": {},
+  "permissions": []
+}

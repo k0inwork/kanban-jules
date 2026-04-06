@@ -12,8 +12,9 @@ export class UserNegotiator {
     const appendUnaLog = async (msg: string) => {
       const t = await db.tasks.get(taskId);
       if (t) {
-        const newLogs = (t.unaLogs || '') + `[${new Date().toISOString()}] ${msg}\n`;
-        await db.tasks.update(taskId, { unaLogs: newLogs });
+        const currentLogs = t.moduleLogs?.['una'] || '';
+        const newLogs = currentLogs + `[${new Date().toISOString()}] ${msg}\n`;
+        await db.tasks.update(taskId, { moduleLogs: { ...t.moduleLogs, 'una': newLogs } });
       }
     };
 

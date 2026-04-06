@@ -1,4 +1,4 @@
-import { db, Artifact } from './db';
+import { db, Artifact } from '../../services/db';
 
 export const ArtifactTool = {
   listArtifacts: async (taskId?: string, repoName?: string, branchName?: string, requestingTaskId?: string): Promise<Artifact[]> => {

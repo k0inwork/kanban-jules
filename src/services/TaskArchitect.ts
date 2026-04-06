@@ -105,7 +105,7 @@ Output ONLY valid JSON matching this schema:
       "id": 1,
       "title": "Step title",
       "description": "Detailed, comprehensive instructions for the agent. For Jules, provide the full scope of the repository work needed.",
-      "delegateTo": "local" | "jules",
+      "executor": "string (e.g., 'executor-jules', 'local')",
       "status": "pending"
     }
   ]
@@ -152,7 +152,7 @@ Output ONLY valid JSON matching this schema:
         id: 1,
         title: "Execute Task",
         description: taskDescription,
-        delegateTo: "local",
+        executor: "local",
         status: "pending"
       }
     ]

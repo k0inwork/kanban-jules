@@ -1,0 +1,18 @@
+{
+  "id": "channel-user-negotiator",
+  "name": "User Negotiator",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Asks the user for input or confirmation.",
+  "tools": [
+    {
+      "name": "channel-user-negotiator.askUser",
+      "description": "Asks the user a question and waits for a reply.",
+      "parameters": { "type": "object", "properties": { "question": { "type": "string" }, "format": { "type": "string" } } }
+    }
+  ],
+  "sandboxBindings": {
+    "askUser": "channel-user-negotiator.askUser"
+  },
+  "permissions": []
+}

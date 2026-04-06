@@ -1,4 +1,4 @@
-import { GitFs } from './GitFs';
+import { GitFs } from '../../services/GitFs';
 
 export const RepositoryTool = {
   listFiles: async (repoUrl: string, branch: string, token: string, path: string = ''): Promise<string[]> => {

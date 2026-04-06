@@ -14,10 +14,12 @@ import NewTaskModal from './components/NewTaskModal';
 import TaskDetailsModal from './components/TaskDetailsModal';
 import SettingsModal from './components/SettingsModal';
 import { executeJulesCommand } from './lib/jules';
-import { JulesSessionManager } from './services/JulesSessionManager';
+import { JulesSessionManager } from './modules/executor-jules/JulesSessionManager';
 import { julesApi, SessionState } from './lib/julesApi';
-import { Orchestrator, OrchestratorConfig } from './services/Orchestrator';
-import { ProcessAgent } from './services/ProcessAgent';
+import { orchestrator } from './core/orchestrator';
+import { host } from './core/host';
+import { OrchestratorConfig } from './core/types';
+import { eventBus } from './core/event-bus';
 import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
@@ -31,8 +33,8 @@ import PreviewTabs, { Tab } from './components/PreviewTabs';
 import PreviewPane from './components/PreviewPane';
 import { Artifact, db, AgentMessage } from './services/db';
 import { GitFs, GitFile } from './services/GitFs';
-import { ArtifactTool, artifactToolDeclarations } from './services/ArtifactTool';
-import { RepositoryTool, repositoryToolDeclarations } from './services/RepositoryTool';
+import { ArtifactTool, artifactToolDeclarations } from './modules/knowledge-artifacts/ArtifactTool';
+import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-repo-browser/RepositoryTool';
 import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
@@ -148,23 +150,7 @@ export default function App() {
     if (isReviewing) return;
     setIsReviewing(true);
     try {
-      let ai: GoogleGenAI | undefined;
-      if (apiProvider === 'gemini') {
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      }
-      const agentConfig: OrchestratorConfig = {
-        apiProvider,
-        geminiModel,
-        openaiUrl,
-        openaiKey,
-        openaiModel,
-        geminiApiKey: process.env.GEMINI_API_KEY || '',
-        julesApiKey,
-        repoUrl,
-        repoBranch
-      };
-      const processAgent = new ProcessAgent(ai as any, agentConfig, repoUrl, repoBranch);
-      await processAgent.runReview();
+      eventBus.emit('project:review', {});
       setSidebarMode('mailbox');
       setIsRepoBrowserOpen(true);
     } catch (error) {
@@ -226,6 +212,24 @@ export default function App() {
     db.messages.where('status').equals('unread').count()
   ) || 0;
 
+  // Initialize Module Host
+  useEffect(() => {
+    const config: OrchestratorConfig = {
+      apiProvider,
+      geminiModel,
+      openaiUrl,
+      openaiKey,
+      openaiModel,
+      geminiApiKey,
+      julesApiKey,
+      repoUrl,
+      repoBranch
+    };
+    host.init(config);
+    orchestrator.init(config);
+    return () => host.stop();
+  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, julesApiKey, repoUrl, repoBranch]);
+
   // Auto-accept proposals in Full Autonomy mode
   const latestProposal = useLiveQuery(() => 
     db.messages.where('type').equals('proposal').and(m => m.status === 'unread').first()
@@ -237,7 +241,7 @@ export default function App() {
     }
   }, [latestProposal, autonomyMode]);
 
-  // Agent Loop & Jules Postman
+  // Agent Loop
   useEffect(() => {
     const interval = setInterval(async () => {
       // 1. Task Orchestration
@@ -246,15 +250,6 @@ export default function App() {
         const taskToProcess = tasks.find(t => {
           const isEligible = (t.workflowStatus === 'TODO' || t.workflowStatus === 'IN_PROGRESS') && 
             t.agentState === 'IDLE';
-          
-          if (t.id === 'f9d1b957-3a4b-4f89-b76d-344c1d75b057') {
-            console.log(`[Agent Loop] Debugging task test7:`, {
-              workflowStatus: t.workflowStatus,
-              agentState: t.agentState,
-              isEligible
-            });
-          }
-          
           return isEligible;
         });
         if (taskToProcess) {
@@ -262,177 +257,10 @@ export default function App() {
           processTask(taskToProcess);
         }
       }
-
-      // 2. Jules Postman (Polling & Classification)
-      const waitingTasks = tasks.filter(t => t.agentState === 'WAITING_FOR_JULES');
-      for (const task of waitingTasks) {
-        if (!julesApiKey) continue;
-
-        try {
-          const session = await JulesSessionManager.findOrCreateSession(julesApiKey, task, repoUrl || '', repoBranch || '', julesSourceName);
-          if (!session) continue;
-
-          if (task.pendingJulesPrompt) {
-            console.log(`[Postman] Sending pending prompt to Jules for task ${task.id}`);
-            await JulesSessionManager.sendMessage(julesApiKey, session.name, task.pendingJulesPrompt);
-            await db.tasks.update(task.id, { pendingJulesPrompt: undefined });
-          }
-
-          const activitiesRes = await julesApi.listActivities(julesApiKey, session.name, 10);
-          const activities = activitiesRes.activities || [];
-          
-          for (const activity of activities) {
-            // Check if already processed using activity.name as unique ID
-            const existingMsg = await db.messages.where('activityName').equals(activity.name).first();
-            if (existingMsg) continue;
-
-            let category: 'SIGNAL' | 'NOISE' = 'NOISE';
-            let content = '';
-            let type: 'info' | 'chat' | 'alert' = 'info';
-
-            if (activity.agentMessaged) {
-              const rawContent = activity.agentMessaged.agentMessage;
-              
-              // Robust tag parsing (handles literal and escaped brackets)
-              const chatRegex = /(?:<|&lt;)chat(?:>|&gt;)(.*?)(?:(?:<|&lt;)\/chat(?:>|&gt;)|$)/s;
-              const dataRegex = /(?:<|&lt;)data\s+type=["']?(.*?)["']?\s*(?:>|&gt;)(.*?)(?:(?:<|&lt;)\/data(?:>|&gt;)|$)/s;
-              
-              const chatMatch = rawContent.match(chatRegex);
-              const dataMatch = rawContent.match(dataRegex);
-              
-              const chatContent = chatMatch ? chatMatch[1].trim() : rawContent;
-              const dataContent = dataMatch ? dataMatch[2].trim() : null;
-              const dataType = dataMatch ? dataMatch[1] : null;
-
-              // Log RAW content to chat history so the Orchestrator can see the tags
-              // We use the rawContent to ensure the Active Assessor has all the context
-              await db.tasks.update(task.id, { 
-                chat: (task.chat || '') + `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${rawContent}\n`
-              });
-
-              // Handle data content
-              if (dataContent) {
-                // Save as artifact
-                await db.taskArtifacts.add({
-                  taskId: task.id,
-                  repoName: '',
-                  branchName: '',
-                  name: `_jules_data_${Date.now()}`,
-                  content: dataContent
-                });
-              }
-              
-              content = chatContent;
-              type = 'chat';
-              
-              // Classify agent message
-              if (apiProvider === 'gemini') {
-                const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-                const classification = await ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
-                  contents: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
-                  SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                  NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-                  
-                  Message: "${content}"
-                  
-                  Return only "SIGNAL" or "NOISE".`,
-                });
-                category = (classification.text?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
-              } else {
-                const response = await fetch(`${openaiUrl}/chat/completions`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKey}`
-                  },
-                  body: JSON.stringify({
-                    model: openaiModel,
-                    messages: [{ role: 'user', content: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
-                  SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                  NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-                  
-                  Message: "${content}"
-                  
-                  Return only "SIGNAL" or "NOISE".` }],
-                    temperature: 0.1
-                  })
-                });
-                if (response.ok) {
-                  const data = await response.json();
-                  category = (data.choices[0].message.content?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
-                }
-              }
-            } else if (activity.progressUpdated) {
-              content = `Progress: ${activity.progressUpdated.title}`;
-              category = 'NOISE';
-            } else if (activity.planGenerated) {
-              content = `Plan Generated: ${activity.planGenerated.plan.steps.map(s => s.title).join(', ')}`;
-              category = 'SIGNAL'; // Plans usually need approval/review
-              type = 'alert';
-            }
-
-            if (content) {
-              await db.messages.add({
-                sender: `Jules (${session.name})`,
-                taskId: task.id,
-                type,
-                category,
-                content,
-                activityName: activity.name,
-                status: 'unread',
-                timestamp: new Date(activity.createTime).getTime()
-              });
-
-              // If it's a SIGNAL, wake up the Orchestrator
-              if (category === 'SIGNAL') {
-                const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${content}\n`;
-                const t = await db.tasks.get(task.id);
-                if (t) {
-                  const updatedChat = (t.chat || '') + chatMsg;
-                  await db.tasks.update(t.id, { chat: updatedChat, agentState: 'IDLE' });
-                }
-              }
-            }
-            
-            // Mark activity as processed by saving its JSON as content (hacky but works for uniqueness)
-            await db.messages.add({
-              sender: 'system',
-              taskId: task.id,
-              type: 'info',
-              content: JSON.stringify(activity),
-              status: 'read',
-              timestamp: Date.now()
-            });
-          }
-
-          // Update session status
-          const currentSession = await julesApi.getSession(julesApiKey, session.name);
-          await db.julesSessions.update(session.id, { status: currentSession.state });
-
-          if (currentSession.state === 'COMPLETED' || currentSession.state === 'FAILED') {
-            // Mark session as taskless so it can be reused
-            await db.julesSessions.update(session.id, { taskId: undefined });
-            
-            const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] Session ${currentSession.state}.\n`;
-            const t = await db.tasks.get(task.id);
-            if (t) {
-              const updatedChat = (t.chat || '') + chatMsg;
-              await db.tasks.update(t.id, { chat: updatedChat, agentState: 'EXECUTING' });
-            }
-          }
-        } catch (e: any) {
-          console.error(`[Postman] Error polling session for task ${task.id}:`, e);
-          if (e.status === 404 || e.message?.includes('not found')) {
-            // Only delete if truly not found in Jules
-            await db.julesSessions.where('taskId').equals(task.id).delete();
-          }
-        }
-      }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [tasks, autonomyMode, julesApiKey, repoUrl, repoBranch]);
+  }, [tasks, autonomyMode]);
 
   const appendActionLogToTask = async (taskId: string, msg: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -448,16 +276,6 @@ export default function App() {
     if (processingRef.current.has(task.id)) return;
     processingRef.current.add(task.id);
     
-    const isResuming = task.workflowStatus === 'IN_PROGRESS';
-    const updatedTaskData = { 
-      workflowStatus: 'IN_PROGRESS' as WorkflowStatus,
-      agentState: 'EXECUTING' as AgentState,
-      agentId: task.agentId || 'jules-agent', 
-      logs: isResuming ? task.logs : (task.logs ? task.logs + '\n\n---\n\n' : '') + '> Initializing Agent Session...\n' 
-    };
-    await db.tasks.update(task.id, updatedTaskData);
-    const updatedTask = { ...task, ...updatedTaskData };
-
     const appendLog = async (text: string) => {
       const t = await db.tasks.get(task.id);
       if (t) {
@@ -466,124 +284,13 @@ export default function App() {
     };
 
     try {
-      if (!julesApiKey) {
-        throw new Error("Jules API Key is required to use the real Jules API. Please configure it in Settings.");
-      }
-
-      if (!repoUrl) {
-        await appendLog(`> [Error] Execution requires a repository source. Please select a repository.\n`);
-        await db.tasks.update(task.id, { workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined });
-        return;
-      }
-
-      let ai: GoogleGenAI | undefined;
-      if (apiProvider === 'gemini') {
-        ai = new GoogleGenAI({ apiKey: geminiApiKey || process.env.GEMINI_API_KEY || '' });
-      }
-      
-      const agentConfig = {
-        apiProvider,
-        geminiModel,
-        openaiUrl,
-        openaiKey,
-        openaiModel,
-        geminiApiKey: geminiApiKey || process.env.GEMINI_API_KEY || '',
-        julesApiKey,
-        repoUrl,
-        repoBranch: repoBranch || 'main'
-      };
-
-      // Generate Protocol if not exists
-      let currentTask = await db.tasks.get(task.id);
-      if (!currentTask?.protocol) {
-        appendLog(`> [Architect] Generating Task Protocol...\n`);
-        const protocol = await generateTaskProtocol(
-          task.title,
-          task.description,
-          apiProvider,
-          geminiModel,
-          openaiUrl,
-          openaiKey,
-          openaiModel,
-          geminiApiKey
-        );
-        await db.tasks.update(task.id, { protocol });
-        currentTask = { ...currentTask!, protocol };
-        await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);
-      }
-
-      await appendLog(`> [Orchestrator] Initializing Orchestrator...\n`);
-      const orchestrator = new Orchestrator(ai as any, task.id, agentConfig);
-      
-      let status = 'DONE';
-      
-      // Find the first pending step
-      const pendingStep = currentTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
-      
-      if (pendingStep) {
-        if (pendingStep.status === 'pending') {
-          const updatedSteps = currentTask!.protocol!.steps.map(s => 
-            s.id === pendingStep.id ? { ...s, status: 'in_progress' as const } : s
-          );
-          await db.tasks.update(task.id, { protocol: { ...currentTask!.protocol!, steps: updatedSteps } });
-        }
-
-        await orchestrator.runStep(pendingStep.id);
-        
-        // After runStep, check if the task was paused (e.g., WAITING_FOR_USER)
-        const updatedTask = await db.tasks.get(task.id);
-        if (updatedTask?.agentState === 'WAITING_FOR_USER' || updatedTask?.agentState === 'ERROR') {
-          status = 'PAUSED';
-        } else {
-          // If it completed the step, we should ideally loop to the next step.
-          // For now, we can just let the interval pick it up again if it's still IN_PROGRESS and IDLE.
-          // Wait, runStep marks the step as completed.
-          // Let's check if there are more steps.
-          const moreSteps = updatedTask?.protocol?.steps.some(s => s.status === 'pending');
-          if (moreSteps) {
-            status = 'PAUSED'; // Pause to let the loop pick it up again
-            await db.tasks.update(task.id, { agentState: 'IDLE' }); // Ready for next step
-          } else {
-            status = 'DONE';
-          }
-        }
-      }
-      
-      await appendLog(`> [Orchestrator] Step execution complete. Status: ${status}\n`);
-      
-      // Determine new workflow status and agent state
-      let nextWorkflowStatus: WorkflowStatus = 'IN_REVIEW';
-      let nextAgentState: AgentState = 'IDLE';
-      
-      if (status === 'PAUSED') {
-        const updatedTask = await db.tasks.get(task.id);
-        nextWorkflowStatus = updatedTask?.workflowStatus || 'IN_PROGRESS';
-        nextAgentState = updatedTask?.agentState || 'WAITING_FOR_USER';
-      } else if (status === 'DONE') {
-        nextWorkflowStatus = 'IN_REVIEW';
-        nextAgentState = 'IDLE';
-      }
-
-      await db.tasks.update(task.id, { 
-        workflowStatus: nextWorkflowStatus,
-        agentState: nextAgentState,
-        agentId: 'local-agent'
-      });
+      const status = await orchestrator.processTask(task, appendLog);
       processingRef.current.delete(task.id);
       
-      // Trigger automatic review after a task is completed
       if (status === 'DONE') {
         handleReviewProject();
       }
     } catch (error: any) {
-      const isSessionMissing = error.status === 404 || error.message?.includes('not found');
-      const nextWorkflowStatus: WorkflowStatus = isSessionMissing ? 'TODO' : 'IN_REVIEW';
-      const nextAgentState: AgentState = 'ERROR';
-      
-      appendLog(`\n\n[FATAL ERROR] ${error.message}`);
-      await appendActionLogToTask(task.id, `Fatal error: ${error.message}. Resetting status to ${nextWorkflowStatus}.`);
-      
-      await db.tasks.update(task.id, { workflowStatus: nextWorkflowStatus, agentState: nextAgentState, agentId: undefined });
       processingRef.current.delete(task.id);
       setAutonomyMode('manual');
       localStorage.setItem('autonomyMode', 'manual');
@@ -645,7 +352,7 @@ export default function App() {
       description,
       workflowStatus: 'TODO',
       agentState: 'IDLE',
-      forwardJulesMessages: true,
+      forwardExecutorMessages: true,
       createdAt: Date.now(),
       artifactIds: artifactIds,
       actionLog: `> [Decision] Task created manually: ${title}\n`

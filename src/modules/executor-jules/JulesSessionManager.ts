@@ -1,5 +1,5 @@
-import { julesApi, Session, CreateSessionRequest } from '../lib/julesApi';
-import { db } from './db';
+import { julesApi, Session, CreateSessionRequest } from '../../lib/julesApi';
+import { db } from '../../services/db';
 
 export class JulesSessionManager {
   static async appendActionLog(taskId: string, msg: string) {

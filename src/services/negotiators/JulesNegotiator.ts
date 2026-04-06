@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { JulesSessionManager } from '../JulesSessionManager';
+import { JulesSessionManager } from '../../modules/executor-jules/JulesSessionManager';
 import { julesApi } from '../../lib/julesApi';
 import { Task } from '../../types';
 import { db } from '../db';
@@ -29,8 +29,9 @@ export class JulesNegotiator {
     const appendJnaLog = async (msg: string) => {
       const t = await db.tasks.get(task.id);
       if (t) {
-        const newLogs = (t.jnaLogs || '') + `[${new Date().toISOString()}] ${msg}\n`;
-        await db.tasks.update(task.id, { jnaLogs: newLogs });
+        const currentLogs = t.moduleLogs?.['jna'] || '';
+        const newLogs = currentLogs + `[${new Date().toISOString()}] ${msg}\n`;
+        await db.tasks.update(task.id, { moduleLogs: { ...t.moduleLogs, 'jna': newLogs } });
       }
     };
 

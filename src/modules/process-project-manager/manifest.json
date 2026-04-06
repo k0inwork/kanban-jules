@@ -1,0 +1,16 @@
+{
+  "id": "process-project-manager",
+  "name": "Project Manager",
+  "version": "1.0.0",
+  "type": "process",
+  "description": "Manages project tasks and steps.",
+  "tools": [
+    {
+      "name": "process-project-manager.runReview",
+      "description": "Analyzes the project state and proposes new tasks.",
+      "parameters": { "type": "object", "properties": {} }
+    }
+  ],
+  "sandboxBindings": {},
+  "permissions": []
+}

@@ -32,8 +32,6 @@ export default function TaskDetailsModal({
   const [activeTab, setActiveTab] = useState<'protocol' | 'logs' | 'chat' | 'actions' | 'jna' | 'una' | 'code'>('protocol');
   const [userMessage, setUserMessage] = useState('');
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<string | null>(null);
 
   const selectedArtifact = useLiveQuery(() => 
     selectedArtifactId ? db.taskArtifacts.get(selectedArtifactId) : Promise.resolve(null)
@@ -119,8 +117,7 @@ export default function TaskDetailsModal({
         chat: task.chat,
         logs: task.logs,
         actionLog: task.actionLog,
-        jnaLogs: task.jnaLogs,
-        unaLogs: task.unaLogs,
+        moduleLogs: task.moduleLogs,
       },
       artifacts: taskArtifacts.map(a => ({
         name: a.name,
@@ -134,53 +131,6 @@ export default function TaskDetailsModal({
     a.download = `debug-task-${task.id}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const handleAnalyze = async () => {
-    if (!selectedArtifact) return;
-    setIsAnalyzing(true);
-    setAnalysisResult(null);
-    try {
-      const prompt = `Analyze the following artifact content from a software task. 
-        Task: ${task.title}
-        Artifact Name: ${selectedArtifact.name}
-        Content:
-        ${selectedArtifact.content}
-        
-        Provide a concise summary of what this artifact is and how it relates to the task.`;
-
-      if (apiProvider === 'gemini') {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-        });
-        setAnalysisResult(response.text || "No analysis generated.");
-      } else {
-        const response = await fetch(`${openaiUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openaiKey}`
-          },
-          body: JSON.stringify({
-            model: openaiModel,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1
-          })
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setAnalysisResult(data.choices[0].message.content || "No analysis generated.");
-        } else {
-          throw new Error(`OpenAI API error: ${await response.text()}`);
-        }
-      }
-    } catch (err: any) {
-      setAnalysisResult(`Error analyzing artifact: ${err.message}`);
-    } finally {
-      setIsAnalyzing(false);
-    }
   };
 
   return (
@@ -282,14 +232,6 @@ export default function TaskDetailsModal({
                       <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-900 border-b border-neutral-800">
                         <span className="text-[10px] font-mono text-neutral-400 truncate">{selectedArtifact.name}</span>
                         <div className="flex items-center space-x-2">
-                          <button 
-                            onClick={handleAnalyze}
-                            disabled={isAnalyzing}
-                            className="text-blue-400 hover:text-blue-300 disabled:opacity-50"
-                            title="Analyze with AI"
-                          >
-                            <Brain className={cn("w-3.5 h-3.5", isAnalyzing && "animate-pulse")} />
-                          </button>
                           <button onClick={() => setSelectedArtifactId(null)} className="text-neutral-500 hover:text-neutral-300">
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -302,14 +244,14 @@ export default function TaskDetailsModal({
                       </div>
                     </div>
 
-                    {analysisResult && (
+                    {task.analysis && (
                       <div className="bg-blue-400/5 border border-blue-400/20 rounded-md p-3">
                         <div className="flex items-center space-x-2 mb-2">
                           <Brain className="w-3.5 h-3.5 text-blue-400" />
                           <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">AI Analysis</span>
                         </div>
                         <p className="text-xs text-neutral-300 leading-relaxed italic">
-                          {analysisResult}
+                          {task.analysis}
                         </p>
                       </div>
                     )}
@@ -389,9 +331,9 @@ export default function TaskDetailsModal({
                           <div className="flex items-center gap-2">
                             <span className={cn(
                               "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border",
-                              step.delegateTo === 'jules' ? "bg-purple-900/30 text-purple-400 border-purple-800/50" : "bg-blue-900/30 text-blue-400 border-blue-800/50"
+                              step.executor === 'executor-jules' ? "bg-purple-900/30 text-purple-400 border-purple-800/50" : "bg-blue-900/30 text-blue-400 border-blue-800/50"
                             )}>
-                              {step.delegateTo === 'jules' ? '→ Jules' : 'Local'}
+                              {step.executor === 'executor-jules' ? '→ Jules' : step.executor}
                             </span>
                             <span className={cn(
                               "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border",
@@ -432,11 +374,11 @@ export default function TaskDetailsModal({
                 </div>
               ) : activeTab === 'jna' ? (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
-                  {task.jnaLogs || <div className="text-neutral-600 italic">No JNA logs yet.</div>}
+                  {task.moduleLogs?.['jna'] || <div className="text-neutral-600 italic">No JNA logs yet.</div>}
                 </div>
               ) : activeTab === 'una' ? (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
-                  {task.unaLogs || <div className="text-neutral-600 italic">No UNA logs yet.</div>}
+                  {task.moduleLogs?.['una'] || <div className="text-neutral-600 italic">No UNA logs yet.</div>}
                 </div>
               ) : activeTab === 'code' ? (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">

@@ -25,7 +25,7 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
   const agentStateColors: Record<AgentState, string> = {
     'IDLE': 'text-neutral-500 bg-neutral-800',
     'EXECUTING': 'text-blue-400 bg-blue-400/10 animate-pulse',
-    'WAITING_FOR_JULES': 'text-purple-400 bg-purple-400/10',
+    'WAITING_FOR_EXECUTOR': 'text-purple-400 bg-purple-400/10',
     'WAITING_FOR_USER': 'text-rose-400 bg-rose-400/10 ring-1 ring-rose-500/50 animate-bounce',
     'PAUSED': 'text-amber-400 bg-amber-400/10',
     'ERROR': 'text-red-400 bg-red-400/10',
@@ -116,7 +116,7 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
         </div>
         
         {task.agentState === 'EXECUTING' && <Clock className="w-4 h-4 text-blue-400 animate-pulse" />}
-        {task.agentState === 'WAITING_FOR_JULES' && <Zap className="w-4 h-4 text-purple-400 animate-pulse" />}
+        {task.agentState === 'WAITING_FOR_EXECUTOR' && <Zap className="w-4 h-4 text-purple-400 animate-pulse" />}
         {task.agentState === 'WAITING_FOR_USER' && <User className="w-4 h-4 text-rose-400 animate-bounce" />}
         {task.agentState === 'PAUSED' && <AlertCircle className="w-4 h-4 text-amber-400" />}
         {task.agentState === 'ERROR' && <AlertCircle className="w-4 h-4 text-red-400" />}

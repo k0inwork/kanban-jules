@@ -1,0 +1,30 @@
+{
+  "id": "knowledge-artifacts",
+  "name": "Artifact Storage",
+  "version": "1.0.0",
+  "type": "knowledge",
+  "description": "Stores and retrieves named artifacts — design specs, research notes, code analysis.",
+  "tools": [
+    {
+      "name": "knowledge-artifacts.listArtifacts",
+      "description": "Lists artifacts.",
+      "parameters": { "type": "object", "properties": { "taskId": { "type": "string" } } }
+    },
+    {
+      "name": "knowledge-artifacts.saveArtifact",
+      "description": "Creates a new artifact.",
+      "parameters": { "type": "object", "properties": { "name": { "type": "string" }, "content": { "type": "string" } } }
+    },
+    {
+      "name": "knowledge-artifacts.readArtifact",
+      "description": "Reads an artifact.",
+      "parameters": { "type": "object", "properties": { "name": { "type": "string" } } }
+    }
+  ],
+  "sandboxBindings": {
+    "Artifacts.listArtifacts": "knowledge-artifacts.listArtifacts",
+    "Artifacts.saveArtifact": "knowledge-artifacts.saveArtifact",
+    "Artifacts.readArtifact": "knowledge-artifacts.readArtifact"
+  },
+  "permissions": []
+}

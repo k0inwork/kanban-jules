@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
-import { db, Artifact } from './db';
-import { Task } from '../types';
-import { OrchestratorConfig } from './Orchestrator';
+import { db, Artifact } from '../../services/db';
+import { Task } from '../../types';
+import { OrchestratorConfig } from '../../core/types';
 
 export class ProcessAgent {
   private ai: GoogleGenAI;

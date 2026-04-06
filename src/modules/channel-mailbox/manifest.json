@@ -1,0 +1,18 @@
+{
+  "id": "channel-mailbox",
+  "name": "In-app Mailbox",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "In-app mailbox. Messages appear in the Fleet UI sidebar.",
+  "tools": [
+    {
+      "name": "channel-mailbox.askUser",
+      "description": "Sends question to mailbox, waits for reply.",
+      "parameters": { "type": "object", "properties": { "question": { "type": "string" }, "format": { "type": "string" } } }
+    }
+  ],
+  "sandboxBindings": {
+    "askUser": "channel-mailbox.askUser"
+  },
+  "permissions": []
+}
