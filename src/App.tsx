@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { GoogleGenAI, Type } from '@google/genai';
 import { Task, WorkflowStatus, AgentState, AutonomyMode } from './types';
+import { HostConfig, OrchestratorConfig } from './core/types';
 import { initialTasks } from './lib/data';
 import KanbanBoard from './components/KanbanBoard';
 import NewTaskModal from './components/NewTaskModal';
@@ -18,7 +19,6 @@ import { JulesSessionManager } from './modules/executor-jules/JulesSessionManage
 import { julesApi, SessionState } from './lib/julesApi';
 import { orchestrator } from './core/orchestrator';
 import { host } from './core/host';
-import { OrchestratorConfig } from './core/types';
 import { eventBus } from './core/event-bus';
 import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
@@ -89,50 +89,37 @@ export default function App() {
     return saved ? JSON.parse(saved) : {};
   });
 
-  const handleSaveSettings = (
-    endpoint: string, 
-    repo: string, 
-    branch: string, 
-    sourceName: string, 
-    sourceId: string,
-    provider: string,
-    gModel: string,
-    oUrl: string,
-    oKey: string,
-    oModel: string,
-    gApiKey: string,
-    mConfigs: Record<string, any>
-  ) => {
-    console.log("Saving settings:", { endpoint, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, gApiKey, mConfigs });
-    setJulesEndpoint(endpoint);
-    setRepoUrl(repo);
-    setRepoBranch(branch);
-    setJulesSourceName(sourceName);
-    setJulesSourceId(sourceId);
-    setApiProvider(provider);
-    setGeminiModel(gModel);
-    setOpenaiUrl(oUrl);
-    setOpenaiKey(oKey);
-    setOpenaiModel(oModel);
-    setGeminiApiKey(gApiKey);
-    setModuleConfigs(mConfigs);
+  const handleSaveSettings = (config: HostConfig) => {
+    console.log("Saving settings:", config);
+    setJulesEndpoint(config.julesEndpoint);
+    setRepoUrl(config.repoUrl);
+    setRepoBranch(config.repoBranch);
+    setJulesSourceName(config.julesSourceName);
+    setJulesSourceId(config.julesSourceId);
+    setApiProvider(config.apiProvider);
+    setGeminiModel(config.geminiModel);
+    setOpenaiUrl(config.openaiUrl);
+    setOpenaiKey(config.openaiKey);
+    setOpenaiModel(config.openaiModel);
+    setGeminiApiKey(config.geminiApiKey);
+    setModuleConfigs(config.moduleConfigs);
 
-    localStorage.setItem('julesEndpoint', endpoint);
-    localStorage.setItem('repoUrl', repo);
-    localStorage.setItem('repoBranch', branch);
-    localStorage.setItem('julesSourceName', sourceName);
-    localStorage.setItem('julesSourceId', sourceId);
-    localStorage.setItem('apiProvider', provider);
-    localStorage.setItem('geminiModel', gModel);
-    localStorage.setItem('openaiUrl', oUrl);
-    localStorage.setItem('openaiKey', oKey);
-    localStorage.setItem('openaiModel', oModel);
-    localStorage.setItem('geminiApiKey', gApiKey);
-    localStorage.setItem('moduleConfigs', JSON.stringify(mConfigs));
+    localStorage.setItem('julesEndpoint', config.julesEndpoint);
+    localStorage.setItem('repoUrl', config.repoUrl);
+    localStorage.setItem('repoBranch', config.repoBranch);
+    localStorage.setItem('julesSourceName', config.julesSourceName);
+    localStorage.setItem('julesSourceId', config.julesSourceId);
+    localStorage.setItem('apiProvider', config.apiProvider);
+    localStorage.setItem('geminiModel', config.geminiModel);
+    localStorage.setItem('openaiUrl', config.openaiUrl);
+    localStorage.setItem('openaiKey', config.openaiKey);
+    localStorage.setItem('openaiModel', config.openaiModel);
+    localStorage.setItem('geminiApiKey', config.geminiApiKey);
+    localStorage.setItem('moduleConfigs', JSON.stringify(config.moduleConfigs));
 
     const token = import.meta.env.VITE_GITHUB_TOKEN;
-    if (token && repo) {
-      RepoCrawler.crawl(repo, branch || 'main', token).catch(console.error);
+    if (token && config.repoUrl) {
+      RepoCrawler.crawl(config.repoUrl, config.repoBranch || 'main', token).catch(console.error);
     }
   };
 
@@ -210,7 +197,7 @@ export default function App() {
 
   // Initialize Module Host
   useEffect(() => {
-    const config: OrchestratorConfig = {
+    const config: HostConfig = {
       apiProvider,
       geminiModel,
       openaiUrl,
@@ -219,6 +206,9 @@ export default function App() {
       geminiApiKey,
       repoUrl,
       repoBranch,
+      julesEndpoint,
+      julesSourceName,
+      julesSourceId,
       moduleConfigs: {
         ...moduleConfigs,
         'knowledge-repo-browser': { 
@@ -228,8 +218,13 @@ export default function App() {
         }
       }
     };
+    const orchestratorConfig: OrchestratorConfig = {
+      repoUrl,
+      repoBranch,
+      moduleConfigs
+    };
     host.init(config);
-    orchestrator.init(config);
+    orchestrator.init(orchestratorConfig);
     return () => host.stop();
   }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, repoUrl, repoBranch, moduleConfigs]);
 

@@ -19,9 +19,6 @@ export class Orchestrator {
 
   init(config: OrchestratorConfig) {
     this.config = config;
-    if (config.apiProvider === 'gemini') {
-      this.ai = new GoogleGenAI({ apiKey: config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
-    }
   }
 
   private async moduleRequest(taskId: string, toolName: string, args: any[]): Promise<any> {
@@ -74,38 +71,8 @@ export class Orchestrator {
 
   private async callLlm(prompt: string, jsonMode: boolean = false): Promise<string> {
     if (!this.config) throw new Error("Orchestrator not initialized");
-
-    if (this.config.apiProvider === 'gemini') {
-      if (!this.ai) throw new Error("AI not initialized");
-      const response = await this.ai.models.generateContent({
-        model: this.config.geminiModel,
-        contents: prompt,
-        config: jsonMode ? { responseMimeType: 'application/json' } : undefined
-      });
-      return response.text || '';
-    } else {
-      const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.openaiKey}`
-        },
-        body: JSON.stringify({
-          model: this.config.openaiModel,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${error}`);
-      }
-
-      const data = await response.json();
-      return data.choices[0].message.content || '';
-    }
+    const { host } = await import('./host');
+    return host.llmCall(prompt, jsonMode);
   }
 
   async runStep(taskId: string, stepId: number): Promise<void> {

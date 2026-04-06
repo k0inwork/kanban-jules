@@ -4,13 +4,14 @@ import { julesApi } from '../../lib/julesApi';
 import { JulesSessionManager } from './JulesSessionManager';
 import { JulesConfig } from './types';
 import { eventBus } from '../../core/event-bus';
+import { OrchestratorConfig, HostConfig } from '../../core/types';
 
 export class JulesPostman {
   private static instance: JulesPostman | null = null;
   private interval: any;
-  private config: JulesConfig;
+  private config: HostConfig;
 
-  static init(config: JulesConfig) {
+  static init(config: HostConfig) {
     if (this.instance) this.instance.stop();
     this.instance = new JulesPostman(config);
     this.instance.start();
@@ -23,7 +24,7 @@ export class JulesPostman {
     }
   }
 
-  constructor(config: JulesConfig) {
+  constructor(config: HostConfig) {
     this.config = config;
   }
 
@@ -40,13 +41,16 @@ export class JulesPostman {
   }
 
   private async poll() {
-    if (!this.config.julesApiKey) return;
+    if (!this.config) return;
+    const julesConfig = this.config.moduleConfigs['executor-jules'] || {};
+    const julesApiKey = julesConfig.julesApiKey;
+    if (!julesApiKey) return;
 
     const tasks = await db.tasks.where('agentState').equals('WAITING_FOR_EXECUTOR').toArray();
     for (const task of tasks) {
       try {
         const session = await JulesSessionManager.findOrCreateSession(
-          this.config.julesApiKey, 
+          julesApiKey, 
           task, 
           this.config.repoUrl || '', 
           this.config.repoBranch || '', 
@@ -59,11 +63,11 @@ export class JulesPostman {
         if (task.pendingExecutorPrompt) {
           console.log(`[Postman] Sending pending prompt to Executor for task ${task.id}`);
           eventBus.emit('module:log', { taskId: task.id, moduleId: 'postman', message: `Sending pending prompt to Executor: ${task.pendingExecutorPrompt.substring(0, 50)}...` });
-          await JulesSessionManager.sendMessage(this.config.julesApiKey, session.name, task.pendingExecutorPrompt);
+          await JulesSessionManager.sendMessage(julesApiKey, session.name, task.pendingExecutorPrompt);
           await db.tasks.update(task.id, { pendingExecutorPrompt: undefined });
         }
 
-        const activitiesRes = await julesApi.listActivities(this.config.julesApiKey, session.name, 10);
+        const activitiesRes = await julesApi.listActivities(julesApiKey, session.name, 10);
         const activities = activitiesRes.activities || [];
         
         for (const activity of activities) {
@@ -84,7 +88,7 @@ export class JulesPostman {
             
             // Classify agent message
             if (this.config.apiProvider === 'gemini') {
-              const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey });
+              const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
               const classification = await ai.models.generateContent({
                 model: this.config.geminiModel,
                 contents: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
@@ -161,7 +165,7 @@ export class JulesPostman {
           });
         }
 
-        const currentSession = await julesApi.getSession(this.config.julesApiKey, session.name);
+        const currentSession = await julesApi.getSession(julesApiKey, session.name);
         await db.julesSessions.update(session.id, { status: currentSession.state });
 
         if (currentSession.state === 'COMPLETED' || currentSession.state === 'FAILED') {

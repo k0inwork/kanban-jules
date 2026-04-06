@@ -1,42 +1,23 @@
-import { GoogleGenAI } from '@google/genai';
-import { db, Artifact } from '../../services/db';
-import { Task } from '../../types';
-import { OrchestratorConfig } from '../../core/types';
-import { eventBus } from '../../core/event-bus';
+import { db } from '../../services/db';
+import { RequestContext } from '../../core/types';
 
 export class ProcessAgent {
-  private ai: GoogleGenAI;
-  private config: OrchestratorConfig;
-  private repoUrl: string;
-  private branch: string;
-
-  constructor(ai: GoogleGenAI, config: OrchestratorConfig, repoUrl: string, branch: string) {
-    this.ai = ai;
-    this.config = config;
-    this.repoUrl = repoUrl;
-    this.branch = branch;
-  }
-
-  private async logToChat(taskId: string, message: string) {
-    eventBus.emit('module:log', { taskId, moduleId: 'process-project-manager', message });
-  }
-
-  async runReview(): Promise<void> {
+  async runReview(context: RequestContext): Promise<void> {
     console.log('[ProcessAgent] Starting project review...');
     
     // 1. Get all tasks, artifacts, and unread messages
     const tasks = await db.tasks.toArray();
-    const repoName = this.repoUrl.split('/').pop() || this.repoUrl;
-    let artifacts = await db.taskArtifacts.where({ repoName, branchName: this.branch }).toArray();
+    const repoName = context.repoUrl.split('/').pop() || context.repoUrl;
+    let artifacts = await db.taskArtifacts.where({ repoName, branchName: context.repoBranch }).toArray();
     artifacts = artifacts.filter(a => typeof a.name !== 'string' || !a.name.startsWith('_'));
     const unreadMessages = await db.messages.where('status').equals('unread').toArray();
     
     // Load Constitution
-    const configId = `${this.repoUrl}:${this.branch}`;
+    const configId = `${context.repoUrl}:${context.repoBranch}`;
     const config = await db.projectConfigs.get(configId);
     const constitution = config?.constitution || 'No specific project rules defined.';
 
-    const context = {
+    const data = {
       tasks: tasks.map(t => ({ title: t.title, workflowStatus: t.workflowStatus, agentState: t.agentState, description: t.description })),
       artifacts: artifacts.map(a => ({ name: a.name, content: (a.content || '').substring(0, 500) })),
       unreadMessages: unreadMessages.map(m => ({ sender: m.sender, content: m.content, type: m.type })),
@@ -48,16 +29,16 @@ export class ProcessAgent {
       Your goal is to analyze the current state of the project and propose new tasks if necessary.
       
       PROJECT CONSTITUTION (Rules and Stage-Artifact Mapping):
-      ${context.constitution}
+      ${data.constitution}
 
       Current Tasks:
-      ${JSON.stringify(context.tasks, null, 2)}
+      ${JSON.stringify(data.tasks, null, 2)}
       
       Artifacts Produced:
-      ${JSON.stringify(context.artifacts, null, 2)}
+      ${JSON.stringify(data.artifacts, null, 2)}
 
       Unread Messages in Mailbox:
-      ${JSON.stringify(context.unreadMessages, null, 2)}
+      ${JSON.stringify(data.unreadMessages, null, 2)}
       
       Based on the artifacts (like design specs, research, or code analysis), existing messages, and the PROJECT CONSTITUTION, what should be the next steps?
       
@@ -91,39 +72,9 @@ export class ProcessAgent {
     `;
 
     try {
-      if (this.config.apiProvider === 'gemini' && !this.config.geminiApiKey) {
-        throw new Error("Gemini API Key is missing for ProcessAgent.");
-      }
-      if (this.config.apiProvider === 'openai' && !this.config.openaiKey) {
-        throw new Error("OpenAI API Key is missing for ProcessAgent.");
-      }
-
-      let responseText = '';
-      if (this.config.apiProvider === 'gemini') {
-        const response = await this.ai.models.generateContent({
-          model: this.config.geminiModel,
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          config: { responseMimeType: 'application/json' }
-        });
-        responseText = response.text || '{}';
-      } else {
-        const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.openaiKey}`
-          },
-          body: JSON.stringify({
-            model: this.config.openaiModel,
-            messages: [{ role: 'user', content: prompt }],
-            response_format: { type: 'json_object' }
-          })
-        });
-        const data = await response.json();
-        responseText = data.choices[0].message.content || '{}';
-      }
-
-      const result = JSON.parse(responseText);
+      const responseText = await context.llmCall(prompt, true);
+      const result = JSON.parse(responseText || '{}');
+      
       if (result.proposals && result.proposals.length > 0) {
         for (const prop of result.proposals) {
           await db.messages.add({
@@ -138,6 +89,16 @@ export class ProcessAgent {
       }
     } catch (error) {
       console.error('[ProcessAgent] Review failed:', error);
+    }
+  }
+
+  static async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<any> {
+    const agent = new ProcessAgent();
+    switch (toolName) {
+      case 'process-project-manager.runReview':
+        return await agent.runReview(context);
+      default:
+        throw new Error(`Unknown tool: ${toolName}`);
     }
   }
 }

@@ -4,25 +4,12 @@ import { julesApi, Source } from '../lib/julesApi';
 import { cn } from '../lib/utils';
 
 import { registry } from '../core/registry';
-import { ModuleManifest } from '../core/types';
+import { HostConfig, ModuleManifest } from '../core/types';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (
-    endpoint: string, 
-    repoUrl: string, 
-    branch: string, 
-    sourceName: string, 
-    sourceId: string,
-    apiProvider: string,
-    geminiModel: string,
-    openaiUrl: string,
-    openaiKey: string,
-    openaiModel: string,
-    geminiApiKey: string,
-    moduleConfigs: Record<string, any>
-  ) => void;
+  onSave: (config: HostConfig) => void;
   initialEndpoint: string;
   initialRepoUrl: string;
   initialBranch: string;
@@ -120,11 +107,20 @@ export default function SettingsModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(
-      endpoint, repoUrl, branch, sourceName, sourceId,
-      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey,
+    onSave({
+      julesEndpoint: endpoint,
+      repoUrl,
+      repoBranch: branch,
+      julesSourceName: sourceName,
+      julesSourceId: sourceId,
+      apiProvider,
+      geminiModel,
+      openaiUrl,
+      openaiKey,
+      openaiModel,
+      geminiApiKey,
       moduleConfigs
-    );
+    } as any);
     onClose();
   };
 

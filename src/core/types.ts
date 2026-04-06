@@ -56,15 +56,25 @@ export interface RequestContext {
   repoUrl: string;
   repoBranch: string;
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
+  config: HostConfig;
 }
 
-export interface OrchestratorConfig {
+export interface HostConfig {
   apiProvider: string;
   geminiModel: string;
   openaiUrl: string;
   openaiKey: string;
   openaiModel: string;
   geminiApiKey: string;
+  repoUrl: string;
+  repoBranch: string;
+  julesEndpoint: string;
+  julesSourceName: string;
+  julesSourceId: string;
+  moduleConfigs: Record<string, any>;
+}
+
+export interface OrchestratorConfig {
   repoUrl: string;
   repoBranch: string;
   moduleConfigs: Record<string, any>;

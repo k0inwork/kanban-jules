@@ -1,7 +1,7 @@
 import { registry } from './registry';
 import { eventBus } from './event-bus';
 import { JulesPostman } from '../modules/executor-jules/JulesPostman';
-import { ModuleManifest, OrchestratorConfig, RequestContext } from './types';
+import { ModuleManifest, HostConfig, RequestContext, OrchestratorConfig } from './types';
 import { ProcessAgent } from '../modules/process-project-manager/ProcessAgent';
 import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 import { db } from '../services/db';
@@ -13,7 +13,7 @@ import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
-  private config: OrchestratorConfig | null = null;
+  private config: HostConfig | null = null;
 
   constructor() {
     this.setupListeners();
@@ -23,9 +23,14 @@ export class ModuleHost {
     eventBus.on('project:review', async () => {
       if (!this.config) return;
       console.log('Project review triggered.');
-      const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
-      const processAgent = new ProcessAgent(ai as any, this.config, this.config.repoUrl, this.config.repoBranch);
-      await processAgent.runReview();
+      const context: RequestContext = {
+        taskId: '',
+        repoUrl: this.config.repoUrl,
+        repoBranch: this.config.repoBranch,
+        llmCall: this.llmCall.bind(this),
+        config: this.config
+      };
+      await registry.invokeHandler('process-project-manager.runReview', [], context);
     });
 
     eventBus.on('module:log', async ({ taskId, moduleId, message }) => {
@@ -45,7 +50,8 @@ export class ModuleHost {
           taskId,
           repoUrl: this.config?.repoUrl || '',
           repoBranch: this.config?.repoBranch || '',
-          llmCall: this.llmCall.bind(this)
+          llmCall: this.llmCall.bind(this),
+          config: this.config!
         };
         const result = await registry.invokeHandler(toolName, args, context);
         eventBus.emit('module:response', { requestId, result });
@@ -90,7 +96,7 @@ export class ModuleHost {
     }
   }
 
-  async init(config: OrchestratorConfig) {
+  async init(config: HostConfig) {
     this.config = config;
     const modules = registry.getEnabled();
     console.log(`Host initialized with ${modules.length} enabled modules.`);
@@ -98,7 +104,7 @@ export class ModuleHost {
     // Initialize modules
     for (const module of modules) {
       if (module.init) {
-        module.init(config.moduleConfigs[module.id]);
+        module.init(config as any);
       }
     }
 
@@ -120,6 +126,7 @@ export class ModuleHost {
     registry.registerHandler('knowledge-repo-browser.readFile', RepositoryTool.handleRequest);
     registry.registerHandler('knowledge-repo-browser.headFile', RepositoryTool.handleRequest);
     registry.registerHandler('architect-codegen.generateProtocol', ArchitectTool.handleRequest);
+    registry.registerHandler('process-project-manager.runReview', ProcessAgent.handleRequest);
   }
 
   stop() {
