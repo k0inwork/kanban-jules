@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, AgentMessage } from '../services/db';
 import { cn } from '../lib/utils';
 import Markdown from 'react-markdown';
-import { parseTasksFromMessage } from '../services/TaskArchitect';
+import { parseTasksFromMessage } from '../core/prompt';
 
 interface MailboxViewProps {
   onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean; skipDelete?: boolean }) => void;

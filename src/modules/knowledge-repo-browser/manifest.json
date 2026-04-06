@@ -4,7 +4,45 @@
   "version": "1.0.0",
   "type": "knowledge",
   "description": "Browses the repository.",
-  "tools": [],
-  "sandboxBindings": {},
+  "tools": [
+    {
+      "name": "knowledge-repo-browser.listFiles",
+      "description": "List files in a repository path.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "The path to list files from." }
+        }
+      }
+    },
+    {
+      "name": "knowledge-repo-browser.readFile",
+      "description": "Read the content of a file in a repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "The file path." }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "knowledge-repo-browser.headFile",
+      "description": "Read the first N lines of a file in a repository.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "The file path." },
+          "lines": { "type": "number", "description": "The number of lines to read. Default is 3." }
+        },
+        "required": ["path"]
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "repo.listFiles": "knowledge-repo-browser.listFiles",
+    "repo.readFile": "knowledge-repo-browser.readFile",
+    "repo.headFile": "knowledge-repo-browser.headFile"
+  },
   "permissions": []
 }

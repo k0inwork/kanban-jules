@@ -38,7 +38,7 @@ import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-
 import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
-import { generateTaskProtocol, parseTasksFromMessage } from './services/TaskArchitect';
+import { parseTasksFromMessage } from './core/prompt';
 
 export default function App() {
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];

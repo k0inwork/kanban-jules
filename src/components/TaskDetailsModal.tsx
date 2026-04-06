@@ -29,7 +29,7 @@ export default function TaskDetailsModal({
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
-  const [activeTab, setActiveTab] = useState<'protocol' | 'logs' | 'chat' | 'actions' | 'jna' | 'una' | 'code'>('protocol');
+  const [activeTab, setActiveTab] = useState<string>('protocol');
   const [userMessage, setUserMessage] = useState('');
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
 
@@ -289,18 +289,15 @@ export default function TaskDetailsModal({
                 >
                   Actions
                 </button>
-                <button 
-                  onClick={() => setActiveTab('jna')}
-                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'jna' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
-                >
-                  JNA
-                </button>
-                <button 
-                  onClick={() => setActiveTab('una')}
-                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'una' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
-                >
-                  UNA
-                </button>
+                {Object.keys(task.moduleLogs || {}).map(moduleName => (
+                  <button 
+                    key={moduleName}
+                    onClick={() => setActiveTab(moduleName)}
+                    className={cn("text-xs font-mono uppercase transition-colors", activeTab === moduleName ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                  >
+                    {moduleName.replace('executor-', '').replace('channel-', '')}
+                  </button>
+                ))}
                 <button 
                   onClick={() => setActiveTab('code')}
                   className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'code' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
@@ -372,21 +369,17 @@ export default function TaskDetailsModal({
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-sans">
                   {task.chat || <div className="text-neutral-600 italic">No chat messages yet.</div>}
                 </div>
-              ) : activeTab === 'jna' ? (
-                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
-                  {task.moduleLogs?.['jna'] || <div className="text-neutral-600 italic">No JNA logs yet.</div>}
-                </div>
-              ) : activeTab === 'una' ? (
-                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
-                  {task.moduleLogs?.['una'] || <div className="text-neutral-600 italic">No UNA logs yet.</div>}
-                </div>
               ) : activeTab === 'code' ? (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
                   {task.programmingLog || <div className="text-neutral-600 italic">No code generated yet.</div>}
                 </div>
-              ) : (
+              ) : activeTab === 'actions' ? (
                 <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
                   {task.actionLog || <div className="text-neutral-600 italic">No actions recorded yet.</div>}
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
+                  {task.moduleLogs?.[activeTab] || <div className="text-neutral-600 italic">No logs for {activeTab} yet.</div>}
                 </div>
               )}
               <div ref={logsEndRef} />

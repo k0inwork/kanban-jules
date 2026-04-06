@@ -1,17 +1,16 @@
 import { GoogleGenAI } from '@google/genai';
 import { Task, TaskStep, WorkflowStatus, AgentState } from '../types';
 import { registry } from './registry';
-import { composeProgrammerPrompt } from './prompt';
+import { composeProgrammerPrompt, composeArchitectPrompt } from './prompt';
 import { eventBus } from './event-bus';
 import { db } from '../services/db';
 import { OrchestratorConfig } from './types';
-import { generateTaskProtocol } from '../services/TaskArchitect';
 import { JulesNegotiator } from '../services/negotiators/JulesNegotiator';
 import { UserNegotiator } from '../services/negotiators/UserNegotiator';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
-import { sandbox } from '../services/Sandbox';
+import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { globalVars } from '../services/GlobalVars';
-import { injectBindings } from './sandbox';
+import { Sandbox, injectBindings } from './sandbox';
 
 export class Orchestrator {
   private config: OrchestratorConfig | null = null;
@@ -113,6 +112,21 @@ export class Orchestrator {
       return ArtifactTool.readArtifact(name);
     }
 
+    if (toolName === 'knowledge-repo-browser.listFiles') {
+      const [path] = args;
+      return RepositoryTool.listFiles(this.config.repoUrl, this.config.repoBranch, this.config.julesApiKey || '', path);
+    }
+
+    if (toolName === 'knowledge-repo-browser.readFile') {
+      const [path] = args;
+      return RepositoryTool.readFile(this.config.repoUrl, this.config.repoBranch, this.config.julesApiKey || '', path);
+    }
+
+    if (toolName === 'knowledge-repo-browser.headFile') {
+      const [path, lines] = args;
+      return RepositoryTool.headFile(this.config.repoUrl, this.config.repoBranch, this.config.julesApiKey || '', path, lines);
+    }
+
     throw new Error(`Tool not found: ${toolName}`);
   }
 
@@ -144,7 +158,7 @@ export class Orchestrator {
     }
   }
 
-  private async callLlm(prompt: string): Promise<string> {
+  private async callLlm(prompt: string, jsonMode: boolean = false): Promise<string> {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     if (this.config.apiProvider === 'gemini') {
@@ -152,6 +166,7 @@ export class Orchestrator {
       const response = await this.ai.models.generateContent({
         model: this.config.geminiModel,
         contents: prompt,
+        config: jsonMode ? { responseMimeType: 'application/json' } : undefined
       });
       return response.text || '';
     } else {
@@ -164,7 +179,8 @@ export class Orchestrator {
         body: JSON.stringify({
           model: this.config.openaiModel,
           messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1
+          temperature: 0.1,
+          ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
         })
       });
 
@@ -242,6 +258,7 @@ export class Orchestrator {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     this.context.accumulatedAnalysis = [];
+    const sandbox = new Sandbox();
     injectBindings(sandbox, (toolName, args) => this.moduleRequest(taskId, toolName, args), this.context);
 
     try {
@@ -296,16 +313,9 @@ export class Orchestrator {
       // Generate Protocol if not exists
       if (!currentTask?.protocol) {
         await appendLog(`> [Architect] Generating Task Protocol...\n`);
-        const protocol = await generateTaskProtocol(
-          task.title,
-          task.description,
-          this.config.apiProvider,
-          this.config.geminiModel,
-          this.config.openaiUrl,
-          this.config.openaiKey,
-          this.config.openaiModel,
-          this.config.geminiApiKey || ''
-        );
+        const prompt = composeArchitectPrompt(registry.getAll()) + `\n\nTask Title: ${task.title}\nTask Description: ${task.description}`;
+        const responseText = await this.callLlm(prompt, true);
+        const protocol = JSON.parse(responseText || '{"steps": []}');
         await db.tasks.update(task.id, { protocol });
         currentTask = { ...currentTask!, protocol };
         await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);

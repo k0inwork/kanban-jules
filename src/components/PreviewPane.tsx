@@ -3,7 +3,7 @@ import { Tab } from './PreviewTabs';
 import Markdown from 'react-markdown';
 import { Plus, X, Zap, Send } from 'lucide-react';
 import { AgentMessage } from '../services/db';
-import { parseTasksFromMessage } from '../services/TaskArchitect';
+import { parseTasksFromMessage } from '../core/prompt';
 
 interface PreviewPaneProps {
   activeTab: Tab | null;
