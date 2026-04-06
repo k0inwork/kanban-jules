@@ -66,13 +66,10 @@ export default function App() {
 
   // Jules Settings
   const [julesEndpoint, setJulesEndpoint] = useState(() => localStorage.getItem('julesEndpoint') || '/api/mcp/execute');
-  const [julesApiKey, setJulesApiKey] = useState(() => localStorage.getItem('julesApiKey') || '');
   const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || '');
   const [repoBranch, setRepoBranch] = useState(() => localStorage.getItem('repoBranch') || 'main');
   const [julesSourceName, setJulesSourceName] = useState(() => localStorage.getItem('julesSourceName') || '');
   const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
-  const [julesDailyLimit, setJulesDailyLimit] = useState(() => parseInt(localStorage.getItem('julesDailyLimit') || '10'));
-  const [julesConcurrentLimit, setJulesConcurrentLimit] = useState(() => parseInt(localStorage.getItem('julesConcurrentLimit') || '2'));
   const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('geminiApiKey') || process.env.GEMINI_API_KEY || '');
 
   // Preview Tabs
@@ -94,7 +91,6 @@ export default function App() {
 
   const handleSaveSettings = (
     endpoint: string, 
-    apiKey: string, 
     repo: string, 
     branch: string, 
     sourceName: string, 
@@ -104,14 +100,11 @@ export default function App() {
     oUrl: string,
     oKey: string,
     oModel: string,
-    jDailyLimit: number,
-    jConcurrentLimit: number,
     gApiKey: string,
     mConfigs: Record<string, any>
   ) => {
-    console.log("Saving settings:", { endpoint, apiKey, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, jDailyLimit, jConcurrentLimit, gApiKey, mConfigs });
+    console.log("Saving settings:", { endpoint, repo, branch, sourceName, sourceId, provider, gModel, oUrl, oKey, oModel, gApiKey, mConfigs });
     setJulesEndpoint(endpoint);
-    setJulesApiKey(apiKey);
     setRepoUrl(repo);
     setRepoBranch(branch);
     setJulesSourceName(sourceName);
@@ -121,13 +114,10 @@ export default function App() {
     setOpenaiUrl(oUrl);
     setOpenaiKey(oKey);
     setOpenaiModel(oModel);
-    setJulesDailyLimit(jDailyLimit);
-    setJulesConcurrentLimit(jConcurrentLimit);
     setGeminiApiKey(gApiKey);
     setModuleConfigs(mConfigs);
 
     localStorage.setItem('julesEndpoint', endpoint);
-    localStorage.setItem('julesApiKey', apiKey);
     localStorage.setItem('repoUrl', repo);
     localStorage.setItem('repoBranch', branch);
     localStorage.setItem('julesSourceName', sourceName);
@@ -137,8 +127,6 @@ export default function App() {
     localStorage.setItem('openaiUrl', oUrl);
     localStorage.setItem('openaiKey', oKey);
     localStorage.setItem('openaiModel', oModel);
-    localStorage.setItem('julesDailyLimit', jDailyLimit.toString());
-    localStorage.setItem('julesConcurrentLimit', jConcurrentLimit.toString());
     localStorage.setItem('geminiApiKey', gApiKey);
     localStorage.setItem('moduleConfigs', JSON.stringify(mConfigs));
 
@@ -233,12 +221,6 @@ export default function App() {
       repoBranch,
       moduleConfigs: {
         ...moduleConfigs,
-        'executor-jules': { 
-          ...(moduleConfigs['executor-jules'] || {}),
-          julesApiKey, 
-          julesDailyLimit, 
-          julesConcurrentLimit 
-        },
         'knowledge-repo-browser': { 
           ...(moduleConfigs['knowledge-repo-browser'] || {}),
           repoUrl, 
@@ -249,7 +231,7 @@ export default function App() {
     host.init(config);
     orchestrator.init(config);
     return () => host.stop();
-  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, julesApiKey, repoUrl, repoBranch, julesDailyLimit, julesConcurrentLimit, moduleConfigs]);
+  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, repoUrl, repoBranch, moduleConfigs]);
 
   // Auto-accept proposals in Full Autonomy mode
   const latestProposal = useLiveQuery(() => 
@@ -529,7 +511,10 @@ export default function App() {
       const session = await db.julesSessions.where('taskId').equals(task.id).first();
       if (session) {
         try {
-          await JulesSessionManager.sendMessage(julesApiKey, session.name, `{Task} ${message}`);
+          const julesApiKey = moduleConfigs['executor-jules']?.julesApiKey;
+          if (julesApiKey) {
+            await JulesSessionManager.sendMessage(julesApiKey, session.name, `{Task} ${message}`);
+          }
         } catch (e) {
           console.error(`Failed to send message to Jules for task ${task.id}:`, e);
         }
@@ -806,7 +791,7 @@ export default function App() {
                 </CollapsiblePane>
 
                 <CollapsiblePane title="Jules Processes" defaultExpanded={false}>
-                  <JulesProcessBrowser tasks={tasks} julesApiKey={julesApiKey} />
+                  <JulesProcessBrowser tasks={tasks} julesApiKey={moduleConfigs['executor-jules']?.julesApiKey || ''} />
                 </CollapsiblePane>
 
                 <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
@@ -896,7 +881,6 @@ export default function App() {
         onClose={() => setIsSettingsModalOpen(false)}
         onSave={handleSaveSettings}
         initialEndpoint={julesEndpoint}
-        initialApiKey={julesApiKey}
         initialRepoUrl={repoUrl}
         initialBranch={repoBranch}
         initialSourceName={julesSourceName}
@@ -906,8 +890,6 @@ export default function App() {
         initialOpenaiUrl={openaiUrl}
         initialOpenaiKey={openaiKey}
         initialOpenaiModel={openaiModel}
-        initialJulesDailyLimit={julesDailyLimit}
-        initialJulesConcurrentLimit={julesConcurrentLimit}
         initialGeminiApiKey={geminiApiKey}
         initialModuleConfigs={moduleConfigs}
       />

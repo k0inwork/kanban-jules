@@ -11,7 +11,6 @@ interface SettingsModalProps {
   onClose: () => void;
   onSave: (
     endpoint: string, 
-    apiKey: string, 
     repoUrl: string, 
     branch: string, 
     sourceName: string, 
@@ -21,13 +20,10 @@ interface SettingsModalProps {
     openaiUrl: string,
     openaiKey: string,
     openaiModel: string,
-    julesDailyLimit: number,
-    julesConcurrentLimit: number,
     geminiApiKey: string,
     moduleConfigs: Record<string, any>
   ) => void;
   initialEndpoint: string;
-  initialApiKey: string;
   initialRepoUrl: string;
   initialBranch: string;
   initialSourceName: string;
@@ -37,20 +33,17 @@ interface SettingsModalProps {
   initialOpenaiUrl: string;
   initialOpenaiKey: string;
   initialOpenaiModel: string;
-  initialJulesDailyLimit: number;
-  initialJulesConcurrentLimit: number;
   initialGeminiApiKey: string;
   initialModuleConfigs: Record<string, any>;
 }
 
 export default function SettingsModal({ 
   isOpen, onClose, onSave, 
-  initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit,
+  initialEndpoint, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
+  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel,
   initialGeminiApiKey, initialModuleConfigs
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
-  const [apiKey, setApiKey] = useState(initialApiKey);
   const [repoUrl, setRepoUrl] = useState(initialRepoUrl);
   const [branch, setBranch] = useState(initialBranch);
   const [sourceName, setSourceName] = useState(initialSourceName);
@@ -61,8 +54,6 @@ export default function SettingsModal({
   const [openaiUrl, setOpenaiUrl] = useState(initialOpenaiUrl);
   const [openaiKey, setOpenaiKey] = useState(initialOpenaiKey);
   const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
-  const [julesDailyLimit, setJulesDailyLimit] = useState(initialJulesDailyLimit);
-  const [julesConcurrentLimit, setJulesConcurrentLimit] = useState(initialJulesConcurrentLimit);
   const [geminiApiKey, setGeminiApiKey] = useState(initialGeminiApiKey);
   const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialModuleConfigs);
   
@@ -71,10 +62,11 @@ export default function SettingsModal({
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [error, setError] = useState('');
 
+  const julesApiKey = moduleConfigs['executor-jules']?.julesApiKey;
+
   useEffect(() => {
     if (isOpen) {
       setEndpoint(initialEndpoint);
-      setApiKey(initialApiKey);
       setRepoUrl(initialRepoUrl);
       setBranch(initialBranch);
       setSourceName(initialSourceName);
@@ -84,29 +76,27 @@ export default function SettingsModal({
       setOpenaiUrl(initialOpenaiUrl);
       setOpenaiKey(initialOpenaiKey);
       setOpenaiModel(initialOpenaiModel);
-      setJulesDailyLimit(initialJulesDailyLimit);
-      setJulesConcurrentLimit(initialJulesConcurrentLimit);
       setGeminiApiKey(initialGeminiApiKey);
       setModuleConfigs(initialModuleConfigs);
     }
   }, [
-    isOpen, initialEndpoint, initialApiKey, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel, initialJulesDailyLimit, initialJulesConcurrentLimit,
+    isOpen, initialEndpoint, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
+    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel,
     initialGeminiApiKey, initialModuleConfigs
   ]);
 
   useEffect(() => {
-    if (isOpen && apiKey) {
+    if (isOpen && julesApiKey) {
       fetchSources();
     }
-  }, [isOpen, apiKey]);
+  }, [isOpen, julesApiKey]);
 
   const fetchSources = async () => {
-    if (!apiKey) return;
+    if (!julesApiKey) return;
     setIsLoadingSources(true);
     setError('');
     try {
-      const res = await julesApi.listSources(apiKey);
+      const res = await julesApi.listSources(julesApiKey);
       setSources(res.sources || []);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch sources');
@@ -131,8 +121,8 @@ export default function SettingsModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave(
-      endpoint, apiKey, repoUrl, branch, sourceName, sourceId,
-      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, julesDailyLimit, julesConcurrentLimit, geminiApiKey,
+      endpoint, repoUrl, branch, sourceName, sourceId,
+      apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey,
       moduleConfigs
     );
     onClose();
@@ -270,50 +260,13 @@ export default function SettingsModal({
               )}
             </div>
 
-            <div className="space-y-4 pb-4 border-b border-neutral-800">
-              <h3 className="text-sm font-medium text-neutral-300">Jules API Configuration</h3>
-              <div>
-                <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Jules API Key</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                  placeholder="AIzaSy..."
-                />
-                <p className="text-[10px] text-neutral-500 mt-1">Your Google Jules API key.</p>
-              </div>
-              <div>
-                <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Daily Task Limit</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={julesDailyLimit}
-                  onChange={(e) => setJulesDailyLimit(parseInt(e.target.value) || 0)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                />
-                <p className="text-[10px] text-neutral-500 mt-1">Maximum number of tasks Jules can process per day. Set to 0 for unlimited. If limit is reached, tasks will fallback to Local Agent.</p>
-              </div>
-              <div>
-                <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Concurrent Task Limit</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={julesConcurrentLimit}
-                  onChange={(e) => setJulesConcurrentLimit(parseInt(e.target.value) || 1)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                />
-                <p className="text-[10px] text-neutral-500 mt-1">Maximum number of tasks Jules can process at the same time.</p>
-              </div>
-            </div>
-
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-neutral-300">Target Repository</h3>
                 <button 
                   type="button" 
                   onClick={fetchSources} 
-                  disabled={!apiKey || isLoadingSources}
+                  disabled={!julesApiKey || isLoadingSources}
                   className="text-xs text-blue-400 hover:text-blue-300 flex items-center disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3 h-3 mr-1 ${isLoadingSources ? 'animate-spin' : ''}`} />
@@ -360,7 +313,7 @@ export default function SettingsModal({
                     </option>
                   ))}
                 </select>
-                {sources.length === 0 && !isLoadingSources && apiKey && (
+                {sources.length === 0 && !isLoadingSources && julesApiKey && (
                   <p className="text-[10px] text-yellow-500 mt-1">No sources found. Click refresh.</p>
                 )}
               </div>

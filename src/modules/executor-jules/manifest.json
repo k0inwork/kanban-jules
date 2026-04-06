@@ -16,8 +16,8 @@
   },
   "permissions": ["network", "jules-api"],
   "configFields": [
-    { "name": "julesApiKey", "type": "string", "description": "Google Jules API Key" },
-    { "name": "julesDailyLimit", "type": "number", "description": "Daily task limit" },
-    { "name": "julesConcurrentLimit", "type": "number", "description": "Concurrent task limit" }
+    { "key": "julesApiKey", "type": "string", "label": "Jules API Key", "description": "Google Jules API Key", "required": true, "secret": true },
+    { "key": "julesDailyLimit", "type": "number", "label": "Daily Task Limit", "description": "Maximum number of tasks Jules can process per day. Set to 0 for unlimited.", "required": false, "default": 10 },
+    { "key": "julesConcurrentLimit", "type": "number", "label": "Concurrent Task Limit", "description": "Maximum number of tasks Jules can process at the same time.", "required": false, "default": 2 }
   ]
 }

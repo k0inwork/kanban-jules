@@ -46,7 +46,7 @@
   },
   "permissions": ["github-api"],
   "configFields": [
-    { "name": "repoUrl", "type": "string", "description": "Repository URL (owner/repo)" },
-    { "name": "repoBranch", "type": "string", "description": "Repository Branch" }
+    { "key": "repoUrl", "type": "string", "label": "Repository URL", "description": "Repository URL (owner/repo)", "required": true },
+    { "key": "repoBranch", "type": "string", "label": "Repository Branch", "description": "Repository Branch", "required": false, "default": "main" }
   ]
 }
