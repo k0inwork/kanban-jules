@@ -224,12 +224,20 @@ export default function App() {
       geminiApiKey,
       julesApiKey,
       repoUrl,
-      repoBranch
+      repoBranch,
+      moduleConfigs: {
+        'executor-jules': { julesApiKey, julesDailyLimit, julesConcurrentLimit },
+        'knowledge-artifacts': {},
+        'knowledge-repo-browser': { repoUrl, repoBranch },
+        'architect-codegen': {},
+        'process-project-manager': {},
+        'channel-user-negotiator': {}
+      }
     };
     host.init(config);
     orchestrator.init(config);
     return () => host.stop();
-  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, julesApiKey, repoUrl, repoBranch]);
+  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, julesApiKey, repoUrl, repoBranch, julesDailyLimit, julesConcurrentLimit]);
 
   // Auto-accept proposals in Full Autonomy mode
   const latestProposal = useLiveQuery(() => 

@@ -161,12 +161,20 @@ export class Orchestrator {
   private async executeInSandbox(taskId: string, code: string, stepId: number): Promise<void> {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
+    const task = await db.tasks.get(taskId);
+    if (!task || !task.protocol) throw new Error("Task or protocol not found");
+    const step = task.protocol.steps.find(s => s.id === stepId);
+    const executorId = step?.executor || 'executor-jules';
+    const module = registry.get(executorId);
+    const permissions = module?.permissions || [];
+    const sandboxBindings = module?.sandboxBindings || {};
+
     this.context.accumulatedAnalysis = [];
     const sandbox = new Sandbox();
     injectBindings(sandbox, (toolName, args) => this.moduleRequest(taskId, toolName, args), this.context);
 
     try {
-      const result = await sandbox.execute(code);
+      const result = await sandbox.execute(code, permissions, sandboxBindings);
       await this.logToChat(taskId, `Execution Success. Result: ${JSON.stringify(result)}`);
       
       await db.tasks.update(taskId, { 
@@ -174,12 +182,12 @@ export class Orchestrator {
         analysis: (this.context.accumulatedAnalysis.length > 0) ? this.context.accumulatedAnalysis.join('\n') : undefined
       });
       
-      const task = await db.tasks.get(taskId);
-      if (task && task.protocol) {
-        const updatedSteps = task.protocol.steps.map(s => 
+      const updatedTask = await db.tasks.get(taskId);
+      if (updatedTask && updatedTask.protocol) {
+        const updatedSteps = updatedTask.protocol.steps.map(s => 
           s.id === stepId ? { ...s, status: 'completed' as const } : s
         );
-        await db.tasks.update(taskId, { protocol: { ...task.protocol, steps: updatedSteps } });
+        await db.tasks.update(taskId, { protocol: { ...updatedTask.protocol, steps: updatedSteps } });
       }
     } catch (error: any) {
       throw error;

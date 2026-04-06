@@ -1,20 +1,30 @@
 import { ModuleManifest } from './types';
 
 import julesManifest from '../modules/executor-jules/manifest.json';
+import { JulesPostman } from '../modules/executor-jules/JulesPostman';
+
 import artifactsManifest from '../modules/knowledge-artifacts/manifest.json';
+import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
+
 import repoBrowserManifest from '../modules/knowledge-repo-browser/manifest.json';
+import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
+
 import projectManagerManifest from '../modules/process-project-manager/manifest.json';
+import { ProcessAgent } from '../modules/process-project-manager/ProcessAgent';
+
 import userNegotiatorManifest from '../modules/channel-user-negotiator/manifest.json';
+
 import architectManifest from '../modules/architect-codegen/manifest.json';
+import { ArchitectTool } from '../modules/architect-codegen/Architect';
 
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
-    { ...julesManifest, enabled: true },
-    { ...artifactsManifest, enabled: true },
-    { ...repoBrowserManifest, enabled: true },
-    { ...projectManagerManifest, enabled: true },
-    { ...userNegotiatorManifest, enabled: true },
-    { ...architectManifest, enabled: true },
+    { ...julesManifest, enabled: true, init: (config) => new JulesPostman(config).start(), destroy: () => {} },
+    { ...artifactsManifest, enabled: true, init: ArtifactTool.init, destroy: () => {} },
+    { ...repoBrowserManifest, enabled: true, init: RepositoryTool.init, destroy: () => {} },
+    { ...projectManagerManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...userNegotiatorManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...architectManifest, enabled: true, init: ArchitectTool.init, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[]) => Promise<any>> = new Map();

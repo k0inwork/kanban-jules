@@ -52,10 +52,12 @@ export class ModuleHost {
     const modules = registry.getEnabled();
     console.log(`Host initialized with ${modules.length} enabled modules.`);
 
-    // Initialize tools
-    ArtifactTool.init(config);
-    RepositoryTool.init(config);
-    ArchitectTool.init(config);
+    // Initialize modules
+    for (const module of modules) {
+      if (module.init) {
+        module.init(config.moduleConfigs[module.id]);
+      }
+    }
 
     // Register handlers
     registry.registerHandler('knowledge-artifacts.listArtifacts', ArtifactTool.handleRequest);
@@ -65,12 +67,6 @@ export class ModuleHost {
     registry.registerHandler('knowledge-repo-browser.readFile', RepositoryTool.handleRequest);
     registry.registerHandler('knowledge-repo-browser.headFile', RepositoryTool.handleRequest);
     registry.registerHandler('architect-codegen.generateProtocol', ArchitectTool.handleRequest);
-
-    if (registry.get('executor-jules')?.enabled !== false) {
-      this.julesPostman = new JulesPostman(config);
-      this.julesPostman.start();
-      console.log('Jules Postman started.');
-    }
   }
 
   stop() {

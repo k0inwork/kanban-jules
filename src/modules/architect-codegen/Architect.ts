@@ -1,13 +1,13 @@
 import { GoogleGenAI } from '@google/genai';
-import { OrchestratorConfig } from '../../core/types';
+import { ArchitectConfig } from './types';
 import { registry } from '../../core/registry';
 import { composeArchitectPrompt } from '../../core/prompt';
 
 export class Architect {
   private ai: GoogleGenAI | null = null;
-  private config: OrchestratorConfig;
+  private config: ArchitectConfig;
 
-  constructor(config: OrchestratorConfig) {
+  constructor(config: ArchitectConfig) {
     this.config = config;
     if (config.apiProvider === 'gemini') {
       this.ai = new GoogleGenAI({ apiKey: config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
@@ -55,7 +55,7 @@ export class Architect {
 let architectInstance: Architect | null = null;
 
 export const ArchitectTool = {
-  init: (config: OrchestratorConfig) => {
+  init: (config: ArchitectConfig) => {
     architectInstance = new Architect(config);
   },
   handleRequest: async (toolName: string, args: any[]): Promise<any> => {

@@ -4,6 +4,23 @@ export interface ToolDefinition {
   parameters: any;
 }
 
+export interface ResourceLimit {
+  type: 'memory' | 'time' | 'concurrent';
+  value: number;
+}
+
+export interface ConfigField {
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  description: string;
+  required: boolean;
+}
+
+export interface ModulePresentation {
+  type: 'kanban' | 'chat' | 'browser';
+  config: any;
+}
+
 export interface ModuleManifest {
   id: string;
   name: string;
@@ -14,6 +31,15 @@ export interface ModuleManifest {
   sandboxBindings: Record<string, string>;
   permissions: string[];
   enabled?: boolean;
+  outputType?: string;
+  requiresBindings?: string[];
+  source?: string;
+  backgroundSchedule?: string;
+  limits?: ResourceLimit[];
+  configFields?: ConfigField[];
+  presentations?: ModulePresentation[];
+  init?: (config: any) => void;
+  destroy?: () => void;
 }
 
 export interface OrchestratorConfig {
@@ -26,4 +52,5 @@ export interface OrchestratorConfig {
   julesApiKey: string;
   repoUrl: string;
   repoBranch: string;
+  moduleConfigs: Record<string, any>;
 }

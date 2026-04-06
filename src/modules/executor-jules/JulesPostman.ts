@@ -2,14 +2,14 @@ import { GoogleGenAI } from '@google/genai';
 import { db } from '../../services/db';
 import { julesApi } from '../../lib/julesApi';
 import { JulesSessionManager } from './JulesSessionManager';
-import { OrchestratorConfig } from '../../core/types';
+import { JulesConfig } from './types';
 import { eventBus } from '../../core/event-bus';
 
 export class JulesPostman {
   private interval: any;
-  private config: OrchestratorConfig;
+  private config: JulesConfig;
 
-  constructor(config: OrchestratorConfig) {
+  constructor(config: JulesConfig) {
     this.config = config;
   }
 
