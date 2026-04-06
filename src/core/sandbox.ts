@@ -1,97 +1,60 @@
 import { registry } from './registry';
-import Sval from 'sval';
 import { globalVars } from '../services/GlobalVars';
 
 export class Sandbox {
-  private interpreter: Sval;
+  private worker: Worker;
+  private pendingToolCalls: Map<string, (result: any, error?: string) => void> = new Map();
 
   constructor() {
-    this.interpreter = new Sval({
-      ecmaVer: 2019,
-      sandBox: true,
-    });
+    this.worker = new Worker(new URL('./sandbox.worker.ts', import.meta.url), { type: 'module' });
+    
+    this.worker.onmessage = async (event) => {
+      const { type, requestId, result, error, toolName, args } = event.data;
 
-    // Inject GlobalVars as a global object
-    this.interpreter.import('GlobalVars', {
-      set: (key: string, value: any) => globalVars.set(key, value),
-      get: (key: string) => globalVars.get(key),
-      getAll: () => globalVars.getAll(),
-    });
-
-    // Inject console for debugging
-    this.interpreter.import('console', {
-      log: (...args: any[]) => console.log('[Sandbox]', ...args),
-      error: (...args: any[]) => console.error('[Sandbox Error]', ...args),
-      warn: (...args: any[]) => console.warn('[Sandbox Warn]', ...args),
-    });
+      if (type === 'toolCall') {
+        if (this.toolRequestHandler) {
+          try {
+            const result = await this.toolRequestHandler(toolName, args);
+            this.worker.postMessage({ type: 'toolResponse', requestId, result });
+          } catch (error: any) {
+            this.worker.postMessage({ type: 'toolResponse', requestId, error: error.message });
+          }
+        }
+      } else if (type === 'result') {
+        const resolver = this.pendingToolCalls.get(requestId);
+        if (resolver) {
+          resolver(result, error);
+          this.pendingToolCalls.delete(requestId);
+        }
+      }
+    };
   }
 
-  injectAPI(name: string, api: any): void {
-    this.interpreter.import(name, api);
+  private toolRequestHandler: ((toolName: string, args: any) => Promise<any>) | null = null;
+
+  setToolRequestHandler(handler: (toolName: string, args: any) => Promise<any>) {
+    this.toolRequestHandler = handler;
   }
 
   inject(name: string, api: any): void {
-    this.interpreter.import(name, api);
+    // For now, we'll just log that injection is not supported in the worker yet
+    console.warn('[Sandbox] Injection is not supported in the worker yet.');
   }
 
   async execute(code: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      this.interpreter.import('__resolve', resolve);
-      this.interpreter.import('__reject', reject);
+      const requestId = Math.random().toString(36).substring(7);
+      
+      this.pendingToolCalls.set(requestId, (result, error) => {
+        if (error) reject(new Error(error));
+        else resolve(result);
+      });
 
-      try {
-        this.interpreter.run(`
-          (async () => {
-            try {
-              const __result = await (async () => {
-                ${code}
-              })();
-              __resolve(__result);
-            } catch (e) {
-              __reject(e);
-            }
-          })();
-        `);
-      } catch (error) {
-        reject(error);
-      }
+      this.worker.postMessage({ type: 'execute', code, requestId });
     });
   }
 }
 
 export function injectBindings(sandbox: Sandbox, moduleRequest: (toolName: string, args: any) => Promise<any>, context: { accumulatedAnalysis: string[] }) {
-  for (const module of registry.getAll()) {
-    for (const [alias, toolName] of Object.entries(module.sandboxBindings)) {
-      const parts = alias.split('.');
-      let current = sandbox;
-      
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i];
-        if (!current[part]) {
-          current[part] = {};
-          sandbox.inject(part, current[part]);
-        }
-        current = current[part];
-      }
-      
-      const lastPart = parts[parts.length - 1];
-      const toolFunction = async (...args: any[]) => {
-        return moduleRequest(toolName, args);
-      };
-      
-      if (parts.length === 1) {
-        sandbox.inject(lastPart, toolFunction);
-      } else {
-        current[lastPart] = toolFunction;
-      }
-    }
-  }
-
-  sandbox.inject('analyze', (text: string) => {
-    context.accumulatedAnalysis.push(text);
-  });
-
-  sandbox.inject('addToContext', (text: string) => {
-    context.accumulatedAnalysis.push(text);
-  });
+  sandbox.setToolRequestHandler(moduleRequest);
 }

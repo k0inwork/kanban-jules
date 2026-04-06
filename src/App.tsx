@@ -13,6 +13,7 @@ import KanbanBoard from './components/KanbanBoard';
 import NewTaskModal from './components/NewTaskModal';
 import TaskDetailsModal from './components/TaskDetailsModal';
 import SettingsModal from './components/SettingsModal';
+import ModuleManagementModal from './components/ModuleManagementModal';
 import { executeJulesCommand } from './lib/jules';
 import { JulesSessionManager } from './modules/executor-jules/JulesSessionManager';
 import { julesApi, SessionState } from './lib/julesApi';
@@ -58,6 +59,7 @@ export default function App() {
   const [isReviewing, setIsReviewing] = useState(false);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isModuleManagementOpen, setIsModuleManagementOpen] = useState(false);
   const [isRepoBrowserOpen, setIsRepoBrowserOpen] = useState(false);
   const [sidebarMode, setSidebarMode] = useState<'repo' | 'mailbox'>('repo');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -702,6 +704,13 @@ export default function App() {
           >
             <Settings className="w-5 h-5" />
           </button>
+          <button
+            onClick={() => setIsModuleManagementOpen(true)}
+            className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md transition-colors"
+            title="Module Management"
+          >
+            <Shield className="w-5 h-5" />
+          </button>
 
           <div className="relative group">
             <button
@@ -889,6 +898,11 @@ export default function App() {
         initialJulesDailyLimit={julesDailyLimit}
         initialJulesConcurrentLimit={julesConcurrentLimit}
         initialGeminiApiKey={geminiApiKey}
+      />
+
+      <ModuleManagementModal 
+        isOpen={isModuleManagementOpen} 
+        onClose={() => setIsModuleManagementOpen(false)} 
       />
 
       <TaskDetailsModal

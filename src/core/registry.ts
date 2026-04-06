@@ -5,6 +5,7 @@ import artifactsManifest from '../modules/knowledge-artifacts/manifest.json';
 import repoBrowserManifest from '../modules/knowledge-repo-browser/manifest.json';
 import projectManagerManifest from '../modules/process-project-manager/manifest.json';
 import userNegotiatorManifest from '../modules/channel-user-negotiator/manifest.json';
+import architectManifest from '../modules/architect-codegen/manifest.json';
 
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
@@ -13,6 +14,7 @@ export class ModuleRegistry {
     { ...repoBrowserManifest, enabled: true },
     { ...projectManagerManifest, enabled: true },
     { ...userNegotiatorManifest, enabled: true },
+    { ...architectManifest, enabled: true },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[]) => Promise<any>> = new Map();
