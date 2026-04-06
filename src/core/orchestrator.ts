@@ -27,107 +27,23 @@ export class Orchestrator {
   private async moduleRequest(taskId: string, toolName: string, args: any[]): Promise<any> {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
-    if (toolName === 'executor-jules.execute') {
-      const [prompt, successCriteria] = args;
-      if (prompt.includes('=undefined') || prompt.includes('=null')) {
-        await this.logToChat(taskId, `[Error] Attempted to call Jules with undefined or null data in prompt: ${prompt}`);
-        throw new Error("Attempted to call Jules with undefined or null data. Please ensure all variables are defined before calling askJules.");
-      }
-      await this.logToChat(taskId, `Calling Subagent: JNA with args: ["${prompt}", "${successCriteria}"]`);
-      const task = await db.tasks.get(taskId);
-      if (!task) throw new Error("Task not found");
-      
-      return await JulesNegotiator.negotiate(
-        this.config.julesApiKey,
-        task,
-        this.config.repoUrl,
-        this.config.repoBranch,
-        prompt,
-        successCriteria,
-        async (julesOutput: string, criteria: string) => {
-          const verifyPrompt = `
-            You are a Verification Agent.
-            Success Criteria: ${criteria}
-            Jules Output: ${julesOutput}
-            Did Jules successfully meet the criteria? 
-            If YES, reply with exactly "YES".
-            If NO, reply with "NO".
-          `;
-          const vText = await this.callLlm(verifyPrompt);
-          return vText.trim().startsWith('YES');
+    const requestId = Math.random().toString(36).substring(7);
+    
+    return new Promise((resolve, reject) => {
+      const handler = (data: { requestId: string, result: any, error?: string }) => {
+        if (data.requestId === requestId) {
+          eventBus.off('module:response', handler);
+          if (data.error) {
+            reject(new Error(data.error));
+          } else {
+            resolve(data.result);
+          }
         }
-      );
-    }
-
-    if (toolName === 'channel-user-negotiator.askUser') {
-      const [question, format] = args;
-      await this.logToChat(taskId, `Calling Subagent: UNA with args: ["${question}", "${format || 'none'}"]`);
-      const rawReply = await UserNegotiator.negotiate(taskId, question);
+      };
       
-      if (!format) return rawReply;
-
-      const validationPrompt = `
-        You are a Data Validation and Conversion Agent.
-        Question: ${question}
-        Format/Constraint: ${format}
-        User Input: ${rawReply}
-        
-        If the input satisfies the format, return the input (or the converted value if requested).
-        If the input does not satisfy the format, return "ERROR: <reason>".
-        Return ONLY the result or the error message.
-      `;
-      
-      const validatedReply = await this.callLlm(validationPrompt);
-      await this.logToChat(taskId, `UNA Validation Result: ${validatedReply}`);
-      
-      if (validatedReply.startsWith('ERROR:')) {
-        throw new Error(validatedReply);
-      }
-      return validatedReply;
-    }
-
-    if (toolName === 'knowledge-artifacts.listArtifacts') {
-      const [tId, repoName, branchName, requestingTaskId] = args;
-      return ArtifactTool.listArtifacts(
-        tId || taskId,
-        repoName || this.config.repoUrl.split('/').pop() || this.config.repoUrl,
-        branchName || this.config.repoBranch,
-        requestingTaskId
-      );
-    }
-
-    if (toolName === 'knowledge-artifacts.saveArtifact') {
-      const [name, content] = args;
-      return ArtifactTool.saveArtifact(
-        taskId,
-        this.config.repoUrl.split('/').pop() || this.config.repoUrl,
-        this.config.repoBranch,
-        name,
-        content
-      );
-    }
-
-    if (toolName === 'knowledge-artifacts.readArtifact') {
-      const [name] = args;
-      return ArtifactTool.readArtifact(name);
-    }
-
-    if (toolName === 'knowledge-repo-browser.listFiles') {
-      const [path] = args;
-      return RepositoryTool.listFiles(this.config.repoUrl, this.config.repoBranch, this.config.julesApiKey || '', path);
-    }
-
-    if (toolName === 'knowledge-repo-browser.readFile') {
-      const [path] = args;
-      return RepositoryTool.readFile(this.config.repoUrl, this.config.repoBranch, this.config.julesApiKey || '', path);
-    }
-
-    if (toolName === 'knowledge-repo-browser.headFile') {
-      const [path, lines] = args;
-      return RepositoryTool.headFile(this.config.repoUrl, this.config.repoBranch, this.config.julesApiKey || '', path, lines);
-    }
-
-    throw new Error(`Tool not found: ${toolName}`);
+      eventBus.on('module:response', handler);
+      eventBus.emit('module:request', { requestId, taskId, toolName, args });
+    });
   }
 
   private async logToChat(taskId: string, message: string) {
@@ -138,24 +54,12 @@ export class Orchestrator {
     }
   }
 
-  private async appendActionLog(taskId: string, msg: string) {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `> [${timestamp}] ${msg}\n`;
-    const task = await db.tasks.get(taskId);
-    if (task) {
-      await db.tasks.update(taskId, {
-        actionLog: (task.actionLog || '') + logEntry
-      });
-    }
+  private appendActionLog(taskId: string, msg: string) {
+    eventBus.emit('module:log', { taskId, moduleId: 'orchestrator', message: msg });
   }
 
-  private async appendProgrammingLog(taskId: string, msg: string) {
-    const task = await db.tasks.get(taskId);
-    if (task) {
-      await db.tasks.update(taskId, {
-        programmingLog: (task.programmingLog || '') + msg + '\n'
-      });
-    }
+  private appendProgrammingLog(taskId: string, msg: string) {
+    eventBus.emit('module:log', { taskId, moduleId: 'architect', message: msg });
   }
 
   private async callLlm(prompt: string, jsonMode: boolean = false): Promise<string> {
@@ -204,7 +108,7 @@ export class Orchestrator {
     if (!step) return;
 
     await this.logToChat(taskId, `Starting execution for Step ${stepId}: ${step.title}`);
-    await this.appendActionLog(taskId, `Started Step ${stepId}`);
+    this.appendActionLog(taskId, `Started Step ${stepId}`);
 
     // Load GlobalVars into the sandbox registry
     globalVars.clear();
@@ -221,7 +125,7 @@ export class Orchestrator {
     while (attempt < maxAttempts) {
       attempt++;
       
-      const modules = registry.getAll();
+      const modules = registry.getEnabled();
       const prompt = composeProgrammerPrompt(modules, task, step, errorContext);
       
       try {
@@ -235,14 +139,14 @@ export class Orchestrator {
         }
         
         await this.logToChat(taskId, `Generated Code (Attempt ${attempt}):\n\`\`\`javascript\n${code}\n\`\`\``);
-        await this.appendProgrammingLog(taskId, `Step ${stepId} (Attempt ${attempt}) - code:\n"${code}"`);
+        this.appendProgrammingLog(taskId, `Step ${stepId} (Attempt ${attempt}) - code:\n"${code}"`);
 
         await this.executeInSandbox(taskId, code, stepId);
         return;
 
       } catch (error: any) {
         await this.logToChat(taskId, `Error generating or executing code: ${error.message}`);
-        await this.appendActionLog(taskId, `Error in Step ${stepId}: ${error.message}`);
+        this.appendActionLog(taskId, `Error in Step ${stepId}: ${error.message}`);
         errorContext = error.message + (error.stack ? `\n${error.stack}` : '');
       }
     }
@@ -290,12 +194,18 @@ export class Orchestrator {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     const isResuming = task.workflowStatus === 'IN_PROGRESS';
+    const initialLog = isResuming ? '' : '> Initializing Agent Session...\n';
+    
     const updatedTaskData = { 
       workflowStatus: 'IN_PROGRESS' as WorkflowStatus,
       agentState: 'EXECUTING' as AgentState,
-      agentId: task.agentId || 'jules-agent', 
-      logs: isResuming ? task.logs : (task.logs ? task.logs + '\n\n---\n\n' : '') + '> Initializing Agent Session...\n' 
+      agentId: task.agentId || 'jules-agent'
     };
+    
+    if (initialLog) {
+      eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: initialLog.trim() });
+    }
+    
     await db.tasks.update(task.id, updatedTaskData);
     let currentTask = { ...task, ...updatedTaskData };
 
@@ -313,7 +223,7 @@ export class Orchestrator {
       // Generate Protocol if not exists
       if (!currentTask?.protocol) {
         await appendLog(`> [Architect] Generating Task Protocol...\n`);
-        const prompt = composeArchitectPrompt(registry.getAll()) + `\n\nTask Title: ${task.title}\nTask Description: ${task.description}`;
+        const prompt = composeArchitectPrompt(registry.getEnabled()) + `\n\nTask Title: ${task.title}\nTask Description: ${task.description}`;
         const responseText = await this.callLlm(prompt, true);
         const protocol = JSON.parse(responseText || '{"steps": []}');
         await db.tasks.update(task.id, { protocol });

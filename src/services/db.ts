@@ -99,6 +99,31 @@ export class MyDatabase extends Dexie {
         delete task.julesRetryCount;
       });
     });
+    this.version(17).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id'
+    }).upgrade(tx => {
+      return tx.table('tasks').toCollection().modify(task => {
+        if (!task.moduleLogs) task.moduleLogs = {};
+        if (task.programmingLog) {
+          task.moduleLogs['architect'] = (task.moduleLogs['architect'] || '') + task.programmingLog;
+          delete task.programmingLog;
+        }
+        if (task.actionLog) {
+          task.moduleLogs['orchestrator'] = (task.moduleLogs['orchestrator'] || '') + task.actionLog;
+          delete task.actionLog;
+        }
+        if (task.logs) {
+          task.moduleLogs['orchestrator'] = (task.moduleLogs['orchestrator'] || '') + task.logs;
+          delete task.logs;
+        }
+      });
+    });
   }
 }
 

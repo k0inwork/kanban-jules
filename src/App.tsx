@@ -192,9 +192,10 @@ export default function App() {
         workflowStatus: options?.autoStart ? 'IN_PROGRESS' : 'TODO',
         agentState: options?.autoStart ? 'EXECUTING' : 'IDLE',
         createdAt: Date.now(),
-        actionLog: `> [Decision] Task created based on message: ${message.content.substring(0, 50)}...\n`
+        moduleLogs: {}
       };
       await db.tasks.add(newTask);
+      eventBus.emit('module:log', { taskId: newTask.id, moduleId: 'orchestrator', message: `Task created based on message: ${message.content.substring(0, 50)}...` });
       if (options?.autoStart) {
         processTask(newTask);
       }
@@ -263,13 +264,7 @@ export default function App() {
   }, [tasks, autonomyMode]);
 
   const appendActionLogToTask = async (taskId: string, msg: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `> [${timestamp}] ${msg}\n`;
-    const task = await db.tasks.get(taskId);
-    if (task) {
-      const updatedLog = (task.actionLog || '') + logEntry;
-      await db.tasks.update(taskId, { actionLog: updatedLog });
-    }
+    eventBus.emit('module:log', { taskId, moduleId: 'orchestrator', message: msg });
   };
 
   const processTask = async (task: Task) => {
@@ -277,10 +272,7 @@ export default function App() {
     processingRef.current.add(task.id);
     
     const appendLog = async (text: string) => {
-      const t = await db.tasks.get(task.id);
-      if (t) {
-        await db.tasks.update(task.id, { logs: (t.logs || '') + text });
-      }
+      eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: text.trim() });
     };
 
     try {
@@ -334,10 +326,12 @@ export default function App() {
     }
 
     const updatedTask = { ...task, workflowStatus: newStatus, agentState: newAgentState };
+    
+    eventBus.emit('module:log', { taskId, moduleId: 'orchestrator', message: `Workflow status changed from ${oldStatus} to ${newStatus}` });
+
     await db.tasks.update(taskId, { 
       workflowStatus: newStatus,
-      agentState: newAgentState,
-      actionLog: (task.actionLog || '') + `> [${timestamp}] Workflow status changed from ${oldStatus} to ${newStatus}\n`
+      agentState: newAgentState
     });
 
     if (newStatus === 'IN_PROGRESS' && task.workflowStatus !== 'IN_PROGRESS') {
@@ -355,7 +349,7 @@ export default function App() {
       forwardExecutorMessages: true,
       createdAt: Date.now(),
       artifactIds: artifactIds,
-      actionLog: `> [Decision] Task created manually: ${title}\n`
+      moduleLogs: {}
     };
     
     if (artifactIds.length > 0) {
@@ -366,6 +360,7 @@ export default function App() {
     }
     
     await db.tasks.add(newTask);
+    eventBus.emit('module:log', { taskId: newTask.id, moduleId: 'orchestrator', message: `Task created manually: ${title}` });
     setIsNewTaskModalOpen(false);
   };
 
@@ -460,10 +455,11 @@ export default function App() {
       });
 
       // Update task state back to IDLE so the orchestrator can pick it up again if it was paused
+      eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: `Replied to message: ${replyText.substring(0, 50)}...` });
+
       await db.tasks.update(task.id, { 
         workflowStatus: 'IN_PROGRESS',
-        agentState: processingRef.current.has(task.id) ? 'EXECUTING' : 'IDLE',
-        actionLog: (task.actionLog || '') + `> [${timestamp}] Replied to message: ${replyText.substring(0, 50)}...\n`
+        agentState: processingRef.current.has(task.id) ? 'EXECUTING' : 'IDLE'
       });
       
       // Mark original message as archived
@@ -471,6 +467,8 @@ export default function App() {
         await db.messages.update(message.id, { status: 'archived' });
         handleTabClose(`mail-${message.id}`);
       }
+      
+      eventBus.emit('user:reply', { taskId: task.id, content: replyText });
       
       setIsViewingBoard(true);
     }
@@ -499,11 +497,12 @@ export default function App() {
       timestamp: Date.now()
     });
 
+    eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: `Sent message: ${message.substring(0, 50)}...` });
+
     await db.tasks.update(task.id, {
       workflowStatus: 'IN_PROGRESS',
       agentState: 'EXECUTING',
-      chat: updatedTask.chat,
-      actionLog: (task.actionLog || '') + `> [${timestamp}] Sent message: ${message.substring(0, 50)}...\n`
+      chat: updatedTask.chat
     });
 
     if (task.agentId === 'jules-agent') {
@@ -516,6 +515,8 @@ export default function App() {
         }
       }
     }
+    
+    eventBus.emit('user:reply', { taskId: task.id, content: message });
     
     processTask(updatedTask);
   };

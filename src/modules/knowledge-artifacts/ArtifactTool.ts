@@ -33,6 +33,19 @@ export const ArtifactTool = {
       content,
     };
     return await db.taskArtifacts.add(artifact);
+  },
+
+  handleRequest: async (toolName: string, args: any[]): Promise<any> => {
+    switch (toolName) {
+      case 'knowledge-artifacts.listArtifacts':
+        return await ArtifactTool.listArtifacts(...args);
+      case 'knowledge-artifacts.readArtifact':
+        return await ArtifactTool.readArtifact(...args);
+      case 'knowledge-artifacts.saveArtifact':
+        return await ArtifactTool.saveArtifact(...args);
+      default:
+        throw new Error(`Tool not found: ${toolName}`);
+    }
   }
 };
 

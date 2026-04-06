@@ -1,4 +1,5 @@
 import { db } from '../db';
+import { eventBus } from '../../core/event-bus';
 
 export class UserNegotiator {
   static async negotiate(
@@ -9,16 +10,11 @@ export class UserNegotiator {
     const task = await db.tasks.get(taskId);
     if (!task) throw new Error("Task not found");
 
-    const appendUnaLog = async (msg: string) => {
-      const t = await db.tasks.get(taskId);
-      if (t) {
-        const currentLogs = t.moduleLogs?.['una'] || '';
-        const newLogs = currentLogs + `[${new Date().toISOString()}] ${msg}\n`;
-        await db.tasks.update(taskId, { moduleLogs: { ...t.moduleLogs, 'una': newLogs } });
-      }
+    const appendUnaLog = (msg: string) => {
+      eventBus.emit('module:log', { taskId, moduleId: 'channel-user-negotiator', message: msg });
     };
 
-    await appendUnaLog(`Checking for existing question: "${question}"`);
+    appendUnaLog(`Checking for existing question: "${question}"`);
 
     // Check if we already asked this question
     const existingMsg = await db.messages
@@ -39,14 +35,14 @@ export class UserNegotiator {
         .first();
       
       if (existingReply) {
-        await appendUnaLog(`Found existing reply: "${existingReply.content}"`);
+        appendUnaLog(`Found existing reply: "${existingReply.content}"`);
         return existingReply.content;
       } else {
-        await appendUnaLog(`Found existing question, but no reply yet. Waiting...`);
+        appendUnaLog(`Found existing question, but no reply yet. Waiting...`);
       }
     } else {
       // 1. Send message to mailbox
-      await appendUnaLog(`Sending new question to user: "${question}"`);
+      appendUnaLog(`Sending new question to user: "${question}"`);
       questionTimestamp = Date.now();
       messageId = await db.messages.add({
         sender: 'local-agent',
@@ -59,26 +55,23 @@ export class UserNegotiator {
     }
 
     // 2. Update task state to WAITING_FOR_USER
-    await appendUnaLog(`Updating task state to WAITING_FOR_USER`);
+    appendUnaLog(`Updating task state to WAITING_FOR_USER`);
     await db.tasks.update(taskId, {
       workflowStatus: 'IN_PROGRESS',
       agentState: 'WAITING_FOR_USER'
     });
 
-    // 3. Poll for reply
-    await appendUnaLog(`Polling for user reply...`);
-    while (true) {
-      await new Promise(r => setTimeout(r, 2000));
-      
-      const reply = await db.messages
-        .where('taskId').equals(taskId)
-        .filter(m => m.sender === 'user' && m.timestamp > questionTimestamp)
-        .first();
-        
-      if (reply) {
-        await appendUnaLog(`Received reply from user: "${reply.content}"`);
-        return reply.content;
-      }
-    }
+    // 3. Wait for reply via event bus
+    appendUnaLog(`Waiting for user reply...`);
+    return new Promise<string>((resolve) => {
+      const handler = (data: { taskId: string, content: string }) => {
+        if (data.taskId === taskId) {
+          appendUnaLog(`Received reply from user: "${data.content}"`);
+          eventBus.off('user:reply', handler);
+          resolve(data.content);
+        }
+      };
+      eventBus.on('user:reply', handler);
+    });
   }
 }

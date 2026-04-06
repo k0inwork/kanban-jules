@@ -21,13 +21,11 @@ export interface Task {
   workflowStatus: WorkflowStatus;
   agentState: AgentState;
   agentId?: string;
-  logs?: string;
   chat?: string;
   artifactIds?: number[];
   createdAt: number;
   forwardExecutorMessages?: boolean;
   questionCount?: number;
-  actionLog?: string;
   protocol?: TaskProtocol;
   globalVars?: Record<string, any>;
   pendingExecutorPrompt?: string;
@@ -35,6 +33,5 @@ export interface Task {
   retryCount?: number;
   retryCounts?: Record<string, number>;
   moduleLogs?: Record<string, string>;
-  programmingLog?: string;
   analysis?: string;
 }

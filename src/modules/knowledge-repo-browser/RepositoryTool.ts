@@ -16,6 +16,19 @@ export const RepositoryTool = {
     const gitFs = new GitFs(repoUrl, branch, token);
     const content = await gitFs.getFile(path);
     return content.split('\n').slice(0, lines).join('\n');
+  },
+
+  handleRequest: async (toolName: string, args: any[]): Promise<any> => {
+    switch (toolName) {
+      case 'knowledge-repo-browser.listFiles':
+        return await RepositoryTool.listFiles(...args);
+      case 'knowledge-repo-browser.readFile':
+        return await RepositoryTool.readFile(...args);
+      case 'knowledge-repo-browser.headFile':
+        return await RepositoryTool.headFile(...args);
+      default:
+        throw new Error(`Tool not found: ${toolName}`);
+    }
   }
 };
 

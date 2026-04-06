@@ -8,6 +8,8 @@ export const initialTasks: Task[] = [
     workflowStatus: 'TODO',
     agentState: 'IDLE',
     createdAt: Date.now(),
-    actionLog: '> [System] Task created from user request.\n'
+    moduleLogs: {
+      'orchestrator': '> [System] Task created from user request.\n'
+    }
   }
 ];

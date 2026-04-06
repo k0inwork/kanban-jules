@@ -8,19 +8,36 @@ import userNegotiatorManifest from '../modules/channel-user-negotiator/manifest.
 
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
-    julesManifest as ModuleManifest,
-    artifactsManifest as ModuleManifest,
-    repoBrowserManifest as ModuleManifest,
-    projectManagerManifest as ModuleManifest,
-    userNegotiatorManifest as ModuleManifest,
-  ];
+    { ...julesManifest, enabled: true },
+    { ...artifactsManifest, enabled: true },
+    { ...repoBrowserManifest, enabled: true },
+    { ...projectManagerManifest, enabled: true },
+    { ...userNegotiatorManifest, enabled: true },
+  ] as ModuleManifest[];
 
   getAll(): ModuleManifest[] {
     return this.modules;
   }
 
+  getEnabled(): ModuleManifest[] {
+    return this.modules.filter(m => m.enabled !== false);
+  }
+
   get(id: string): ModuleManifest | undefined {
     return this.modules.find(m => m.id === id);
+  }
+
+  register(manifest: ModuleManifest) {
+    if (!this.get(manifest.id)) {
+      this.modules.push(manifest);
+    }
+  }
+
+  setEnabled(id: string, enabled: boolean) {
+    const module = this.get(id);
+    if (module) {
+      module.enabled = enabled;
+    }
   }
 }
 

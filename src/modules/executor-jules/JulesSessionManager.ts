@@ -1,16 +1,10 @@
 import { julesApi, Session, CreateSessionRequest } from '../../lib/julesApi';
 import { db } from '../../services/db';
+import { eventBus } from '../../core/event-bus';
 
 export class JulesSessionManager {
-  static async appendActionLog(taskId: string, msg: string) {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `> [${timestamp}] ${msg}\n`;
-    const task = await db.tasks.get(taskId);
-    if (task) {
-      await db.tasks.update(taskId, {
-        actionLog: (task.actionLog || '') + logEntry
-      });
-    }
+  static appendActionLog(taskId: string, msg: string) {
+    eventBus.emit('module:log', { taskId, moduleId: 'executor-jules', message: msg });
   }
 
   static async findOrCreateSession(apiKey: string, task: any, repoUrl: string, repoBranch: string, sourceName: string): Promise<Session | null> {
@@ -55,7 +49,7 @@ export class JulesSessionManager {
         const remote = await julesApi.getSession(apiKey, unusedLocal.name);
         console.log(`[JulesSessionManager] Reusing unused local session ${unusedLocal.name} for task ${task.id}`);
         await db.julesSessions.update(unusedLocal.id, { taskId: task.id, title: task.title, status: remote.state });
-        await this.appendActionLog(task.id, `Reused unused local Jules session: ${unusedLocal.name}`);
+        this.appendActionLog(task.id, `Reused unused local Jules session: ${unusedLocal.name}`);
         
         // Send context to Jules
         const reusePrompt = `${systemInstruction}\n\nIMPORTANT: We are starting new work.\n\nTask: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
@@ -90,7 +84,7 @@ export class JulesSessionManager {
           branchName: repoBranch
         };
         await db.julesSessions.put(newSession);
-        await this.appendActionLog(task.id, `Found and resumed matching remote Jules session: ${match.name}`);
+        this.appendActionLog(task.id, `Found and resumed matching remote Jules session: ${match.name}`);
         
         const reusePrompt = `${systemInstruction}\n\nIMPORTANT: We are resuming work from an archived session.\n\nTask: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
         await this.sendMessage(apiKey, match.name, reusePrompt);
@@ -121,7 +115,7 @@ export class JulesSessionManager {
       branchName: repoBranch
     };
     await db.julesSessions.put(newSession);
-    await this.appendActionLog(task.id, `Created new Jules session: ${sessionRes.name}`);
+    this.appendActionLog(task.id, `Created new Jules session: ${sessionRes.name}`);
     return sessionRes;
   }
 

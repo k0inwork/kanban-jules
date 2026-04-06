@@ -73,7 +73,8 @@ Output ONLY valid JSON matching this schema:
 };
 
 export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, step: TaskStep, errorContext: string): string {
-  const apiSection = modules.flatMap(m =>
+  const enabledModules = modules.filter(m => m.enabled !== false);
+  const apiSection = enabledModules.flatMap(m =>
     Object.entries(m.sandboxBindings).map(([alias, toolName]) => {
       const tool = m.tools.find(t => t.name === toolName);
       return `- ${alias}: ${tool?.description || ''}`;
@@ -104,7 +105,8 @@ The code runs in an async context. You can use await.
 }
 
 export function composeArchitectPrompt(modules: ModuleManifest[]): string {
-  const executors = modules.filter(m => m.type === 'executor');
+  const enabledModules = modules.filter(m => m.enabled !== false);
+  const executors = enabledModules.filter(m => m.type === 'executor');
 
   const executorSection = executors.map(e => `
 ## Executor: "${e.name}"

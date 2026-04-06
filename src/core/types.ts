@@ -13,6 +13,7 @@ export interface ModuleManifest {
   tools: ToolDefinition[];
   sandboxBindings: Record<string, string>;
   permissions: string[];
+  enabled?: boolean;
 }
 
 export interface OrchestratorConfig {

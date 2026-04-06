@@ -3,6 +3,7 @@ import { db } from '../../services/db';
 import { julesApi } from '../../lib/julesApi';
 import { JulesSessionManager } from './JulesSessionManager';
 import { OrchestratorConfig } from '../../core/types';
+import { eventBus } from '../../core/event-bus';
 
 export class JulesPostman {
   private interval: any;
@@ -39,8 +40,11 @@ export class JulesPostman {
         );
         if (!session) continue;
 
+        eventBus.emit('module:log', { taskId: task.id, moduleId: 'postman', message: `Polling session ${session.name}` });
+
         if (task.pendingExecutorPrompt) {
           console.log(`[Postman] Sending pending prompt to Executor for task ${task.id}`);
+          eventBus.emit('module:log', { taskId: task.id, moduleId: 'postman', message: `Sending pending prompt to Executor: ${task.pendingExecutorPrompt.substring(0, 50)}...` });
           await JulesSessionManager.sendMessage(this.config.julesApiKey, session.name, task.pendingExecutorPrompt);
           await db.tasks.update(task.id, { pendingExecutorPrompt: undefined });
         }
@@ -59,30 +63,9 @@ export class JulesPostman {
           if (activity.agentMessaged) {
             const rawContent = activity.agentMessaged.agentMessage;
             
-            const chatRegex = /(?:<|&lt;)chat(?:>|&gt;)(.*?)(?:(?:<|&lt;)\/chat(?:>|&gt;)|$)/s;
-            const dataRegex = /(?:<|&lt;)data\s+type=["']?(.*?)["']?\s*(?:>|&gt;)(.*?)(?:(?:<|&lt;)\/data(?:>|&gt;)|$)/s;
+            eventBus.emit('module:log', { taskId: task.id, moduleId: 'postman', message: `New activity: agentMessaged` });
             
-            const chatMatch = rawContent.match(chatRegex);
-            const dataMatch = rawContent.match(dataRegex);
-            
-            const chatContent = chatMatch ? chatMatch[1].trim() : rawContent;
-            const dataContent = dataMatch ? dataMatch[2].trim() : null;
-
-            await db.tasks.update(task.id, { 
-              chat: (task.chat || '') + `\n\n> [Jules - ${new Date().toLocaleTimeString()}] ${rawContent}\n`
-            });
-
-            if (dataContent) {
-              await db.taskArtifacts.add({
-                taskId: task.id,
-                repoName: '',
-                branchName: '',
-                name: `_jules_data_${Date.now()}`,
-                content: dataContent
-              });
-            }
-            
-            content = chatContent;
+            content = rawContent;
             type = 'chat';
             
             // Classify agent message
@@ -170,11 +153,10 @@ export class JulesPostman {
         if (currentSession.state === 'COMPLETED' || currentSession.state === 'FAILED') {
           await db.julesSessions.update(session.id, { taskId: undefined });
           
-          const chatMsg = `\n\n> [Jules - ${new Date().toLocaleTimeString()}] Session ${currentSession.state}.\n`;
+          eventBus.emit('module:log', { taskId: task.id, moduleId: 'postman', message: `Session ${currentSession.state}.` });
           const t = await db.tasks.get(task.id);
           if (t) {
-            const updatedChat = (t.chat || '') + chatMsg;
-            await db.tasks.update(t.id, { chat: updatedChat, agentState: 'EXECUTING' });
+            await db.tasks.update(t.id, { agentState: 'EXECUTING' });
           }
         }
       } catch (e: any) {
