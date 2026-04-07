@@ -16,7 +16,11 @@ export class GithubHandler {
   }
 
   private async runWorkflow(args: any[], context: RequestContext): Promise<any> {
-    const { workflowYaml, workflowName } = args[0];
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const obj = unpack(args[0]);
+    const workflowYaml = obj ? obj.workflowYaml : args[0];
+    const workflowName = obj ? obj.workflowName : args[1];
+
     const { repoUrl, repoBranch, moduleConfig } = context;
     const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
 
@@ -107,7 +111,10 @@ export class GithubHandler {
   }
 
   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {
-    const { runId } = args[0];
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const obj = unpack(args[0]);
+    const runId = obj ? obj.runId : args[0];
+
     const { repoUrl, moduleConfig } = context;
     const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
 
@@ -137,7 +144,10 @@ export class GithubHandler {
   }
 
   private async fetchArtifacts(args: any[], context: RequestContext): Promise<any> {
-    const { runId } = args[0];
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const obj = unpack(args[0]);
+    const runId = obj ? obj.runId : args[0];
+
     const { taskId, repoUrl, repoBranch, moduleConfig } = context;
     const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
 

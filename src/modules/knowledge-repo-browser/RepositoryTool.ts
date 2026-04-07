@@ -24,13 +24,31 @@ export const RepositoryTool = {
 
   handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
     const token = import.meta.env.VITE_GITHUB_TOKEN || '';
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+
     switch (toolName) {
-      case 'knowledge-repo-browser.listFiles':
-        return await RepositoryTool.listFiles(args[0] || context.repoUrl, args[1] || context.repoBranch, token, args[2]);
-      case 'knowledge-repo-browser.readFile':
-        return await RepositoryTool.readFile(args[0] || context.repoUrl, args[1] || context.repoBranch, token, args[2]);
-      case 'knowledge-repo-browser.headFile':
-        return await RepositoryTool.headFile(args[0] || context.repoUrl, args[1] || context.repoBranch, token, args[2], args[3]);
+      case 'knowledge-repo-browser.listFiles': {
+        const obj = unpack(args[0]);
+        const repoUrl = obj ? obj.repoUrl : args[0];
+        const branch = obj ? obj.branch : args[1];
+        const path = obj ? obj.path : args[2];
+        return await RepositoryTool.listFiles(repoUrl || context.repoUrl, branch || context.repoBranch, token, path || '');
+      }
+      case 'knowledge-repo-browser.readFile': {
+        const obj = unpack(args[0]);
+        const repoUrl = obj ? obj.repoUrl : args[0];
+        const branch = obj ? obj.branch : args[1];
+        const path = obj ? obj.path : args[2];
+        return await RepositoryTool.readFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path);
+      }
+      case 'knowledge-repo-browser.headFile': {
+        const obj = unpack(args[0]);
+        const repoUrl = obj ? obj.repoUrl : args[0];
+        const branch = obj ? obj.branch : args[1];
+        const path = obj ? obj.path : args[2];
+        const lines = obj ? obj.lines : args[3];
+        return await RepositoryTool.headFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path, lines);
+      }
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }

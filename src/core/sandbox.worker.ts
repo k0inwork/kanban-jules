@@ -9,8 +9,7 @@ const createToolHandler = (toolName: string, permissions: string[]) => async (..
     'knowledge-repo-browser.headFile',
     'knowledge-artifacts.readArtifact',
     'knowledge-artifacts.saveArtifact',
-    'knowledge-artifacts.listArtifacts',
-    'knowledge-artifacts.createArtifact'
+    'knowledge-artifacts.listArtifacts'
   ];
 
   if (storageTools.includes(toolName) && !permissions.includes('storage')) {

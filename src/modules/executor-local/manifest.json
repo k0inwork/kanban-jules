@@ -23,7 +23,7 @@
   "sandboxBindings": {
     "readFile": "knowledge-repo-browser.readFile",
     "writeFile": "knowledge-repo-browser.writeFile",
-    "createArtifact": "knowledge-artifacts.createArtifact",
+    "saveArtifact": "knowledge-artifacts.saveArtifact",
     "listArtifacts": "knowledge-artifacts.listArtifacts",
     "askUser": "channel-user-negotiator.askUser"
   },

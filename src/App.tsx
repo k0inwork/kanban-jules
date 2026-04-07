@@ -291,6 +291,21 @@ export default function App() {
     // Remove associated messages
     await db.messages.where('taskId').equals(taskId).delete();
     
+    // 1. Find artifacts owned by this task
+    const ownedArtifacts = await db.taskArtifacts.where('taskId').equals(taskId).toArray();
+    const ownedArtifactIds = ownedArtifacts.map(a => a.id!).filter(Boolean);
+    
+    // 2. Delete links to these owned artifacts from ANY task
+    if (ownedArtifactIds.length > 0) {
+      await db.taskArtifactLinks.where('artifactId').anyOf(ownedArtifactIds).delete();
+    }
+    
+    // 3. Delete the owned artifacts themselves
+    await db.taskArtifacts.where('taskId').equals(taskId).delete();
+    
+    // 4. Delete links from THIS task to ANY artifact
+    await db.taskArtifactLinks.where('taskId').equals(taskId).delete();
+    
     // Un-link associated Jules sessions instead of deleting them
     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();
     for (const session of sessions) {

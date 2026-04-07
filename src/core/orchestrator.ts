@@ -23,11 +23,20 @@ export class Orchestrator {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     // Handle host-provided tools
-    if (toolName === 'host.analyze' || toolName === 'host.addToContext') {
+    if (toolName === 'host.analyze') {
       const text = args[0];
       if (typeof text === 'string') {
         this.context.accumulatedAnalysis.push(text);
         this.appendActionLog(taskId, `Analysis added: ${text.substring(0, 50)}...`);
+      }
+      return true;
+    }
+
+    if (toolName === 'host.addToContext') {
+      const [key, value] = args;
+      if (key && value !== undefined) {
+        globalVars.set(key, value);
+        this.appendActionLog(taskId, `Context updated: ${key}`);
       }
       return true;
     }
@@ -65,12 +74,6 @@ export class Orchestrator {
 
   private appendProgrammingLog(taskId: string, msg: string) {
     eventBus.emit('module:log', { taskId, moduleId: 'architect', message: msg });
-  }
-
-  private async callLlm(prompt: string, jsonMode: boolean = false): Promise<string> {
-    if (!this.config) throw new Error("Orchestrator not initialized");
-    const { host } = await import('./host');
-    return host.llmCall(prompt, jsonMode);
   }
 
   async runStep(taskId: string, stepId: number): Promise<void> {
@@ -205,7 +208,14 @@ export class Orchestrator {
         return;
       }
 
-      const protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
+      let protocol = currentTask?.protocol;
+      if (!protocol) {
+        await appendLog(`> [Architect] Generating Task Protocol...\n`);
+        protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
+        await db.tasks.update(task.id, { protocol });
+        currentTask = { ...currentTask!, protocol };
+        await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);
+      }
 
       await appendLog(`> [Orchestrator] Initializing Orchestrator...\n`);
       

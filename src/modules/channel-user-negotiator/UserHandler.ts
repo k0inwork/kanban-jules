@@ -12,7 +12,16 @@ export class UserHandler {
   }
 
   private async askUser(args: any[], context: RequestContext): Promise<string> {
-    const [question, format] = args;
+    let question: string;
+    let format: string | undefined;
+
+    if (args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+      question = args[0].question;
+      format = args[0].format;
+    } else {
+      [question, format] = args;
+    }
+
     return UserNegotiator.negotiate(context.taskId, question, format, context.llmCall);
   }
 }

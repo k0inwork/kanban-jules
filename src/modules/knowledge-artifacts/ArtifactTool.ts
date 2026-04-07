@@ -43,13 +43,29 @@ export const ArtifactTool = {
   },
 
   handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+
     switch (toolName) {
-      case 'knowledge-artifacts.listArtifacts':
-        return await ArtifactTool.listArtifacts(args[0] || context.taskId, args[1] || context.repoUrl, args[2] || context.repoBranch, context.taskId);
-      case 'knowledge-artifacts.readArtifact':
-        return await ArtifactTool.readArtifact(args[0]);
-      case 'knowledge-artifacts.saveArtifact':
-        return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, args[0], args[1], args[2], args[3]);
+      case 'knowledge-artifacts.listArtifacts': {
+        const obj = unpack(args[0]);
+        const taskId = obj ? obj.taskId : args[0];
+        const repoName = obj ? obj.repoName : args[1];
+        const branchName = obj ? obj.branchName : args[2];
+        return await ArtifactTool.listArtifacts(taskId || context.taskId, repoName || context.repoUrl, branchName || context.repoBranch, context.taskId);
+      }
+      case 'knowledge-artifacts.readArtifact': {
+        const obj = unpack(args[0]);
+        const artifactId = obj ? obj.artifactId : args[0];
+        return await ArtifactTool.readArtifact(artifactId);
+      }
+      case 'knowledge-artifacts.saveArtifact': {
+        const obj = unpack(args[0]);
+        const name = obj ? obj.name : args[0];
+        const content = obj ? obj.content : args[1];
+        const type = obj ? obj.type : args[2];
+        const metadata = obj ? obj.metadata : args[3];
+        return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, name, content, type, metadata);
+      }
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }
