@@ -1,11 +1,11 @@
 /**
- * Global Variable Registry (GlobalVars)
+ * Agent Context Registry (AgentContext)
  * 
  * The single source of truth for persistent state across protocol steps.
  * This is injected into the Sandbox environment so the Main Architect
  * can store and retrieve data between executions.
  */
-export class GlobalVars {
+export class AgentContext {
   private store: Map<string, any> = new Map();
 
   /**
@@ -38,4 +38,4 @@ export class GlobalVars {
 }
 
 // Export a singleton instance
-export const globalVars = new GlobalVars();
+export const agentContext = new AgentContext();

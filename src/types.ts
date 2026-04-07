@@ -27,7 +27,7 @@ export interface Task {
   forwardExecutorMessages?: boolean;
   questionCount?: number;
   protocol?: TaskProtocol;
-  globalVars?: Record<string, any>;
+  agentContext?: Record<string, any>;
   pendingExecutorPrompt?: string;
   pendingExecutorId?: string;
   retryCount?: number;

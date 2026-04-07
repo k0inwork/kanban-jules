@@ -85,8 +85,8 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
 
   const commonTools = [
     "- askUser(prompt): Asks the user for input or clarification.",
-    "- analyze(data): Sends data to the host for analysis (e.g., code analysis, log analysis).",
-    "- addToContext(key, value): Adds data to the task context for future steps."
+    "- analyze(data, options?): Analyzes the provided data using an LLM and adds the summary to the AgentContext. options: { includeContext?: boolean } (default: true). Set includeContext: false for a 'clean' analysis of only the provided data.",
+    "- addToContext(key, value): Directly adds a key-value pair to the AgentContext. If only one argument is provided, it directly appends the data to the context without an LLM call."
   ].join('\n');
 
   return `
@@ -99,8 +99,9 @@ Task Description: ${task.description}
 Current Step: ${step.title}
 Step Description: ${step.description}
 
-You have access to a persistent GlobalVars object.
-Current GlobalVars: ${JSON.stringify(task.globalVars || {})}
+You have access to a persistent AgentContext object.
+Current AgentContext: ${JSON.stringify(task.agentContext || {})}
+${task.analysis ? `\nAccumulated Analysis Results:\n${task.analysis}\n` : ''}
 
 You have access to the following async APIs (injected into your scope):
 ${apiSection}
@@ -112,7 +113,7 @@ RULES:
 - Write ONLY valid JavaScript code.
 - No markdown formatting (no \`\`\` blocks).
 - The code runs in an async context. You can use await.
-- Use GlobalVars to store state between steps if needed.
+- Use AgentContext to store state between steps if needed.
 - If you need user input, use askUser(prompt).
 - If you are using executor-github, you must first runWorkflow, then poll getRunStatus, then fetchArtifacts.
   `;

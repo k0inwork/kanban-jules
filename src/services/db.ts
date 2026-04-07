@@ -127,6 +127,22 @@ export class MyDatabase extends Dexie {
         }
       });
     });
+    this.version(18).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id'
+    }).upgrade(tx => {
+      return tx.table('tasks').toCollection().modify(task => {
+        if (task.globalVars) {
+          task.agentContext = task.globalVars;
+          delete task.globalVars;
+        }
+      });
+    });
   }
 }
 

@@ -1,5 +1,6 @@
 import { db, Artifact } from '../../services/db';
 import { OrchestratorConfig, RequestContext } from '../../core/types';
+import { GitFs } from '../../services/GitFs';
 
 export const ArtifactTool = {
   init: (config: OrchestratorConfig) => {
@@ -39,7 +40,21 @@ export const ArtifactTool = {
       metadata,
       createdAt: Date.now()
     };
-    return await db.taskArtifacts.add(artifact);
+    const id = await db.taskArtifacts.add(artifact);
+
+    // Also write to .artifacts/ folder in repo if possible
+    const token = import.meta.env.VITE_GITHUB_TOKEN || '';
+    if (repoName && branchName && token && !name.startsWith('_')) {
+      try {
+        const gitFs = new GitFs(repoName, branchName, token);
+        const path = `.artifacts/${name}`;
+        await gitFs.writeFile(path, content, `Fleet: Save artifact ${name}`);
+      } catch (e) {
+        console.error(`[ArtifactTool] Failed to write artifact to repo:`, e);
+      }
+    }
+
+    return id;
   },
 
   handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {

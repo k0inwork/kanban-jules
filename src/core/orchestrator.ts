@@ -8,7 +8,7 @@ import { JulesNegotiator } from '../services/negotiators/JulesNegotiator';
 import { UserNegotiator } from '../services/negotiators/UserNegotiator';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
-import { globalVars } from '../services/GlobalVars';
+import { agentContext } from '../services/AgentContext';
 import { Sandbox, injectBindings } from './sandbox';
 
 export class Orchestrator {
@@ -23,22 +23,71 @@ export class Orchestrator {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     // Handle host-provided tools
-    if (toolName === 'host.analyze') {
-      const text = args[0];
-      if (typeof text === 'string') {
-        this.context.accumulatedAnalysis.push(text);
-        this.appendActionLog(taskId, `Analysis added: ${text.substring(0, 50)}...`);
+    if (toolName === 'host.analyze' || toolName === 'host.addToContext') {
+      const task = await db.tasks.get(taskId);
+      
+      // Case 1: Direct key-value set (addToContext with 2 args)
+      if (toolName === 'host.addToContext' && args.length >= 2) {
+        const [key, value] = args;
+        if (key && value !== undefined) {
+          agentContext.set(key, value);
+          this.appendActionLog(taskId, `Context updated: ${key}`);
+          return true;
+        }
       }
-      return true;
-    }
+      
+      // Case 2: Analysis or Direct Add
+      const data = args[0];
+      if (!data) return false;
 
-    if (toolName === 'host.addToContext') {
-      const [key, value] = args;
-      if (key && value !== undefined) {
-        globalVars.set(key, value);
-        this.appendActionLog(taskId, `Context updated: ${key}`);
+      let summary = '';
+      
+      if (toolName === 'host.analyze') {
+        const options = args[1] || {};
+        const includeContext = options.includeContext !== false;
+        
+        const contextStr = includeContext ? JSON.stringify(agentContext.getAll(), null, 2) : 'N/A (Clean Analysis Requested)';
+        const previousAnalysis = (includeContext && task?.analysis) ? `Previous Analysis Results:\n${task?.analysis}\n` : '';
+
+        const analysisPrompt = `
+          You are an Analysis Agent.
+          Task: ${task?.title}
+          Description: ${task?.description}
+          
+          ${includeContext ? `Current Agent Context:\n${contextStr}\n\n${previousAnalysis}` : 'Note: This is a clean analysis of the provided data only.'}
+          
+          Analyze the following data and provide a concise, actionable summary (max 3-5 sentences) for the next steps of the task.
+          Focus on what is important for the programmer to know.
+          
+          Data to Analyze:
+          ---
+          ${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}
+          ---
+          
+          Output ONLY the summary.
+        `;
+        
+        try {
+          summary = await this.config.llmCall(analysisPrompt);
+          this.appendActionLog(taskId, `Analysis completed and added to context.`);
+        } catch (e: any) {
+          this.appendActionLog(taskId, `Analysis failed: ${e.message}`);
+          throw e;
+        }
+      } else {
+        // host.addToContext with 1 arg: Just add
+        summary = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        this.appendActionLog(taskId, `Data added to context analysis.`);
       }
-      return true;
+      
+      // Add to agentContext (cumulative)
+      const currentAnalyses = agentContext.get('analyses') || [];
+      agentContext.set('analyses', [...currentAnalyses, summary]);
+      
+      // Add to accumulatedAnalysis (for the task.analysis field/UI)
+      this.context.accumulatedAnalysis.push(summary);
+      
+      return summary;
     }
 
     const requestId = Math.random().toString(36).substring(7);
@@ -88,11 +137,11 @@ export class Orchestrator {
     await this.logToChat(taskId, `Starting execution for Step ${stepId}: ${step.title}`);
     this.appendActionLog(taskId, `Started Step ${stepId}`);
 
-    // Load GlobalVars into the sandbox registry
-    globalVars.clear();
-    if (task.globalVars) {
-      for (const [k, v] of Object.entries(task.globalVars)) {
-        globalVars.set(k, v);
+    // Load AgentContext into the singleton service
+    agentContext.clear();
+    if (task.agentContext) {
+      for (const [k, v] of Object.entries(task.agentContext)) {
+        agentContext.set(k, v);
       }
     }
 
@@ -149,8 +198,8 @@ export class Orchestrator {
       ...module?.sandboxBindings,
       'analyze': 'host.analyze',
       'addToContext': 'host.addToContext',
-      '__globalVarsGet': 'host.globalVarsGet',
-      '__globalVarsSet': 'host.globalVarsSet'
+      '__agentContextGet': 'host.agentContextGet',
+      '__agentContextSet': 'host.agentContextSet'
     };
 
     this.context.accumulatedAnalysis = [];
@@ -161,9 +210,13 @@ export class Orchestrator {
       const result = await sandbox.execute(code, permissions, sandboxBindings);
       await this.logToChat(taskId, `Execution Success. Result: ${JSON.stringify(result)}`);
       
+      const currentTask = await db.tasks.get(taskId);
+      const existingAnalysis = currentTask?.analysis ? currentTask.analysis + '\n' : '';
+      const newAnalysis = (this.context.accumulatedAnalysis.length > 0) ? this.context.accumulatedAnalysis.join('\n') : '';
+
       await db.tasks.update(taskId, { 
-        globalVars: globalVars.getAll(),
-        analysis: (this.context.accumulatedAnalysis.length > 0) ? this.context.accumulatedAnalysis.join('\n') : undefined
+        agentContext: agentContext.getAll(),
+        analysis: (existingAnalysis + newAnalysis).trim() || undefined
       });
       
       const updatedTask = await db.tasks.get(taskId);

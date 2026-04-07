@@ -78,11 +78,11 @@ self.onmessage = async (event) => {
         interpreter.import(bindingName, createToolHandler(toolName, permissions));
       }
 
-      // 3. Define GlobalVars using tool bindings
+      // 3. Define AgentContext using tool bindings
       interpreter.run(`
-        const GlobalVars = {
-          get: (key) => __globalVarsGet(key),
-          set: (key, value) => __globalVarsSet(key, value)
+        const AgentContext = {
+          get: (key) => __agentContextGet(key),
+          set: (key, value) => __agentContextSet(key, value)
         };
       `);
 

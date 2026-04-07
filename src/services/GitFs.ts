@@ -96,4 +96,49 @@ export class GitFs {
       size: f.size
     }));
   }
+
+  async writeFile(path: string, content: string, message: string = 'Update from Fleet'): Promise<void> {
+    const apiUrl = this.getApiUrl(path).split('?')[0]; // Remove ?ref=... for PUT
+    
+    // 1. Try to get existing file to get SHA
+    let sha: string | undefined;
+    try {
+      const getResponse = await fetch(this.getApiUrl(path), {
+        headers: {
+          'Authorization': `token ${this.token}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+      if (getResponse.ok) {
+        const data = await getResponse.json();
+        sha = data.sha;
+      }
+    } catch (e) {
+      // Ignore errors (file might not exist)
+    }
+
+    // 2. Write file
+    const response = await fetch(apiUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `token ${this.token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.github.v3+json'
+      },
+      body: JSON.stringify({
+        message,
+        content: btoa(content),
+        branch: this.branch,
+        sha
+      })
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Failed to write ${path}: ${response.status} ${response.statusText} - ${errorBody}`);
+    }
+
+    // Update cache
+    await db.gitCache.put({ path, content, timestamp: Date.now() });
+  }
 }

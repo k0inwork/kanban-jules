@@ -8,7 +8,7 @@ import { db } from '../services/db';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { ArchitectTool } from '../modules/architect-codegen/Architect';
-import { globalVars } from '../services/GlobalVars';
+import { agentContext } from '../services/AgentContext';
 import { JulesHandler } from '../modules/executor-jules/JulesHandler';
 import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
@@ -139,9 +139,9 @@ export class ModuleHost {
     registry.registerHandler('knowledge-repo-browser.writeFile', RepositoryTool.handleRequest);
     registry.registerHandler('knowledge-repo-browser.deleteFile', RepositoryTool.handleRequest);
     registry.registerHandler('knowledge-repo-browser.headFile', RepositoryTool.handleRequest);
-    registry.registerHandler('host.globalVarsGet', async (tool, args) => globalVars.get(args[0]));
-    registry.registerHandler('host.globalVarsSet', async (tool, args) => {
-      globalVars.set(args[0], args[1]);
+    registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
+    registry.registerHandler('host.agentContextSet', async (tool, args) => {
+      agentContext.set(args[0], args[1]);
       return true;
     });
     registry.registerHandler('architect-codegen.generateProtocol', ArchitectTool.handleRequest);

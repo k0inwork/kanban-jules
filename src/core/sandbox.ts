@@ -1,5 +1,4 @@
 import { registry } from './registry';
-import { globalVars } from '../services/GlobalVars';
 
 export class Sandbox {
   private worker: Worker;
