@@ -97,10 +97,10 @@ export class JulesSessionManager {
 
     // 4. Create a new session
     console.log(`[JulesSessionManager] Creating new Jules session for task ${task.id}`);
-    const sourceContext = {
+    const sourceContext = sourceName ? {
       source: sourceName,
       githubRepoContext: repoBranch ? { startingBranch: repoBranch } : undefined
-    };
+    } : undefined;
     console.log(`[JulesSessionManager] Calling createSession for task ${task.id}`);
     const sessionRes = await this.createSession(apiKey, task, sourceContext);
     console.log(`[JulesSessionManager] createSession returned for task ${task.id}: ${sessionRes.name}`);

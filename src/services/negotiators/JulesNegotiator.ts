@@ -23,7 +23,16 @@ export class JulesNegotiator {
 
     // 1. Get or create session
     console.log(`[JulesNegotiator] Finding or creating session for task: ${task.id}`);
-    const session = await JulesSessionManager.findOrCreateSession(julesApiKey, task, repoUrl, branch, 'Fleet Orchestrator');
+    
+    let sourceName = repoUrl;
+    if (repoUrl && !repoUrl.startsWith('sources/')) {
+      const parts = repoUrl.split('/');
+      if (parts.length >= 2) {
+        sourceName = `sources/github/${parts[0]}/${parts[1]}`;
+      }
+    }
+
+    const session = await JulesSessionManager.findOrCreateSession(julesApiKey, task, repoUrl, branch, sourceName);
     console.log(`[JulesNegotiator] Session result: ${session ? session.name : 'null'}`);
     if (!session) throw new Error("Failed to create Jules session.");
 

@@ -25,7 +25,11 @@ export class JulesHandler {
   }
 
   private async execute(args: any[], context: RequestContext): Promise<string> {
-    const [prompt, successCriteria] = args;
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const obj = unpack(args[0]);
+    const prompt = obj ? obj.prompt : args[0];
+    const successCriteria = obj ? obj.successCriteria : args[1];
+
     const task = await db.tasks.get(context.taskId);
     if (!task) throw new Error(`Task not found: ${context.taskId}`);
 
