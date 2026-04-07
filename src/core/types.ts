@@ -55,6 +55,7 @@ export interface RequestContext {
   taskId: string;
   repoUrl: string;
   repoBranch: string;
+  githubToken?: string;
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
   moduleConfig: any;
 }
@@ -66,6 +67,7 @@ export interface HostConfig {
   openaiKey: string;
   openaiModel: string;
   geminiApiKey: string;
+  githubToken: string;
   repoUrl: string;
   repoBranch: string;
   julesEndpoint: string;
@@ -77,6 +79,7 @@ export interface HostConfig {
 export interface OrchestratorConfig {
   repoUrl: string;
   repoBranch: string;
+  githubToken?: string;
   moduleConfigs: Record<string, any>;
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
 }

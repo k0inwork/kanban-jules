@@ -7,7 +7,7 @@
   "tools": [
     {
       "name": "executor-github.runWorkflow",
-      "description": "Creates and triggers a GitHub Actions workflow to perform a task. Returns the workflow run ID.",
+      "description": "Creates and triggers a GitHub Actions workflow to perform a task. Do not write the file yourself. Just pass the YAML to this tool, and it will create the file and trigger the run in the specified repository. Returns the workflow run ID.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -18,6 +18,14 @@
           "workflowName": {
             "type": "string",
             "description": "A descriptive name for the workflow file (e.g., 'fleet-test-run.yml')."
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "Optional. The repository URL (owner/repo) to run the workflow in. Defaults to the current context repository."
+          },
+          "branch": {
+            "type": "string",
+            "description": "Optional. The branch to run the workflow on. Defaults to the current context branch."
           }
         },
         "required": ["workflowYaml", "workflowName"]
@@ -32,6 +40,10 @@
           "runId": {
             "type": "number",
             "description": "The ID of the workflow run to check."
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "Optional. The repository URL (owner/repo) where the workflow was run. Defaults to the current context repository."
           }
         },
         "required": ["runId"]
@@ -46,22 +58,21 @@
           "runId": {
             "type": "number",
             "description": "The ID of the workflow run to fetch artifacts from."
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "Optional. The repository URL (owner/repo) where the workflow was run. Defaults to the current context repository."
+          },
+          "branch": {
+            "type": "string",
+            "description": "Optional. The branch the workflow was run on. Defaults to the current context branch."
           }
         },
         "required": ["runId"]
       }
     }
   ],
-  "configFields": [
-    {
-      "key": "githubToken",
-      "type": "string",
-      "label": "GitHub Token",
-      "description": "Personal Access Token with 'repo' and 'workflow' scopes.",
-      "required": true,
-      "secret": true
-    }
-  ],
+  "configFields": [],
   "sandboxBindings": {
     "runWorkflow": "executor-github.runWorkflow",
     "getRunStatus": "executor-github.getRunStatus",

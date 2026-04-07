@@ -32,6 +32,7 @@ export class ModuleHost {
         taskId: '',
         repoUrl: this.config.repoUrl,
         repoBranch: this.config.repoBranch,
+        githubToken: this.config.githubToken,
         llmCall: this.llmCall.bind(this),
         moduleConfig: this.config.moduleConfigs[moduleId] || {}
       };
@@ -56,6 +57,7 @@ export class ModuleHost {
           taskId,
           repoUrl: this.config?.repoUrl || '',
           repoBranch: this.config?.repoBranch || '',
+          githubToken: this.config?.githubToken || '',
           llmCall: this.llmCall.bind(this),
           moduleConfig: this.config?.moduleConfigs?.[moduleId] || {}
         };

@@ -14,7 +14,7 @@ export class LocalAnalyzer {
 
   private static async scan(patterns: string[] = ['secret', 'password'], context: RequestContext): Promise<string[]> {
     const { taskId, repoUrl, repoBranch } = context;
-    const token = import.meta.env.VITE_GITHUB_TOKEN || '';
+    const token = context.githubToken || import.meta.env.VITE_GITHUB_TOKEN || '';
     
     const gitFs = new GitFs(repoUrl, repoBranch, token);
     const taskFs = new TaskFs();

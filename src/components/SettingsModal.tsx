@@ -21,6 +21,7 @@ interface SettingsModalProps {
   initialOpenaiKey: string;
   initialOpenaiModel: string;
   initialGeminiApiKey: string;
+  initialGithubToken: string;
   initialModuleConfigs: Record<string, any>;
 }
 
@@ -28,7 +29,7 @@ export default function SettingsModal({
   isOpen, onClose, onSave, 
   initialEndpoint, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
   initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel,
-  initialGeminiApiKey, initialModuleConfigs
+  initialGeminiApiKey, initialGithubToken, initialModuleConfigs
 }: SettingsModalProps) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [repoUrl, setRepoUrl] = useState(initialRepoUrl);
@@ -42,6 +43,7 @@ export default function SettingsModal({
   const [openaiKey, setOpenaiKey] = useState(initialOpenaiKey);
   const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
   const [geminiApiKey, setGeminiApiKey] = useState(initialGeminiApiKey);
+  const [githubToken, setGithubToken] = useState(initialGithubToken);
   const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialModuleConfigs);
   
   const [activeTab, setActiveTab] = useState<'general' | 'modules'>('general');
@@ -64,12 +66,13 @@ export default function SettingsModal({
       setOpenaiKey(initialOpenaiKey);
       setOpenaiModel(initialOpenaiModel);
       setGeminiApiKey(initialGeminiApiKey);
+      setGithubToken(initialGithubToken);
       setModuleConfigs(initialModuleConfigs);
     }
   }, [
     isOpen, initialEndpoint, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
     initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel,
-    initialGeminiApiKey, initialModuleConfigs
+    initialGeminiApiKey, initialGithubToken, initialModuleConfigs
   ]);
 
   useEffect(() => {
@@ -119,6 +122,7 @@ export default function SettingsModal({
       openaiKey,
       openaiModel,
       geminiApiKey,
+      githubToken,
       moduleConfigs
     } as any);
     onClose();
@@ -271,6 +275,18 @@ export default function SettingsModal({
               </div>
               
               {error && <div className="text-xs text-red-400 bg-red-400/10 p-2 rounded">{error}</div>}
+
+              <div>
+                <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">GitHub Token (Required for Writes & Workflows)</label>
+                <input
+                  type="password"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                  placeholder="ghp_..."
+                />
+                <p className="text-[10px] text-neutral-500 mt-1">Personal Access Token with 'repo' and 'workflow' scopes.</p>
+              </div>
 
               <div>
                 <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Source (Repository)</label>

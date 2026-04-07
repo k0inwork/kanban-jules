@@ -29,7 +29,7 @@ export const ArtifactTool = {
     return await db.taskArtifacts.get(artifactId);
   },
 
-  saveArtifact: async (taskId: string, repoName: string, branchName: string, name: string, content: string, type?: string, metadata?: any): Promise<number> => {
+  saveArtifact: async (taskId: string, repoName: string, branchName: string, name: string, content: string, token: string, type?: string, metadata?: any): Promise<number> => {
     const artifact: Artifact = {
       taskId,
       repoName,
@@ -43,7 +43,6 @@ export const ArtifactTool = {
     const id = await db.taskArtifacts.add(artifact);
 
     // Also write to .artifacts/ folder in repo if possible
-    const token = import.meta.env.VITE_GITHUB_TOKEN || '';
     if (repoName && branchName && token && !name.startsWith('_')) {
       try {
         const gitFs = new GitFs(repoName, branchName, token);
@@ -58,6 +57,7 @@ export const ArtifactTool = {
   },
 
   handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
+    const token = context.githubToken || import.meta.env.VITE_GITHUB_TOKEN || '';
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
 
     switch (toolName) {
@@ -79,7 +79,7 @@ export const ArtifactTool = {
         const content = obj ? obj.content : args[1];
         const type = obj ? obj.type : args[2];
         const metadata = obj ? obj.metadata : args[3];
-        return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, name, content, type, metadata);
+        return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, name, content, token, type, metadata);
       }
       default:
         throw new Error(`Tool not found: ${toolName}`);

@@ -21,7 +21,9 @@
     }
   ],
   "sandboxBindings": {
+    "listFiles": "knowledge-repo-browser.listFiles",
     "readFile": "knowledge-repo-browser.readFile",
+    "headFile": "knowledge-repo-browser.headFile",
     "writeFile": "knowledge-repo-browser.writeFile",
     "saveArtifact": "knowledge-artifacts.saveArtifact",
     "listArtifacts": "knowledge-artifacts.listArtifacts",

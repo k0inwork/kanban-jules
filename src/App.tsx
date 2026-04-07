@@ -71,6 +71,7 @@ export default function App() {
   const [julesSourceName, setJulesSourceName] = useState(() => localStorage.getItem('julesSourceName') || '');
   const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
   const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('geminiApiKey') || process.env.GEMINI_API_KEY || '');
+  const [githubToken, setGithubToken] = useState(() => localStorage.getItem('githubToken') || import.meta.env.VITE_GITHUB_TOKEN || '');
 
   // Preview Tabs
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -102,6 +103,7 @@ export default function App() {
     setOpenaiKey(config.openaiKey);
     setOpenaiModel(config.openaiModel);
     setGeminiApiKey(config.geminiApiKey);
+    setGithubToken(config.githubToken);
     setModuleConfigs(config.moduleConfigs);
 
     localStorage.setItem('julesEndpoint', config.julesEndpoint);
@@ -115,9 +117,10 @@ export default function App() {
     localStorage.setItem('openaiKey', config.openaiKey);
     localStorage.setItem('openaiModel', config.openaiModel);
     localStorage.setItem('geminiApiKey', config.geminiApiKey);
+    localStorage.setItem('githubToken', config.githubToken);
     localStorage.setItem('moduleConfigs', JSON.stringify(config.moduleConfigs));
 
-    const token = import.meta.env.VITE_GITHUB_TOKEN;
+    const token = config.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
     if (token && config.repoUrl) {
       RepoCrawler.crawl(config.repoUrl, config.repoBranch || 'main', token).catch(console.error);
     }
@@ -204,6 +207,7 @@ export default function App() {
       openaiKey,
       openaiModel,
       geminiApiKey,
+      githubToken,
       repoUrl,
       repoBranch,
       julesEndpoint,
@@ -221,13 +225,14 @@ export default function App() {
     const orchestratorConfig: OrchestratorConfig = {
       repoUrl,
       repoBranch,
+      githubToken,
       moduleConfigs,
       llmCall: host.llmCall.bind(host)
     };
     host.init(config);
     orchestrator.init(orchestratorConfig);
     return () => host.stop();
-  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, repoUrl, repoBranch, moduleConfigs]);
+  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, githubToken, repoUrl, repoBranch, moduleConfigs, julesEndpoint, julesSourceName, julesSourceId]);
 
   // Auto-accept proposals in Full Autonomy mode
   const latestProposal = useLiveQuery(() => 
@@ -399,7 +404,7 @@ export default function App() {
   };
 
   const handleFileSelect = async (file: GitFile) => {
-    const token = import.meta.env.VITE_GITHUB_TOKEN;
+    const token = githubToken || import.meta.env.VITE_GITHUB_TOKEN;
     if (!token || !repoUrl) return;
 
     const tabId = `file-${file.path}`;
@@ -789,7 +794,7 @@ export default function App() {
                     <RepositoryBrowser 
                       repoUrl={repoUrl} 
                       branch={repoBranch} 
-                      token={import.meta.env.VITE_GITHUB_TOKEN} 
+                      token={githubToken || import.meta.env.VITE_GITHUB_TOKEN} 
                       onFileSelect={handleFileSelect}
                     />
                   </div>
@@ -809,7 +814,7 @@ export default function App() {
                   <GithubWorkflowMonitor 
                     repoUrl={repoUrl} 
                     branch={repoBranch || 'main'} 
-                    token={import.meta.env.VITE_GITHUB_TOKEN || ''} 
+                    token={githubToken || import.meta.env.VITE_GITHUB_TOKEN || ''} 
                   />
                 </CollapsiblePane>
               </>
@@ -902,6 +907,7 @@ export default function App() {
         initialOpenaiKey={openaiKey}
         initialOpenaiModel={openaiModel}
         initialGeminiApiKey={geminiApiKey}
+        initialGithubToken={githubToken}
         initialModuleConfigs={moduleConfigs}
       />
 

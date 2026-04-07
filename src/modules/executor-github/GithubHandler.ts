@@ -20,19 +20,21 @@ export class GithubHandler {
     const obj = unpack(args[0]);
     const workflowYaml = obj ? obj.workflowYaml : args[0];
     const workflowName = obj ? obj.workflowName : args[1];
+    const targetRepoUrl = (obj ? obj.repoUrl : args[2]) || context.repoUrl;
+    const targetBranch = (obj ? obj.branch : args[3]) || context.repoBranch;
 
-    const { repoUrl, repoBranch, moduleConfig } = context;
-    const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    const { githubToken: contextToken } = context;
+    const githubToken = contextToken || import.meta.env.VITE_GITHUB_TOKEN;
 
     if (!githubToken) {
       throw new Error("GitHub Token is required for the GitHub Executor. Please configure it in Settings.");
     }
 
-    const [owner, repo] = repoUrl.split('/');
+    const [owner, repo] = targetRepoUrl.split('/');
     const workflowPath = `.github/workflows/${workflowName}`;
 
     // 1. Create/Update the workflow file
-    const fileRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}?ref=${repoBranch}`, {
+    const fileRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}?ref=${targetBranch}`, {
       headers: {
         'Authorization': `token ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json'
@@ -55,7 +57,7 @@ export class GithubHandler {
       body: JSON.stringify({
         message: `Fleet: Update workflow ${workflowName}`,
         content: btoa(workflowYaml),
-        branch: repoBranch,
+        branch: targetBranch,
         sha
       })
     });
@@ -74,7 +76,7 @@ export class GithubHandler {
         'Accept': 'application/vnd.github.v3+json'
       },
       body: JSON.stringify({
-        ref: repoBranch
+        ref: targetBranch
       })
     });
 
@@ -87,7 +89,7 @@ export class GithubHandler {
     let runId: number | undefined;
     for (let i = 0; i < 5; i++) {
       await new Promise(resolve => setTimeout(resolve, 2000));
-      const runsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${repoBranch}&event=workflow_dispatch`, {
+      const runsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${targetBranch}&event=workflow_dispatch`, {
         headers: {
           'Authorization': `token ${githubToken}`,
           'Accept': 'application/vnd.github.v3+json'
@@ -114,15 +116,16 @@ export class GithubHandler {
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
     const obj = unpack(args[0]);
     const runId = obj ? obj.runId : args[0];
+    const targetRepoUrl = (obj ? obj.repoUrl : args[1]) || context.repoUrl;
 
-    const { repoUrl, moduleConfig } = context;
-    const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    const { githubToken: contextToken } = context;
+    const githubToken = contextToken || import.meta.env.VITE_GITHUB_TOKEN;
 
     if (!githubToken) {
       throw new Error("GitHub Token is required for the GitHub Executor.");
     }
 
-    const [owner, repo] = repoUrl.split('/');
+    const [owner, repo] = targetRepoUrl.split('/');
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`, {
       headers: {
         'Authorization': `token ${githubToken}`,
@@ -147,15 +150,17 @@ export class GithubHandler {
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
     const obj = unpack(args[0]);
     const runId = obj ? obj.runId : args[0];
+    const targetRepoUrl = (obj ? obj.repoUrl : args[1]) || context.repoUrl;
+    const targetBranch = (obj ? obj.branch : args[2]) || context.repoBranch;
 
-    const { taskId, repoUrl, repoBranch, moduleConfig } = context;
-    const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    const { taskId, githubToken: contextToken } = context;
+    const githubToken = contextToken || import.meta.env.VITE_GITHUB_TOKEN;
 
     if (!githubToken) {
       throw new Error("GitHub Token is required for the GitHub Executor.");
     }
 
-    const [owner, repo] = repoUrl.split('/');
+    const [owner, repo] = targetRepoUrl.split('/');
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`, {
       headers: {
         'Authorization': `token ${githubToken}`,
@@ -190,8 +195,8 @@ export class GithubHandler {
 
         const newArtifact = await db.taskArtifacts.add({
           taskId,
-          repoName: context.repoUrl,
-          branchName: context.repoBranch,
+          repoName: targetRepoUrl,
+          branchName: targetBranch,
           name: artifact.name,
           type: 'file',
           content: base64,

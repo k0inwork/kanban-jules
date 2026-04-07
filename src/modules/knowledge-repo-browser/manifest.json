@@ -37,12 +37,26 @@
         },
         "required": ["path"]
       }
+    },
+    {
+      "name": "knowledge-repo-browser.writeFile",
+      "description": "Write content to a file in the repository. Creates a new commit.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "The file path." },
+          "content": { "type": "string", "description": "The content to write." },
+          "commitMessage": { "type": "string", "description": "The commit message." }
+        },
+        "required": ["path", "content"]
+      }
     }
   ],
   "sandboxBindings": {
     "repo.listFiles": "knowledge-repo-browser.listFiles",
     "repo.readFile": "knowledge-repo-browser.readFile",
-    "repo.headFile": "knowledge-repo-browser.headFile"
+    "repo.headFile": "knowledge-repo-browser.headFile",
+    "repo.writeFile": "knowledge-repo-browser.writeFile"
   },
   "permissions": ["github-api"],
   "configFields": [

@@ -22,8 +22,14 @@ export const RepositoryTool = {
     return content.split('\n').slice(0, lines).join('\n');
   },
 
+  writeFile: async (repoUrl: string, branch: string, token: string, path: string, content: string, commitMessage: string): Promise<boolean> => {
+    const gitFs = new GitFs(repoUrl, branch, token);
+    await gitFs.writeFile(path, content, commitMessage);
+    return true;
+  },
+
   handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
-    const token = import.meta.env.VITE_GITHUB_TOKEN || '';
+    const token = context.githubToken || import.meta.env.VITE_GITHUB_TOKEN || '';
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
 
     switch (toolName) {
@@ -48,6 +54,15 @@ export const RepositoryTool = {
         const path = obj ? obj.path : args[2];
         const lines = obj ? obj.lines : args[3];
         return await RepositoryTool.headFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path, lines);
+      }
+      case 'knowledge-repo-browser.writeFile': {
+        const obj = unpack(args[0]);
+        const repoUrl = obj ? obj.repoUrl : args[0];
+        const branch = obj ? obj.branch : args[1];
+        const path = obj ? obj.path : args[2];
+        const content = obj ? obj.content : args[3];
+        const commitMessage = obj ? obj.commitMessage : args[4];
+        return await RepositoryTool.writeFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path, content, commitMessage || `Update ${path}`);
       }
       default:
         throw new Error(`Tool not found: ${toolName}`);
@@ -99,6 +114,22 @@ export const repositoryToolDeclarations: FunctionDeclaration[] = [
         lines: { type: Type.NUMBER, description: 'The number of lines to read. Default is 3.' }
       },
       required: ['repoUrl', 'branch', 'token', 'path']
+    }
+  },
+  {
+    name: 'writeFile',
+    description: 'Write content to a file in the repository. Creates a new commit.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        repoUrl: { type: Type.STRING, description: 'The repository URL.' },
+        branch: { type: Type.STRING, description: 'The branch name.' },
+        token: { type: Type.STRING, description: 'The GitHub token.' },
+        path: { type: Type.STRING, description: 'The file path.' },
+        content: { type: Type.STRING, description: 'The content to write.' },
+        commitMessage: { type: Type.STRING, description: 'The commit message.' }
+      },
+      required: ['repoUrl', 'branch', 'token', 'path', 'content']
     }
   }
 ];
