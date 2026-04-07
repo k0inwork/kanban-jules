@@ -56,7 +56,7 @@ export interface RequestContext {
   repoUrl: string;
   repoBranch: string;
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
-  config: HostConfig;
+  moduleConfig: any;
 }
 
 export interface HostConfig {
@@ -78,4 +78,5 @@ export interface OrchestratorConfig {
   repoUrl: string;
   repoBranch: string;
   moduleConfigs: Record<string, any>;
+  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
 }

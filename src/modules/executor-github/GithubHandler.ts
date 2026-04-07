@@ -16,9 +16,9 @@ export class GithubHandler {
   }
 
   private async runWorkflow(args: any[], context: RequestContext): Promise<any> {
-    const [workflowYaml, workflowName] = args;
-    const { repoUrl, repoBranch, config } = context;
-    const githubToken = config.moduleConfigs['executor-github']?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    const { workflowYaml, workflowName } = args[0];
+    const { repoUrl, repoBranch, moduleConfig } = context;
+    const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
 
     if (!githubToken) {
       throw new Error("GitHub Token is required for the GitHub Executor. Please configure it in Settings.");
@@ -107,9 +107,9 @@ export class GithubHandler {
   }
 
   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {
-    const [runId] = args;
-    const { repoUrl, config } = context;
-    const githubToken = config.moduleConfigs['executor-github']?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    const { runId } = args[0];
+    const { repoUrl, moduleConfig } = context;
+    const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
 
     if (!githubToken) {
       throw new Error("GitHub Token is required for the GitHub Executor.");
@@ -137,9 +137,9 @@ export class GithubHandler {
   }
 
   private async fetchArtifacts(args: any[], context: RequestContext): Promise<any> {
-    const [runId] = args;
-    const { taskId, repoUrl, config } = context;
-    const githubToken = config.moduleConfigs['executor-github']?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    const { runId } = args[0];
+    const { taskId, repoUrl, repoBranch, moduleConfig } = context;
+    const githubToken = moduleConfig?.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
 
     if (!githubToken) {
       throw new Error("GitHub Token is required for the GitHub Executor.");

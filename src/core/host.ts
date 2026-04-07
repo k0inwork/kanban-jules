@@ -8,10 +8,12 @@ import { db } from '../services/db';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { ArchitectTool } from '../modules/architect-codegen/Architect';
+import { globalVars } from '../services/GlobalVars';
 import { JulesHandler } from '../modules/executor-jules/JulesHandler';
 import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
 import { GithubHandler } from '../modules/executor-github/GithubHandler';
+import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -25,12 +27,13 @@ export class ModuleHost {
     eventBus.on('project:review', async () => {
       if (!this.config) return;
       console.log('Project review triggered.');
+      const moduleId = 'process-project-manager';
       const context: RequestContext = {
         taskId: '',
         repoUrl: this.config.repoUrl,
         repoBranch: this.config.repoBranch,
         llmCall: this.llmCall.bind(this),
-        config: this.config
+        moduleConfig: this.config.moduleConfigs[moduleId] || {}
       };
       await registry.invokeHandler('process-project-manager.runReview', [], context);
     });
@@ -48,12 +51,13 @@ export class ModuleHost {
 
     eventBus.on('module:request', async ({ requestId, taskId, toolName, args }) => {
       try {
+        const moduleId = toolName.split('.')[0];
         const context: RequestContext = {
           taskId,
           repoUrl: this.config?.repoUrl || '',
           repoBranch: this.config?.repoBranch || '',
           llmCall: this.llmCall.bind(this),
-          config: this.config!
+          moduleConfig: this.config?.moduleConfigs?.[moduleId] || {}
         };
         const result = await registry.invokeHandler(toolName, args, context);
         eventBus.emit('module:response', { requestId, result });
@@ -132,9 +136,17 @@ export class ModuleHost {
     registry.registerHandler('knowledge-artifacts.saveArtifact', ArtifactTool.handleRequest);
     registry.registerHandler('knowledge-repo-browser.listFiles', RepositoryTool.handleRequest);
     registry.registerHandler('knowledge-repo-browser.readFile', RepositoryTool.handleRequest);
+    registry.registerHandler('knowledge-repo-browser.writeFile', RepositoryTool.handleRequest);
+    registry.registerHandler('knowledge-repo-browser.deleteFile', RepositoryTool.handleRequest);
     registry.registerHandler('knowledge-repo-browser.headFile', RepositoryTool.handleRequest);
+    registry.registerHandler('host.globalVarsGet', async (tool, args) => globalVars.get(args[0]));
+    registry.registerHandler('host.globalVarsSet', async (tool, args) => {
+      globalVars.set(args[0], args[1]);
+      return true;
+    });
     registry.registerHandler('architect-codegen.generateProtocol', ArchitectTool.handleRequest);
     registry.registerHandler('process-project-manager.runReview', ProcessAgent.handleRequest);
+    registry.registerHandler('knowledge-local-analyzer.scan', LocalAnalyzer.handleRequest.bind(LocalAnalyzer));
   }
 
   stop() {

@@ -1,0 +1,25 @@
+{
+  "id": "knowledge-local-analyzer",
+  "name": "Local Repository Analyzer",
+  "version": "1.0.0",
+  "type": "knowledge",
+  "description": "Scans local repository files for secrets and patterns.",
+  "tools": [
+    {
+      "name": "knowledge-local-analyzer.scan",
+      "description": "Scan the current repository for secrets and save findings as artifacts.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patterns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional list of patterns to scan for. Defaults to ['secret', 'password']."
+          }
+        }
+      }
+    }
+  ],
+  "permissions": ["storage"],
+  "enabled": true
+}

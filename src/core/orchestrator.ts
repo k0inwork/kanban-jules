@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { Task, TaskStep, WorkflowStatus, AgentState } from '../types';
 import { registry } from './registry';
 import { composeProgrammerPrompt } from './prompt';
@@ -14,7 +13,6 @@ import { Sandbox, injectBindings } from './sandbox';
 
 export class Orchestrator {
   private config: OrchestratorConfig | null = null;
-  private ai: GoogleGenAI | null = null;
   private context: { accumulatedAnalysis: string[] } = { accumulatedAnalysis: [] };
 
   init(config: OrchestratorConfig) {
@@ -106,7 +104,7 @@ export class Orchestrator {
       const prompt = composeProgrammerPrompt(modules, task, step, errorContext);
       
       try {
-        let code = await this.callLlm(prompt);
+        let code = await this.config.llmCall(prompt);
         
         const codeMatch = code.match(/```(?:javascript|js)?\n([\s\S]*?)\n```/i);
         if (codeMatch) {
@@ -147,7 +145,9 @@ export class Orchestrator {
     const sandboxBindings = {
       ...module?.sandboxBindings,
       'analyze': 'host.analyze',
-      'addToContext': 'host.addToContext'
+      'addToContext': 'host.addToContext',
+      '__globalVarsGet': 'host.globalVarsGet',
+      '__globalVarsSet': 'host.globalVarsSet'
     };
 
     this.context.accumulatedAnalysis = [];
@@ -205,14 +205,7 @@ export class Orchestrator {
         return;
       }
 
-      // Generate Protocol if not exists
-      if (!currentTask?.protocol) {
-        await appendLog(`> [Architect] Generating Task Protocol...\n`);
-        const protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
-        await db.tasks.update(task.id, { protocol });
-        currentTask = { ...currentTask!, protocol };
-        await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);
-      }
+      const protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
 
       await appendLog(`> [Orchestrator] Initializing Orchestrator...\n`);
       

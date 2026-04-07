@@ -221,7 +221,8 @@ export default function App() {
     const orchestratorConfig: OrchestratorConfig = {
       repoUrl,
       repoBranch,
-      moduleConfigs
+      moduleConfigs,
+      llmCall: host.llmCall.bind(host)
     };
     host.init(config);
     orchestrator.init(orchestratorConfig);

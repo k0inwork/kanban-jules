@@ -41,7 +41,7 @@ export class Sandbox {
     console.warn('[Sandbox] Injection is not supported in the worker yet.');
   }
 
-  async execute(code: string, permissions: string[] = [], sandboxBindings: Record<string, string> = {}): Promise<any> {
+  async execute(code: string, permissions: string[] = [], sandboxBindings: Record<string, string> = {}, globals?: Record<string, any>): Promise<any> {
     return new Promise((resolve, reject) => {
       const requestId = Math.random().toString(36).substring(7);
       
@@ -50,7 +50,7 @@ export class Sandbox {
         else resolve(result);
       });
 
-      this.worker.postMessage({ type: 'execute', code, requestId, permissions, sandboxBindings });
+      this.worker.postMessage({ type: 'execute', code, requestId, permissions, sandboxBindings, globals });
     });
   }
 }

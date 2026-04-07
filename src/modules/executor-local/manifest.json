@@ -24,8 +24,9 @@
     "readFile": "knowledge-repo-browser.readFile",
     "writeFile": "knowledge-repo-browser.writeFile",
     "createArtifact": "knowledge-artifacts.createArtifact",
-    "listArtifacts": "knowledge-artifacts.listArtifacts"
+    "listArtifacts": "knowledge-artifacts.listArtifacts",
+    "askUser": "channel-user-negotiator.askUser"
   },
-  "permissions": ["storage", "sandbox"],
+  "permissions": ["storage"],
   "enabled": true
 }

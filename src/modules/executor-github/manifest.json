@@ -65,7 +65,8 @@
   "sandboxBindings": {
     "runWorkflow": "executor-github.runWorkflow",
     "getRunStatus": "executor-github.getRunStatus",
-    "fetchArtifacts": "executor-github.fetchArtifacts"
+    "fetchArtifacts": "executor-github.fetchArtifacts",
+    "askUser": "channel-user-negotiator.askUser"
   },
   "permissions": ["network", "storage"],
   "enabled": true

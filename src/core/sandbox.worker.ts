@@ -1,7 +1,22 @@
 import Sval from 'sval';
 
 // Helper to bridge tool calls
-const createToolHandler = (toolName: string) => async (...args: any[]) => {
+const createToolHandler = (toolName: string, permissions: string[]) => async (...args: any[]) => {
+  const storageTools = [
+    'knowledge-repo-browser.readFile',
+    'knowledge-repo-browser.writeFile',
+    'knowledge-repo-browser.deleteFile',
+    'knowledge-repo-browser.headFile',
+    'knowledge-artifacts.readArtifact',
+    'knowledge-artifacts.saveArtifact',
+    'knowledge-artifacts.listArtifacts',
+    'knowledge-artifacts.createArtifact'
+  ];
+
+  if (storageTools.includes(toolName) && !permissions.includes('storage')) {
+    throw new Error(`Permission denied: storage (tool: ${toolName})`);
+  }
+
   const requestId = Math.random().toString(36).substring(7);
   postMessage({ type: 'toolCall', toolName, args, requestId });
   
@@ -19,12 +34,13 @@ const createToolHandler = (toolName: string) => async (...args: any[]) => {
 
 // Handle messages from main thread
 self.onmessage = async (event) => {
-  const { type, code, requestId, permissions, sandboxBindings } = event.data as {
+  const { type, code, requestId, permissions, sandboxBindings, globals } = event.data as {
     type: string;
     code: string;
     requestId: string;
     permissions: string[];
     sandboxBindings: Record<string, string>;
+    globals?: Record<string, any>;
   };
 
   if (type === 'execute') {
@@ -43,9 +59,39 @@ self.onmessage = async (event) => {
         });
       }
 
+      // 1.1 Enforce network and timer permissions
+      if (!permissions.includes('network')) {
+        const denyNetwork = () => { throw new Error('Permission denied: network'); };
+        interpreter.import('fetch', denyNetwork);
+        interpreter.import('XMLHttpRequest', denyNetwork);
+        interpreter.import('WebSocket', denyNetwork);
+      }
+
+      if (!permissions.includes('timers')) {
+        const denyTimers = () => { throw new Error('Permission denied: timers'); };
+        interpreter.import('setTimeout', denyTimers);
+        interpreter.import('setInterval', denyTimers);
+        interpreter.import('requestAnimationFrame', denyTimers);
+      }
+
       // 2. Inject allowed tools based on sandboxBindings
       for (const [bindingName, toolName] of Object.entries(sandboxBindings)) {
-        interpreter.import(bindingName, createToolHandler(toolName));
+        interpreter.import(bindingName, createToolHandler(toolName, permissions));
+      }
+
+      // 3. Define GlobalVars using tool bindings
+      interpreter.run(`
+        const GlobalVars = {
+          get: (key) => __globalVarsGet(key),
+          set: (key, value) => __globalVarsSet(key, value)
+        };
+      `);
+
+      // 4. Inject direct globals
+      if (globals) {
+        for (const [name, value] of Object.entries(globals)) {
+          interpreter.import(name, value);
+        }
       }
 
       interpreter.import('__resolve', (res: any) => postMessage({ type: 'result', requestId, result: res }));

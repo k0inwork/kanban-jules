@@ -19,6 +19,8 @@ import { ArchitectTool } from '../modules/architect-codegen/Architect';
 
 import localExecutorManifest from '../modules/executor-local/manifest.json';
 import githubExecutorManifest from '../modules/executor-github/manifest.json';
+import localAnalyzerManifest from '../modules/knowledge-local-analyzer/manifest.json';
+import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
 
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
@@ -30,6 +32,7 @@ export class ModuleRegistry {
     { ...architectManifest, enabled: true, init: ArchitectTool.init, destroy: () => {} },
     { ...localExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...githubExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...localAnalyzerManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

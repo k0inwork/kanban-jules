@@ -11,7 +11,7 @@ export class LocalHandler {
   }
 
   private async execute(args: any[], context: RequestContext): Promise<any> {
-    const [code] = args;
+    const { code } = args[0];
     // The actual execution is handled by the Orchestrator's sandbox.
     // This tool is just a placeholder to satisfy the module interface.
     return { status: 'success', message: 'Code executed locally.' };

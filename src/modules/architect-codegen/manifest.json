@@ -2,7 +2,7 @@
   "id": "architect-codegen",
   "name": "Architect Codegen",
   "version": "1.0.0",
-  "type": "executor",
+  "type": "architect",
   "description": "Generates task protocols and architectural plans.",
   "tools": [
     {
@@ -17,9 +17,6 @@
       }
     }
   ],
-  "sandboxBindings": {
-    "generateProtocol": "architect-codegen.generateProtocol"
-  },
-  "permissions": ["llm"],
+  "permissions": [],
   "configFields": []
 }
