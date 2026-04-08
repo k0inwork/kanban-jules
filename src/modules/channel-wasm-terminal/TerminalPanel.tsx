@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-export const BUILD = 22;
+export const BUILD = 34;
 
 /**
  * TerminalPanel — xterm.js terminal connected to a Wanix VM.
@@ -54,13 +54,20 @@ interface TerminalPanelProps {
   bundleUrl: string;
   wasmUrl: string;
   wanixUrl: string;
+  /** LLM API settings */
+  apiProvider: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  openaiUrl: string;
+  openaiKey: string;
+  openaiModel: string;
   /** Called when the terminal is ready for input */
   onReady?: () => void;
   /** Called when the terminal produces output */
   onOutput?: (data: string) => void;
 }
 
-export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput }: TerminalPanelProps) {
+export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, geminiApiKey, geminiModel, openaiUrl, openaiKey, openaiModel, onReady, onOutput }: TerminalPanelProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<any>(null);
   const xtermRef = useRef<any>(null);
@@ -136,6 +143,45 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
           readArtifact: (_name: string) => Promise.resolve(''),
           saveArtifact: (_name: string, _content: string) => Promise.resolve(),
           invokeTool: (_tool: string, _args: any) => Promise.resolve(undefined),
+        },
+        llmfs: {
+          sendPrompt: async (prompt: string) => {
+            console.log('[llmfs] sendPrompt:', prompt);
+            try {
+              if (apiProvider === 'gemini') {
+                const { GoogleGenAI } = await import('@google/genai');
+                const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+                const response = await ai.models.generateContent({
+                  model: geminiModel,
+                  contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                });
+                return response.text || '';
+              } else {
+                const response = await fetch(`${openaiUrl}/chat/completions`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${openaiKey}`,
+                  },
+                  body: JSON.stringify({
+                    model: openaiModel,
+                    messages: [{ role: 'user', content: prompt }],
+                    temperature: 0.1,
+                  }),
+                });
+                if (response.ok) {
+                  const data = await response.json();
+                  return data.choices[0].message.content || '';
+                } else {
+                  const error = await response.text();
+                  throw new Error(`OpenAI API error: ${error}`);
+                }
+              }
+            } catch (e: any) {
+              console.error('[llmfs] API error:', e);
+              return `ERROR: ${e.message}`;
+            }
+          },
         },
       };
 
@@ -242,7 +288,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
     if (terminalRef.current) {
       resizeObserver.observe(terminalRef.current);
     }
-  }, [bundleUrl, wasmUrl, wanixUrl, onReady, onOutput]);
+  }, [bundleUrl, wasmUrl, wanixUrl, apiProvider, geminiApiKey, geminiModel, openaiUrl, openaiKey, openaiModel, onReady, onOutput]);
 
   useEffect(() => {
     initTerminal();

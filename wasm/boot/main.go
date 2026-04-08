@@ -144,6 +144,12 @@ func main() {
 		}
 	}
 
+	// ---- LLMFS: /llm (both modes) ----
+	llmfs := NewLLMFS(cfg)
+	if err := root.Namespace().Bind(llmfs, ".", "#llm"); err != nil {
+		log.Fatal(err)
+	}
+
 	// ---- VM boot ----
 	vmraw, err := fs.ReadFile(root.Namespace(), "vm/new/default")
 	if err != nil {
