@@ -3,18 +3,18 @@
   "name": "Google Jules",
   "version": "1.0.0",
   "type": "executor",
-  "description": "Fully autonomous coding agent in a cloud VM. Give it large ambitious tasks.",
+  "description": "Use for AI-intensive, exploratory, or reasoning tasks (e.g., debugging, writing code, analyzing architecture). Fully autonomous coding agent in a cloud VM.",
   "tools": [
     {
       "name": "executor-jules.execute",
-      "description": "Steering loop: send to Jules, poll, verify, feed back, repeat.",
+      "description": "Steering loop: send to Jules, poll, verify, feed back, repeat. Signature: askJules({ prompt: string, successCriteria?: string }).",
       "parameters": { "type": "object", "properties": { "prompt": { "type": "string" }, "successCriteria": { "type": "string" } } }
     }
   ],
   "sandboxBindings": {
     "askJules": "executor-jules.execute"
   },
-  "permissions": ["network", "jules-api"],
+  "permissions": ["network", "jules-api", "timers"],
   "configFields": [
     { "key": "julesApiKey", "type": "string", "label": "Jules API Key", "description": "Google Jules API Key", "required": true, "secret": true },
     { "key": "julesDailyLimit", "type": "number", "label": "Daily Task Limit", "description": "Maximum number of tasks Jules can process per day. Set to 0 for unlimited.", "required": false, "default": 10 },

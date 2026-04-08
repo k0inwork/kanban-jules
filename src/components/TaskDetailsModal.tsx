@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Task } from '../types';
-import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save, Download } from 'lucide-react';
+import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save, Download, Play } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
 import { Artifact, db } from '../services/db';
@@ -147,6 +147,24 @@ export default function TaskDetailsModal({
             </div>
           </div>
           <div className="flex items-center space-x-2 shrink-0">
+            {task.agentState === 'WAITING_FOR_USER' && (
+              <button
+                onClick={() => {
+                  if (onUpdateTask) {
+                    onUpdateTask({
+                      ...task,
+                      workflowStatus: 'IN_PROGRESS',
+                      agentState: 'IDLE'
+                    });
+                  }
+                }}
+                className="flex items-center px-3 py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded-md text-sm font-medium transition-colors border border-blue-500/30 mr-2"
+                title="Continue to next step"
+              >
+                <Play className="w-4 h-4 mr-1.5" />
+                Continue
+              </button>
+            )}
             <button 
               onClick={handleDownloadDebugInfo}
               className="p-2 text-neutral-400 hover:text-blue-400 transition-colors"

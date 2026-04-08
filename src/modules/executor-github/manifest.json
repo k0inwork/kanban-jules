@@ -3,11 +3,11 @@
   "name": "GitHub Actions Executor",
   "version": "1.0.0",
   "type": "executor",
-  "description": "Executes heavy-compute tasks via GitHub Actions. Ideal for running tests, building Docker images, or data processing. Requires a GitHub Token.",
+  "description": "Use for compute-intensive, deterministic, or heavy-lifting tasks (e.g., running test suites, building images, data processing pipelines). Executes heavy-compute tasks via GitHub Actions. Requires a GitHub Token.",
   "tools": [
     {
       "name": "executor-github.runWorkflow",
-      "description": "Creates and triggers a GitHub Actions workflow to perform a task. Do not write the file yourself. Just pass the YAML to this tool, and it will create the file and trigger the run in the specified repository. Returns the workflow run ID.",
+      "description": "Creates and triggers a GitHub Actions workflow. Signature: runWorkflow({ workflowYaml: string, workflowName?: string, repoUrl?: string, branch?: string }). Pass the YAML content to this tool, and it will create the file and trigger the run. Returns the workflow run ID.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -33,7 +33,7 @@
     },
     {
       "name": "executor-github.getRunStatus",
-      "description": "Checks the status of a previously triggered GitHub Actions workflow run.",
+      "description": "Checks the status of a previously triggered GitHub Actions workflow run. Signature: getRunStatus({ runId: number, repoUrl?: string }). Returns an object with status and conclusion.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -51,7 +51,7 @@
     },
     {
       "name": "executor-github.fetchArtifacts",
-      "description": "Downloads artifacts from a completed GitHub Actions workflow run and saves them to the Fleet artifact store.",
+      "description": "Downloads artifacts from a completed GitHub Actions workflow run and saves them to the Fleet artifact store. Signature: fetchArtifacts({ runId: number, repoUrl?: string, branch?: string }).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -79,6 +79,6 @@
     "fetchArtifacts": "executor-github.fetchArtifacts",
     "askUser": "channel-user-negotiator.askUser"
   },
-  "permissions": ["network", "storage"],
+  "permissions": ["network", "storage", "timers"],
   "enabled": true
 }

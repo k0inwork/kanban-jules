@@ -7,17 +7,17 @@
   "tools": [
     {
       "name": "knowledge-artifacts.listArtifacts",
-      "description": "Lists artifacts.",
+      "description": "Lists artifacts. Signature: Artifacts.listArtifacts({ taskId?: string }).",
       "parameters": { "type": "object", "properties": { "taskId": { "type": "string" } } }
     },
     {
       "name": "knowledge-artifacts.saveArtifact",
-      "description": "Creates a new artifact.",
+      "description": "Creates a new artifact. Signature: Artifacts.saveArtifact({ name: string, content: string }).",
       "parameters": { "type": "object", "properties": { "name": { "type": "string" }, "content": { "type": "string" } } }
     },
     {
       "name": "knowledge-artifacts.readArtifact",
-      "description": "Reads an artifact.",
+      "description": "Reads an artifact. Signature: Artifacts.readArtifact({ name: string }).",
       "parameters": { "type": "object", "properties": { "name": { "type": "string" } } }
     }
   ],

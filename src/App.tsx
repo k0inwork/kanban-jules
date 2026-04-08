@@ -921,9 +921,14 @@ export default function App() {
           db.tasks.update(updatedTask.id, {
             title: updatedTask.title,
             description: updatedTask.description,
-            chat: updatedTask.chat
+            chat: updatedTask.chat,
+            workflowStatus: updatedTask.workflowStatus,
+            agentState: updatedTask.agentState
           });
           setSelectedTask(updatedTask);
+          if (updatedTask.workflowStatus === 'IN_PROGRESS' && updatedTask.agentState === 'IDLE') {
+             processTask(updatedTask);
+          }
         }}
         apiProvider={apiProvider}
         openaiUrl={openaiUrl}

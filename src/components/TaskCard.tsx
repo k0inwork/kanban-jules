@@ -83,11 +83,11 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
       <h4 className="font-medium text-neutral-100 mb-2 truncate pr-12">{task.title}</h4>
       
       <div className="absolute top-3 right-3 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        {task.workflowStatus === 'TODO' && onStartTask && (
+        {(task.workflowStatus === 'TODO' || (task.workflowStatus === 'IN_PROGRESS' && task.agentState !== 'EXECUTING')) && onStartTask && (
           <button 
             onClick={handleStartClick}
             className="p-1.5 bg-blue-600/20 text-blue-400 rounded-md hover:bg-blue-600 hover:text-white transition-colors"
-            title="Assign to Agent"
+            title={task.workflowStatus === 'TODO' ? "Assign to Agent" : "Resume Task"}
           >
             <Play className="w-3.5 h-3.5" />
           </button>

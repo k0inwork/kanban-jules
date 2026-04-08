@@ -12,7 +12,8 @@ export type SessionState =
   | 'IN_PROGRESS'
   | 'PAUSED'
   | 'COMPLETED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'ARCHIVED';
 
 export interface Session {
   name: string;

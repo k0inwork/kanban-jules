@@ -7,7 +7,7 @@
   "tools": [
     {
       "name": "knowledge-repo-browser.listFiles",
-      "description": "List files in a repository path.",
+      "description": "List files in a repository path. Signature: repo.listFiles({ path: string }).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -17,7 +17,7 @@
     },
     {
       "name": "knowledge-repo-browser.readFile",
-      "description": "Read the content of a file in a repository.",
+      "description": "Read the content of a file in a repository. Signature: repo.readFile({ path: string }).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -28,7 +28,7 @@
     },
     {
       "name": "knowledge-repo-browser.headFile",
-      "description": "Read the first N lines of a file in a repository.",
+      "description": "Read the first N lines of a file in a repository. Signature: repo.headFile({ path: string, lines?: number }).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -40,7 +40,7 @@
     },
     {
       "name": "knowledge-repo-browser.writeFile",
-      "description": "Write content to a file in the repository. Creates a new commit.",
+      "description": "Write content to a file in the repository. Creates a new commit. Signature: repo.writeFile({ path: string, content: string, commitMessage?: string }).",
       "parameters": {
         "type": "object",
         "properties": {

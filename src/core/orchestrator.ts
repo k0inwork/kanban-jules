@@ -198,6 +198,7 @@ export class Orchestrator {
       ...module?.sandboxBindings,
       'analyze': 'host.analyze',
       'addToContext': 'host.addToContext',
+      'askUser': 'channel-user-negotiator.askUser',
       '__agentContextGet': 'host.agentContextGet',
       '__agentContextSet': 'host.agentContextSet'
     };
@@ -274,12 +275,12 @@ export class Orchestrator {
       
       let status = 'DONE';
       
-      const pendingStep = currentTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
+      let pendingStep = currentTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
       
-      if (pendingStep) {
+      while (pendingStep) {
         if (pendingStep.status === 'pending') {
-          const updatedSteps = currentTask!.protocol!.steps.map(s => 
-            s.id === pendingStep.id ? { ...s, status: 'in_progress' as const } : s
+          const updatedSteps = (await db.tasks.get(task.id))!.protocol!.steps.map(s => 
+            s.id === pendingStep!.id ? { ...s, status: 'in_progress' as const } : s
           );
           await db.tasks.update(task.id, { protocol: { ...currentTask!.protocol!, steps: updatedSteps } });
         }
@@ -289,14 +290,13 @@ export class Orchestrator {
         const updatedTask = await db.tasks.get(task.id);
         if (updatedTask?.agentState === 'WAITING_FOR_USER' || updatedTask?.agentState === 'ERROR') {
           status = 'PAUSED';
-        } else {
-          const moreSteps = updatedTask?.protocol?.steps.some(s => s.status === 'pending');
-          if (moreSteps) {
-            status = 'PAUSED';
-            await db.tasks.update(task.id, { agentState: 'IDLE' });
-          } else {
-            status = 'DONE';
-          }
+          break; // Stop processing
+        }
+        
+        // Find next step
+        pendingStep = updatedTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
+        if (!pendingStep) {
+          status = 'DONE';
         }
       }
       

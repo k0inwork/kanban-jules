@@ -113,6 +113,7 @@ RULES:
 - Write ONLY valid JavaScript code.
 - No markdown formatting (no \`\`\` blocks).
 - The code runs in an async context. You can use await.
+- CRITICAL: The code runs in a secure browser-based Web Worker sandbox (Sval). You DO NOT have access to Node.js built-ins (like require, fs, child_process) or the host filesystem. You MUST use the provided async APIs (like askJules, repo.readFile, etc.) to perform any work.
 - Use AgentContext to store state between steps if needed.
 - If you need user input, use askUser(prompt).
 - If you are using executor-github, you must first runWorkflow, then poll getRunStatus, then fetchArtifacts.
@@ -143,6 +144,7 @@ RULES:
 - "executor-local" is best for small, tool-based tasks (file read/write, artifact creation).
 - "executor-jules" is best for large, ambitious coding tasks in a remote VM.
 - "executor-github" is best for heavy compute, CI/CD, or long-running processes.
+- Combine all steps assigned to "executor-github" into a single, non-reentrant step. Jules steps can remain separate.
 
 Output ONLY valid JSON matching this schema:
 {

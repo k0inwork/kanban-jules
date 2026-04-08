@@ -47,15 +47,20 @@ export class JulesSessionManager {
       // Verify it still exists on the API
       try {
         const remote = await julesApi.getSession(apiKey, unusedLocal.name);
-        console.log(`[JulesSessionManager] Reusing unused local session ${unusedLocal.name} for task ${task.id}`);
-        await db.julesSessions.update(unusedLocal.id, { taskId: task.id, title: task.title, status: remote.state });
-        this.appendActionLog(task.id, `Reused unused local Jules session: ${unusedLocal.name}`);
-        
-        // Send context to Jules
-        const reusePrompt = `${systemInstruction}\n\nIMPORTANT: We are starting new work.\n\nTask: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
-        await this.sendMessage(apiKey, unusedLocal.name, reusePrompt);
-        
-        return { ...remote, name: unusedLocal.name, id: unusedLocal.id } as Session;
+        if (remote.state !== 'QUEUED' && remote.state !== 'COMPLETED' && remote.state !== 'ARCHIVED') {
+          console.warn(`[JulesSessionManager] Unused local session ${unusedLocal.name} is in state ${remote.state}. Deleting local record to avoid reusing a dirty session.`);
+          await db.julesSessions.delete(unusedLocal.id);
+        } else {
+          console.log(`[JulesSessionManager] Reusing unused local session ${unusedLocal.name} for task ${task.id}`);
+          await db.julesSessions.update(unusedLocal.id, { taskId: task.id, title: task.title, status: remote.state });
+          this.appendActionLog(task.id, `Reused unused local Jules session: ${unusedLocal.name}`);
+          
+          // Send context to Jules
+          const reusePrompt = `${systemInstruction}\n\nIMPORTANT: We are starting new work.\n\nTask: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
+          await this.sendMessage(apiKey, unusedLocal.name, reusePrompt);
+          
+          return { ...remote, name: unusedLocal.name, id: unusedLocal.id } as Session;
+        }
       } catch (e: any) {
         if (e.status === 404 || e.message?.includes('not found')) {
           console.warn(`[JulesSessionManager] Unused local session ${unusedLocal.name} not found on API. Deleting local record.`);
@@ -87,9 +92,17 @@ export class JulesSessionManager {
         this.appendActionLog(task.id, `Found and resumed matching remote Jules session: ${match.name}`);
         
         const reusePrompt = `${systemInstruction}\n\nIMPORTANT: We are resuming work from an archived session.\n\nTask: ${task.title}\nDescription: ${task.description}\n\n${task.chat ? "Chat History:\n" + task.chat : ""}`;
-        await this.sendMessage(apiKey, match.name, reusePrompt);
-        
-        return match;
+        try {
+          await this.sendMessage(apiKey, match.name, reusePrompt);
+          return match;
+        } catch (e: any) {
+          if (e.status === 404 || e.message?.includes('not found')) {
+            console.warn(`[JulesSessionManager] Remote session ${match.name} found in list but returned 404 on access. Ignoring and creating new.`);
+            await db.julesSessions.where('name').equals(match.name).delete();
+          } else {
+            throw e;
+          }
+        }
       }
     } catch (e) {
       console.warn("[JulesSessionManager] Failed to list remote sessions:", e);
@@ -122,13 +135,27 @@ export class JulesSessionManager {
   static async createSession(apiKey: string, task: any, sourceContext: any): Promise<Session> {
     const systemInstruction = `SYSTEM INSTRUCTION: You are Jules, and you are communicating with an automatic agent. Your goal is to provide the information it needs efficiently. Because the agent is automated, you must structure your responses so it can parse them easily. Always wrap conversational text in <chat> tags. Always wrap structured data, results, or file contents in <data type="..."> tags. If you cannot fulfill a request, explain why clearly within the <chat> tags.`;
     
-    const sessionRes = await julesApi.createSession(apiKey, {
-      title: task.title,
-      prompt: `${systemInstruction}\n\nTask Description: ${task.description}`,
-      sourceContext,
-      requirePlanApproval: true,
-    });
-    return sessionRes;
+    try {
+      const sessionRes = await julesApi.createSession(apiKey, {
+        title: task.title,
+        prompt: `${systemInstruction}\n\nTask Description: ${task.description}`,
+        sourceContext,
+        requirePlanApproval: true,
+      });
+      return sessionRes;
+    } catch (error: any) {
+      // If the source entity is not found (404), fallback to creating a session without it
+      if (sourceContext && (error.status === 404 || error.message?.includes('not found'))) {
+        console.warn(`[JulesSessionManager] Source ${sourceContext.source} not found. Falling back to session without sourceContext.`);
+        const fallbackRes = await julesApi.createSession(apiKey, {
+          title: task.title,
+          prompt: `${systemInstruction}\n\nTask Description: ${task.description}`,
+          requirePlanApproval: true,
+        });
+        return fallbackRes;
+      }
+      throw error;
+    }
   }
 
   static async sendMessage(apiKey: string, sessionName: string, prompt: string): Promise<void> {
