@@ -13,7 +13,7 @@ export class JulesNegotiator {
     branch: string,
     prompt: string,
     successCriteria: string,
-    verifyFn: (julesOutput: string, criteria: string) => Promise<boolean>
+    llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>
   ): Promise<string> {
     
     console.log(`[JulesNegotiator] Negotiating with key: ${julesApiKey ? 'PRESENT' : 'MISSING'}`);
@@ -41,9 +41,25 @@ export class JulesNegotiator {
     };
 
     // 2. Send prompt
-    const systemInstruction = `SYSTEM INSTRUCTION: Always provide clear, concise, and actionable responses.`;
+    const systemInstruction = `SYSTEM INSTRUCTION: You are an automated agent. You MUST output your final results, answers, or requested data directly in a chat message when you are finished. Do NOT just save it to a file and go idle. The orchestrator is waiting for your chat message to proceed.`;
     appendJnaLog(`Sending prompt to Jules:\n${prompt}`);
-    await JulesSessionManager.sendMessage(julesApiKey, session.name, `${systemInstruction}\n\n${prompt}`);
+    
+    let sendAttempts = 0;
+    while (sendAttempts < 5) {
+      try {
+        await JulesSessionManager.sendMessage(julesApiKey, session.name, `${systemInstruction}\n\n${prompt}`);
+        break;
+      } catch (e: any) {
+        if (e.status === 404 || e.status === 412 || e.message?.includes('not found') || e.message?.includes('precondition')) {
+          sendAttempts++;
+          const delay = Math.pow(2, sendAttempts) * 1000;
+          appendJnaLog(`Failed to send message to Jules (attempt ${sendAttempts}/5). Retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+        } else {
+          throw e;
+        }
+      }
+    }
 
     // 3. Poll for response
     let attempts = 0;
@@ -67,6 +83,9 @@ export class JulesNegotiator {
 
         const activitiesRes = await julesApi.listActivities(julesApiKey, session.name, 10);
         const activities = activitiesRes.activities || [];
+        
+        // Also check session state directly
+        const currentSession = await julesApi.getSession(julesApiKey, session.name);
         
         // Find ALL new activities
         const newActivities = activities.filter(a => 
@@ -130,11 +149,81 @@ export class JulesNegotiator {
             throw new Error("Jules is unresponsive (no activity for 5 minutes). Abandoning session.");
           }
         }
+
+        // Fallback: Check session state directly in case activities missed it
+        if (currentSession.state === 'COMPLETED' || currentSession.state === 'ARCHIVED') {
+          appendJnaLog(`Session state is ${currentSession.state}. Breaking out.`);
+          julesResponse = julesResponse || "Session completed successfully.";
+          break;
+        } else if (currentSession.state === 'FAILED') {
+          throw new Error(`Jules session failed.`);
+        } else if (currentSession.state === 'AWAITING_USER_FEEDBACK' && newActivities.length === 0) {
+          appendJnaLog(`Session is awaiting user feedback. Analyzing context...`);
+          
+          const recentActivities = activities.slice(0, 20).reverse();
+          const transcript = recentActivities.map(a => {
+            if (a.progressUpdated) return `[Progress] ${a.progressUpdated.title}: ${a.progressUpdated.description || ''}`;
+            if (a.planGenerated) return `[Plan Generated]`;
+            if (a.agentMessaged) return `[Agent Message] ${a.agentMessaged.agentMessage}`;
+            if (a.userMessaged) return `[User Message] ${a.userMessaged.userMessage}`;
+            return `[Activity] ${a.name}`;
+          }).join('\n');
+
+          const analysisPrompt = `You are monitoring an automated agent (Jules).
+The user originally asked for: "${prompt}"
+The success criteria is: "${successCriteria}"
+
+Here is the recent activity transcript from Jules:
+${transcript}
+
+Jules is currently paused and awaiting user feedback. Analyze the situation and determine the state.
+Return a JSON object with this exact structure:
+{
+  "status": "has_result" | "needs_action" | "working",
+  "result": "If status is has_result, put the final answer or summary here. Otherwise null.",
+  "action_prompt": "If status is needs_action, put the exact message to send to Jules to get the final answer (e.g., 'Please read the contents of the file you just saved and output it here'). Otherwise null.",
+  "reasoning": "Brief explanation of your choice"
+}`;
+
+          try {
+            const analysisStr = await llmCall(analysisPrompt, true);
+            const analysis = JSON.parse(analysisStr);
+            appendJnaLog(`Context Analysis: ${analysis.reasoning}`);
+            
+            if (analysis.status === 'has_result') {
+              julesResponse = analysis.result || "Session completed successfully.";
+              break;
+            } else if (analysis.status === 'needs_action' && analysis.action_prompt) {
+              appendJnaLog(`Sending follow-up action to Jules: ${analysis.action_prompt}`);
+              await JulesSessionManager.sendMessage(julesApiKey, session.name, analysis.action_prompt);
+              lastHeartbeatTime = Date.now();
+              lastActivityTime = Date.now();
+              continue;
+            } else {
+              appendJnaLog(`Prompting Jules to continue...`);
+              await JulesSessionManager.sendMessage(julesApiKey, session.name, "Please continue and provide the final result directly in a chat message.");
+              lastHeartbeatTime = Date.now();
+              lastActivityTime = Date.now();
+              continue;
+            }
+          } catch (e) {
+            appendJnaLog(`Failed to analyze context: ${e}`);
+            julesResponse = julesResponse || "Jules is awaiting feedback.";
+            break;
+          }
+        }
       }
 
       // 4. Verify with LLM
       appendJnaLog(`Verifying response against success criteria: ${successCriteria}`);
-      const isSuccess = await verifyFn(julesResponse, successCriteria);
+      const verifyPrompt = `Verify if the following output meets the success criteria.
+      Output: "${julesResponse}"
+      Criteria: "${successCriteria}"
+      
+      Return only "true" or "false".`;
+      
+      const verifyResult = await llmCall(verifyPrompt);
+      const isSuccess = verifyResult.trim().toLowerCase() === 'true';
 
       if (isSuccess) {
         appendJnaLog(`Verification SUCCESS.`);

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Task } from '../types';
-import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save, Download, Play } from 'lucide-react';
+import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save, Download, Play, BrainCircuit } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
 import { Artifact, db } from '../services/db';
@@ -130,6 +130,25 @@ export default function TaskDetailsModal({
     URL.revokeObjectURL(url);
   };
 
+  const getCurrentAgentName = (task: Task) => {
+    if (task.workflowStatus === 'TODO' && !task.protocol && !task.agentId) {
+      return null;
+    }
+    if (task.protocol && task.protocol.steps) {
+      const activeStep = task.protocol.steps.find(s => s.status === 'in_progress');
+      if (activeStep) return activeStep.executor;
+      
+      const nextStep = task.protocol.steps.find(s => s.status === 'pending');
+      if (nextStep) return nextStep.executor;
+      
+      const lastStep = [...task.protocol.steps].reverse().find(s => s.status === 'completed');
+      if (lastStep) return lastStep.executor;
+    }
+    return task.agentId || 'Architect';
+  };
+
+  const currentAgent = getCurrentAgentName(task);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 md:p-8">
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl w-full max-w-4xl max-h-full flex flex-col shadow-2xl overflow-hidden">
@@ -144,6 +163,12 @@ export default function TaskDetailsModal({
               <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full bg-blue-900/30 text-blue-400 border border-blue-800/50 shrink-0">
                 {task.agentState}
               </span>
+              {task.architectModel && (
+                <span className="flex items-center text-[10px] font-mono px-2 py-1 rounded-full bg-neutral-800 text-neutral-400 border border-neutral-700 shrink-0" title={`Architect: ${task.architectModel}`}>
+                  <BrainCircuit className="w-3 h-3 mr-1" />
+                  {task.architectModel.replace('models/', '')}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center space-x-2 shrink-0">
@@ -201,9 +226,9 @@ export default function TaskDetailsModal({
               <div>
                 <h4 className="text-xs font-mono text-neutral-500 uppercase tracking-wider mb-2">Assignee</h4>
                 <div className="flex items-center space-x-2">
-                  {task.agentId ? (
+                  {currentAgent ? (
                     <span className="flex items-center text-sm font-mono text-blue-400 bg-blue-400/10 px-3 py-1.5 rounded-md border border-blue-500/20">
-                      {task.agentId}
+                      {currentAgent}
                     </span>
                   ) : (
                     <span className="text-sm text-neutral-500 italic">Unassigned</span>

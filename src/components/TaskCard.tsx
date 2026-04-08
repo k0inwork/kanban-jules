@@ -1,7 +1,7 @@
 import React from 'react';
 import { Task, WorkflowStatus, AgentState } from '../types';
 import { cn } from '../lib/utils';
-import { Bot, Clock, AlertCircle, CheckCircle2, Play, Trash2, Zap, User, Loader2 } from 'lucide-react';
+import { Bot, Clock, AlertCircle, CheckCircle2, Play, Trash2, Zap, User, Loader2, BrainCircuit } from 'lucide-react';
 
 interface TaskCardProps {
   key?: string | number;
@@ -66,6 +66,25 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
     }
   };
 
+  const getCurrentAgentName = (task: Task) => {
+    if (task.workflowStatus === 'TODO' && !task.protocol && !task.agentId) {
+      return null;
+    }
+    if (task.protocol && task.protocol.steps) {
+      const activeStep = task.protocol.steps.find(s => s.status === 'in_progress');
+      if (activeStep) return activeStep.executor;
+      
+      const nextStep = task.protocol.steps.find(s => s.status === 'pending');
+      if (nextStep) return nextStep.executor;
+      
+      const lastStep = [...task.protocol.steps].reverse().find(s => s.status === 'completed');
+      if (lastStep) return lastStep.executor;
+    }
+    return task.agentId || 'Architect';
+  };
+
+  const currentAgent = getCurrentAgentName(task);
+
   return (
     <div
       draggable
@@ -99,18 +118,24 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
       </p>
       
       <div className="flex items-center justify-between mt-auto pt-2 border-t border-neutral-800">
-        <div className="flex items-center space-x-2">
-          {task.agentId ? (
+        <div className="flex items-center space-x-2 overflow-hidden">
+          {currentAgent ? (
             <span className={cn(
-              "flex items-center text-[10px] font-mono px-2 py-1 rounded-full",
+              "flex items-center text-[10px] font-mono px-2 py-1 rounded-full whitespace-nowrap",
               agentStateColors[task.agentState]
             )}>
-              <Bot className="w-3 h-3 mr-1" />
-              {task.agentId}
+              <Bot className="w-3 h-3 mr-1 flex-shrink-0" />
+              {currentAgent}
             </span>
           ) : (
-            <span className="text-[10px] font-mono text-neutral-500 px-2 py-1 rounded-full bg-neutral-800">
+            <span className="text-[10px] font-mono text-neutral-500 px-2 py-1 rounded-full bg-neutral-800 whitespace-nowrap">
               Unassigned
+            </span>
+          )}
+          {task.architectModel && (
+            <span className="flex items-center text-[10px] font-mono px-2 py-1 rounded-full bg-neutral-800 text-neutral-400 whitespace-nowrap truncate" title={`Architect: ${task.architectModel}`}>
+              <BrainCircuit className="w-3 h-3 mr-1 flex-shrink-0" />
+              <span className="truncate max-w-[80px]">{task.architectModel.replace('models/', '')}</span>
             </span>
           )}
         </div>

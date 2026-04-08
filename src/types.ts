@@ -34,4 +34,5 @@ export interface Task {
   retryCounts?: Record<string, number>;
   moduleLogs?: Record<string, string>;
   analysis?: string;
+  architectModel?: string;
 }

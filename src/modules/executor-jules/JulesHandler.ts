@@ -40,18 +40,7 @@ export class JulesHandler {
       context.repoBranch,
       prompt,
       successCriteria || 'Task completed successfully',
-      this.verify.bind(this, context)
+      context.llmCall
     );
   }
-
-  private verify = async (context: RequestContext, output: string, criteria: string): Promise<boolean> => {
-    const prompt = `Verify if the following output meets the success criteria.
-    Output: "${output}"
-    Criteria: "${criteria}"
-    
-    Return only "true" or "false".`;
-    
-    const result = await context.llmCall(prompt);
-    return result.trim().toLowerCase() === 'true';
-  };
 }

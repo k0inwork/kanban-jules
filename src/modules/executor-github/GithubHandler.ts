@@ -51,7 +51,10 @@ export class GithubHandler {
     }
 
     // If workflowName is not provided, generate a default one
-    const finalWorkflowName = workflowName || `fleet-workflow-${Date.now()}.yml`;
+    let finalWorkflowName = workflowName || `fleet-workflow-${Date.now()}.yml`;
+    if (!finalWorkflowName.endsWith('.yml') && !finalWorkflowName.endsWith('.yaml')) {
+      finalWorkflowName += '.yml';
+    }
     
     if (!targetRepoUrl && obj && obj.owner && obj.repo) {
       targetRepoUrl = `${obj.owner}/${obj.repo}`;
@@ -93,62 +96,88 @@ export class GithubHandler {
     await new Promise(resolve => setTimeout(resolve, 10000));
 
     // 1. Create/Update the workflow file
-    const fileRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}?ref=${branch}`, {
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    });
-
     let sha: string | undefined;
-    if (fileRes.ok) {
-      const fileData = await fileRes.json();
-      sha = fileData.sha;
+    let updateRes: Response | undefined;
+    
+    // Retry loop for file update to handle SHA conflicts
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // Always fetch the latest SHA before attempting update
+      const fileRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}?ref=${branch}`, {
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+
+      sha = fileRes.ok ? (await fileRes.json()).sha : undefined;
+
+      updateRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        body: JSON.stringify({
+          message: `Fleet: Update workflow ${finalWorkflowName}`,
+          content: btoa(workflowYaml),
+          branch: branch,
+          sha
+        })
+      });
+
+      if (updateRes.ok) break;
+      
+      // If conflict (409), wait and retry
+      if (updateRes.status === 409 && attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
+        continue;
+      }
+      
+      break;
     }
 
-    const updateRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/vnd.github.v3+json'
-      },
-      body: JSON.stringify({
-        message: `Fleet: Update workflow ${finalWorkflowName}`,
-        content: btoa(workflowYaml),
-        branch: branch,
-        sha
-      })
-    });
-
-    if (!updateRes.ok) {
-      const errorText = await updateRes.text();
-      let errorMessage = errorText;
+    if (!updateRes || !updateRes.ok) {
+      const errorText = await updateRes?.text();
+      let errorMessage = errorText || 'Unknown error';
       try {
-        const errorData = JSON.parse(errorText);
+        const errorData = JSON.parse(errorText || '{}');
         errorMessage = errorData.message || errorText;
       } catch (e) {}
       throw new Error(`Failed to update workflow file: ${errorMessage}`);
     }
 
     // 2. Trigger the workflow via workflow_dispatch
-    const dispatchRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}/dispatches`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `token ${githubToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/vnd.github.v3+json'
-      },
-      body: JSON.stringify({
-        ref: branch
-      })
-    });
+    let dispatchRes: Response | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      dispatchRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}/dispatches`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.github.v3+json'
+        },
+        body: JSON.stringify({
+          ref: branch
+        })
+      });
 
-    if (!dispatchRes.ok) {
-      const errorText = await dispatchRes.text();
-      let errorMessage = errorText;
+      if (dispatchRes.ok) break;
+      
+      // If rate limited or conflict, wait and retry
+      if ((dispatchRes.status === 429 || dispatchRes.status === 409) && attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
+        continue;
+      }
+      
+      break;
+    }
+
+    if (!dispatchRes || !dispatchRes.ok) {
+      const errorText = await dispatchRes?.text();
+      let errorMessage = errorText || 'Unknown error';
       try {
-        const errorData = JSON.parse(errorText);
+        const errorData = JSON.parse(errorText || '{}');
         errorMessage = errorData.message || errorText;
       } catch (e) {}
       throw new Error(`Failed to trigger workflow: ${errorMessage}`);
