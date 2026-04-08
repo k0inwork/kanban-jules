@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-export const BUILD = 21;
+export const BUILD = 22;
 
 /**
  * TerminalPanel — xterm.js terminal connected to a Wanix VM.
@@ -64,6 +64,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
   const terminalRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<any>(null);
   const xtermRef = useRef<any>(null);
+  const fitAddonRef = useRef<any>(null);
   const [cmdInput, setCmdInput] = useState('');
   const [serialReady, setSerialReady] = useState(false);
 
@@ -100,13 +101,14 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
     });
 
     const fitAddon = new FitAddon();
+    fitAddonRef.current = fitAddon;
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
     term.open(terminalRef.current);
     fitAddon.fit();
     xtermRef.current = term;
 
-    term.writeln(`\r\n[board VM booting... (build ${BUILD})]\r\n`);
+    term.writeln(`\r\n\x1b[1;36m●\x1b[0m Starting terminal (v${BUILD})...\r\n`);
 
     try {
       // Load WanixRuntime — fetch the ESM module and eval it to extract the export
@@ -156,13 +158,13 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
 
       // Wait for WASM ready, then connect serial to xterm
       w.ready().then(async () => {
-        term.writeln('\r\n[board VM ready — waiting for console...]\r\n');
+        term.writeln('\r\n\x1b[1;36m●\x1b[0m VM ready, connecting console...\r\n');
         onReady?.();
 
         try {
           // Wait for the v86 VM to boot and serial to be available.
           await w.waitFor('#console/data', 60000);
-          term.writeln('\r\n[console pipe found]\r\n');
+          term.writeln('\x1b[1;32m●\x1b[0m Connected.\r\n');
 
           // --- Console output: read from #console/data (pipe Port 1) ---
           const readFd = await w.open('#console/data');
@@ -206,7 +208,6 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
             });
           };
           setSerialReady(true);
-          term.writeln('\r\n[console connected]\r\n');
         } catch (serialErr: any) {
           console.error('[TerminalPanel] console setup error:', serialErr);
           term.writeln(`\r\n[console setup error: ${serialErr.message}]\r\n`);
@@ -233,6 +234,14 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
     // Resize handling
     const onResize = () => fitAddon.fit();
     window.addEventListener('resize', onResize);
+
+    // Refit when the container becomes visible (e.g. tab switch)
+    const resizeObserver = new ResizeObserver(() => {
+      try { fitAddon.fit(); } catch {}
+    });
+    if (terminalRef.current) {
+      resizeObserver.observe(terminalRef.current);
+    }
   }, [bundleUrl, wasmUrl, wanixUrl, onReady, onOutput]);
 
   useEffect(() => {
@@ -240,7 +249,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
     return () => {
       xtermRef.current?.dispose();
     };
-  }, [initTerminal]);
+  }, []); // intentionally empty — only init once
 
   return (
     <div
