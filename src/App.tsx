@@ -24,7 +24,7 @@ import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
 import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
-import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User } from 'lucide-react';
+import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User, Terminal } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
 import MailboxView from './components/MailboxView';
@@ -32,6 +32,7 @@ import ConstitutionEditor from './components/ConstitutionEditor';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
 import PreviewPane from './components/PreviewPane';
 import { Artifact, db, AgentMessage } from './services/db';
+import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
 import { GitFs, GitFile } from './services/GitFs';
 import { ArtifactTool, artifactToolDeclarations } from './modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-repo-browser/RepositoryTool';
@@ -709,6 +710,46 @@ export default function App() {
           >
             <Folder className="w-5 h-5" />
           </button>
+
+          <button
+            onClick={() => {
+              const terminalTabId = 'terminal-vm';
+              const existing = tabs.find(t => t.id === terminalTabId);
+              if (existing) {
+                if (activeTabId === terminalTabId) {
+                  // Terminal is visible — switch away without destroying the tab
+                  const otherTabs = tabs.filter(t => t.id !== terminalTabId);
+                  if (otherTabs.length > 0) {
+                    setActiveTabId(otherTabs[otherTabs.length - 1].id);
+                  } else {
+                    setIsViewingBoard(true);
+                  }
+                } else {
+                  // Terminal exists but hidden — show it
+                  setActiveTabId(terminalTabId);
+                  setIsViewingBoard(false);
+                }
+              } else {
+                // First time — create terminal tab and boot VM
+                const newTab: Tab = {
+                  id: terminalTabId,
+                  name: `Terminal (v${BUILD})`,
+                  content: '',
+                  type: 'terminal'
+                };
+                setTabs(prev => [...prev, newTab]);
+                setActiveTabId(terminalTabId);
+                setIsViewingBoard(false);
+              }
+            }}
+            className={cn(
+              "p-2 rounded-md transition-colors",
+              activeTabId === 'terminal-vm' ? "text-green-400 bg-neutral-800" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+            )}
+            title="Toggle Terminal"
+          >
+            <Terminal className="w-5 h-5" />
+          </button>
           
           
           <button
@@ -853,8 +894,9 @@ export default function App() {
               onSave={() => setIsConstitutionOpen(false)}
             />
           ) : tabs.length > 0 && !isViewingBoard ? (
-            <PreviewPane 
-              activeTab={tabs.find(t => t.id === activeTabId) || null} 
+            <PreviewPane
+              activeTab={tabs.find(t => t.id === activeTabId) || null}
+              allTabs={tabs}
               onAcceptProposal={handleAcceptProposal}
               onDeclineProposal={handleDeclineProposal}
               onReplyToMail={handleReplyToMail}

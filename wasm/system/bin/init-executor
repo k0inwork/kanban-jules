@@ -1,0 +1,13 @@
+#!/bin/busybox sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t binfmt_misc none /proc/sys/fs/binfmt_misc
+echo ':wasm:M::\x00\x61\x73\x6d::/bin/wexec:' > /proc/sys/fs/binfmt_misc/register
+
+source /etc/profile
+ifconfig lo up
+ifconfig eth0 up
+udhcpc -i eth0 -s /bin/post-dhcp
+
+# Run the step command passed from the host
+exec /bin/sh -c "$EXECUTOR_CMD"

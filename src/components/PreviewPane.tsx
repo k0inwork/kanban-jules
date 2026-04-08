@@ -4,9 +4,11 @@ import Markdown from 'react-markdown';
 import { Plus, X, Zap, Send } from 'lucide-react';
 import { AgentMessage } from '../services/db';
 import { parseTasksFromMessage } from '../core/prompt';
+import { TerminalPanel } from '../modules/channel-wasm-terminal/TerminalPanel';
 
 interface PreviewPaneProps {
   activeTab: Tab | null;
+  allTabs?: Tab[];
   onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean; skipDelete?: boolean }) => void;
   onDeclineProposal?: (messageId: number) => void;
   onReplyToMail?: (message: AgentMessage, replyText: string) => void;
@@ -19,19 +21,46 @@ interface PreviewPaneProps {
   geminiApiKey?: string;
 }
 
-export default function PreviewPane({ 
-  activeTab, onAcceptProposal, onDeclineProposal, onReplyToMail, autonomyMode,
+export default function PreviewPane({
+  activeTab, allTabs, onAcceptProposal, onDeclineProposal, onReplyToMail, autonomyMode,
   apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview',
   openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = ''
 }: PreviewPaneProps) {
   const [replyText, setReplyText] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
 
+  // Terminal overlay: always mounted (once created) to keep VM alive
+  // Hidden via display:none when terminal tab not active
+  const hasTerminal = allTabs?.some(t => t.type === 'terminal');
+  const isTerminalActive = activeTab?.type === 'terminal';
+
+  // TerminalPanel is rendered unconditionally once the terminal tab has been created.
+  // This prevents the VM from rebooting on every toggle.
+  const terminalOverlay = hasTerminal ? (
+    <div
+      className="flex-1 overflow-hidden"
+      style={{
+        minHeight: 0,
+        display: isTerminalActive ? 'flex' : 'none',
+        flexDirection: 'column',
+      }}
+    >
+      <TerminalPanel
+        bundleUrl="/assets/wasm/sys.tar.gz"
+        wasmUrl="/assets/wasm/boot.wasm"
+        wanixUrl="/assets/wasm/wanix.min.js"
+      />
+    </div>
+  ) : null;
+
   if (!activeTab) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[#0d1117] text-neutral-500 font-mono text-sm">
-        Select a file or artifact to preview
-      </div>
+      <>
+        {terminalOverlay}
+        <div className="flex-1 flex items-center justify-center bg-[#0d1117] text-neutral-500 font-mono text-sm">
+          Select a file or artifact to preview
+        </div>
+      </>
     );
   }
 
@@ -76,8 +105,10 @@ export default function PreviewPane({
     };
     
     return (
-      <div className="flex-1 flex flex-col min-h-0 bg-[#0d1117]">
-        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+      <>
+        {terminalOverlay}
+        <div className="flex-1 flex flex-col min-h-0 bg-[#0d1117]">
+          <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
           <div className="text-sm text-neutral-300 prose prose-invert max-w-none">
             <Markdown>{activeTab.content}</Markdown>
           </div>
@@ -163,14 +194,20 @@ export default function PreviewPane({
           </div>
         )}
       </div>
+      </>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#0d1117] font-mono text-sm text-neutral-300 custom-scrollbar p-6">
-      <pre className="whitespace-pre-wrap break-words leading-relaxed">
-        {activeTab.content}
-      </pre>
-    </div>
+    <>
+      {terminalOverlay}
+      {!isTerminalActive && (
+        <div className="flex-1 overflow-y-auto bg-[#0d1117] font-mono text-sm text-neutral-300 custom-scrollbar p-6">
+          <pre className="whitespace-pre-wrap break-words leading-relaxed">
+            {activeTab.content}
+          </pre>
+        </div>
+      )}
+    </>
   );
 }

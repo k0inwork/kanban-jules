@@ -1,0 +1,34 @@
+{
+  "id": "executor-wasm",
+  "name": "WASM Linux Executor",
+  "version": "0.1.0",
+  "type": "executor",
+  "description": "Executes shell commands in an ephemeral WASM Linux VM. Full Alpine Linux environment with network access. Output is collected and returned as artifacts.",
+  "tools": [
+    {
+      "name": "executor-wasm.execute",
+      "description": "Execute a shell command in a fresh WASM Linux VM. The VM has access to /repo (read-only) and /tmp (writable scratch). Network is available.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute in the VM."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in milliseconds (default 30000)."
+          }
+        },
+        "required": ["command"]
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "readFile": "knowledge-repo-browser.readFile",
+    "saveArtifact": "knowledge-artifacts.saveArtifact",
+    "listArtifacts": "knowledge-artifacts.listArtifacts"
+  },
+  "permissions": ["web-worker"],
+  "enabled": false
+}
