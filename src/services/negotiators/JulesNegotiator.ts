@@ -103,7 +103,28 @@ export class JulesNegotiator {
             if (a.progressUpdated) {
               const title = a.progressUpdated.title || a.description || 'Working...';
               const desc = a.progressUpdated.description ? `: ${a.progressUpdated.description}` : '';
-              appendJnaLog(`[Jules Progress] ${title}${desc}`);
+              const progressMsg = `${title}${desc}`;
+              appendJnaLog(`[Jules Progress] ${progressMsg}`);
+              
+              // Analyze progress update against success criteria
+              const verifyPrompt = `The user asked for: "${prompt}"
+              The success criteria is: "${successCriteria}"
+              
+              Jules just reported this progress: "${progressMsg}"
+              
+              Does this progress update contain the final answer or result that meets the success criteria?
+              Return only "true" or "false".`;
+              
+              try {
+                const verifyResult = await llmCall(verifyPrompt);
+                if (verifyResult.trim().toLowerCase() === 'true') {
+                  appendJnaLog(`Progress update meets success criteria. Treating as final result.`);
+                  julesResponse = progressMsg;
+                  break;
+                }
+              } catch (e) {
+                appendJnaLog(`Failed to verify progress update: ${e}`);
+              }
             } else if (a.planGenerated) {
               appendJnaLog(`[Jules Plan Generated] ${a.planGenerated.plan?.steps?.length || 0} steps. Auto-approving...`);
               await julesApi.approvePlan(julesApiKey, session.name);
@@ -137,16 +158,23 @@ export class JulesNegotiator {
             lastHeartbeatTime = Date.now();
           }
           
-          // Idle timeout: If absolutely no activity for 5 minutes, kill it
-          if (Date.now() - lastActivityTime > 300000) {
-            appendJnaLog(`Jules has been completely unresponsive for 5 minutes. Abandoning and deleting session.`);
+          // Idle timeout: If absolutely no activity for 10 minutes, kill it
+          if (Date.now() - lastActivityTime > 600000) {
+            appendJnaLog(`Jules has been completely unresponsive for 10 minutes. Abandoning and deleting session.`);
             try {
               await julesApi.deleteSession(julesApiKey, session.name);
             } catch (e) {
               appendJnaLog(`Failed to delete unresponsive session: ${e}`);
             }
             await db.julesSessions.where('name').equals(session.name).delete();
-            throw new Error("Jules is unresponsive (no activity for 5 minutes). Abandoning session.");
+            throw new Error("Jules is unresponsive (no activity for 10 minutes). Abandoning session.");
+          }
+
+          // Check-in: If no activity for 3 minutes, ask "Where are we now?"
+          if (Date.now() - lastActivityTime > 180000) {
+            appendJnaLog(`Jules has been working for 3 minutes without update. Sending check-in.`);
+            await JulesSessionManager.sendMessage(julesApiKey, session.name, "Where are we now? Please provide a brief status update.");
+            lastActivityTime = Date.now(); // Reset to avoid spamming
           }
         }
 

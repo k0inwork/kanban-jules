@@ -76,16 +76,26 @@ export class GithubHandler {
     // Detect default branch if not provided
     let branch = targetBranch;
     if (!branch) {
-      const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
+      const url = `https://api.github.com/repos/${owner}/${repo}`;
+      console.log(`[GithubHandler] Fetching repo info: ${url}`);
+      let repoRes: Response;
+      try {
+        repoRes = await fetch(url, {
+          headers: {
+            'Authorization': `token ${githubToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+      } catch (e) {
+        console.error(`[GithubHandler] Network error fetching repo info: ${url}`, e);
+        throw new Error(`Network error fetching repo info: ${e}`);
+      }
+      
       if (repoRes.ok) {
         const repoData = await repoRes.json();
         branch = repoData.default_branch;
       } else {
+        console.warn(`[GithubHandler] Failed to fetch repo info, status: ${repoRes.status}`);
         branch = 'main';
       }
     }
@@ -95,6 +105,20 @@ export class GithubHandler {
     // Add a longer delay to allow GitHub to index the file
     await new Promise(resolve => setTimeout(resolve, 10000));
 
+    // Helper for fetch with retries
+    const fetchWithRetry = async (url: string, options: RequestInit, retries = 3): Promise<Response> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          return await fetch(url, options);
+        } catch (e) {
+          console.error(`[GithubHandler] Network error (attempt ${i + 1}/${retries}): ${url}`, e);
+          if (i === retries - 1) throw e;
+          await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        }
+      }
+      throw new Error("Unreachable");
+    };
+
     // 1. Create/Update the workflow file
     let sha: string | undefined;
     let updateRes: Response | undefined;
@@ -102,7 +126,7 @@ export class GithubHandler {
     // Retry loop for file update to handle SHA conflicts
     for (let attempt = 0; attempt < 3; attempt++) {
       // Always fetch the latest SHA before attempting update
-      const fileRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}?ref=${branch}`, {
+      const fileRes = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}?ref=${branch}`, {
         headers: {
           'Authorization': `token ${githubToken}`,
           'Accept': 'application/vnd.github.v3+json'
@@ -111,7 +135,7 @@ export class GithubHandler {
 
       sha = fileRes.ok ? (await fileRes.json()).sha : undefined;
 
-      updateRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}`, {
+      updateRes = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}`, {
         method: 'PUT',
         headers: {
           'Authorization': `token ${githubToken}`,
@@ -147,10 +171,22 @@ export class GithubHandler {
       throw new Error(`Failed to update workflow file: ${errorMessage}`);
     }
 
+    // Wait for GitHub to index the new/updated workflow
+    for (let i = 0; i < 10; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}`, {
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+      if (checkRes.ok) break;
+    }
+
     // 2. Trigger the workflow via workflow_dispatch
     let dispatchRes: Response | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
-      dispatchRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}/dispatches`, {
+      dispatchRes = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}/dispatches`, {
         method: 'POST',
         headers: {
           'Authorization': `token ${githubToken}`,
@@ -241,7 +277,7 @@ export class GithubHandler {
     }
 
     const [owner, repo] = targetRepoUrl.split('/');
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`, {
+    const res = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`, {
       headers: {
         'Authorization': `token ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json'
@@ -296,7 +332,7 @@ export class GithubHandler {
     }
 
     const [owner, repo] = targetRepoUrl.split('/');
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`, {
+    const res = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`, {
       headers: {
         'Authorization': `token ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json'
@@ -314,7 +350,7 @@ export class GithubHandler {
 
     for (const artifact of artifacts) {
       // Download the artifact (it's a zip file)
-      const downloadRes = await fetch(artifact.archive_download_url, {
+      const downloadRes = await fetchWithRetry(artifact.archive_download_url, {
         headers: {
           'Authorization': `token ${githubToken}`
         }
