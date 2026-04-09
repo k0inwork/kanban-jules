@@ -84,7 +84,8 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
   }).join('\n');
 
   const commonTools = [
-    "- askUser(prompt): Asks the user for input or clarification.",
+    "- askUser(prompt): Asks the user for input or clarification. Pauses execution until they reply.",
+    "- sendUser(message): Sends a message to the user without waiting for a reply. Use this to report final results.",
     "- analyze(data, options?): Analyzes the provided data using an LLM and adds the summary to the AgentContext. options: { includeContext?: boolean } (default: true). Set includeContext: false for a 'clean' analysis of only the provided data.",
     "- addToContext(key, value): Directly adds a key-value pair to the AgentContext. If only one argument is provided, it directly appends the data to the context without an LLM call."
   ].join('\n');
@@ -116,6 +117,7 @@ RULES:
 - CRITICAL: The code runs in a secure browser-based Web Worker sandbox (Sval). You DO NOT have access to Node.js built-ins (like require, fs, child_process) or the host filesystem. You MUST use the provided async APIs (like askJules, repo.readFile, etc.) to perform any work.
 - Use AgentContext to store state between steps if needed.
 - If you need user input, use askUser(prompt).
+- If you are just reporting the final result, use sendUser(message) instead of askUser so the agent doesn't pause waiting for an "ok".
 - If you are using executor-github, you must first runWorkflow, then poll getRunStatus, then fetchArtifacts.
   `;
 }
@@ -145,6 +147,7 @@ RULES:
 - "executor-jules" is best for large, ambitious coding tasks in a remote VM.
 - "executor-github" is best for heavy compute, CI/CD, or long-running processes.
 - Combine all steps assigned to "executor-github" into a single, non-reentrant step. Jules steps can remain separate.
+- CRITICAL: NEVER instruct executors to communicate with each other by creating GitHub issues, PRs, or writing temporary files to the repository. All inter-step communication MUST happen by saving results to the AgentContext (which is shared between steps).
 
 Output ONLY valid JSON matching this schema:
 {

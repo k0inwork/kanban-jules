@@ -156,7 +156,14 @@ export class Orchestrator {
       const prompt = composeProgrammerPrompt(modules, task, step, errorContext);
       
       try {
-        let code = await this.config.llmCall(prompt);
+        let code: string;
+        try {
+          code = await this.config.llmCall(prompt);
+        } catch (llmError: any) {
+          // If the LLM call itself fails (e.g. network error), don't count it as a code execution attempt.
+          // The host.ts llmCall already retries 3 times, but if it still fails, we should pause or wait.
+          throw new Error(`LLM Generation Failed: ${llmError.message}`);
+        }
         
         const codeMatch = code.match(/```(?:javascript|js)?\n([\s\S]*?)\n```/i);
         if (codeMatch) {
@@ -174,7 +181,18 @@ export class Orchestrator {
       } catch (error: any) {
         await this.logToChat(taskId, `Error generating or executing code: ${error.message}`);
         this.appendActionLog(taskId, `Error in Step ${stepId}: ${error.message}`);
-        errorContext = error.message + (error.stack ? `\n${error.stack}` : '');
+        
+        const isNetworkError = error.message?.includes('NetworkError') || error.message?.includes('fetch') || error.message?.includes('ECONNREFUSED') || error.message?.includes('LLM Generation Failed');
+        
+        if (isNetworkError) {
+          // If it's a network error, don't count it against the attempt limit.
+          // Wait 15 seconds and try again.
+          attempt--;
+          await this.logToChat(taskId, `Network error detected. Retrying step in 15 seconds...`);
+          await new Promise(r => setTimeout(r, 15000));
+        } else {
+          errorContext = error.message + (error.stack ? `\n${error.stack}` : '');
+        }
       }
     }
     
@@ -199,6 +217,7 @@ export class Orchestrator {
       'analyze': 'host.analyze',
       'addToContext': 'host.addToContext',
       'askUser': 'channel-user-negotiator.askUser',
+      'sendUser': 'channel-user-negotiator.sendUser',
       '__agentContextGet': 'host.agentContextGet',
       '__agentContextSet': 'host.agentContextSet'
     };
@@ -265,7 +284,28 @@ export class Orchestrator {
       let protocol = currentTask?.protocol;
       if (!protocol) {
         await appendLog(`> [Architect] Generating Task Protocol...\n`);
-        protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
+        
+        let protocolAttempts = 0;
+        while (protocolAttempts < 5) {
+          try {
+            protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
+            break;
+          } catch (e: any) {
+            protocolAttempts++;
+            const isNetworkError = e.message?.includes('NetworkError') || e.message?.includes('fetch') || e.message?.includes('ECONNREFUSED');
+            if (isNetworkError) {
+              await appendLog(`> [Architect] Network error generating protocol. Retrying in 10s...\n`);
+              await new Promise(r => setTimeout(r, 10000));
+              protocolAttempts--; // Don't count network errors
+            } else if (protocolAttempts >= 5) {
+              throw e;
+            } else {
+              await appendLog(`> [Architect] Error generating protocol: ${e.message}. Retrying...\n`);
+              await new Promise(r => setTimeout(r, 5000));
+            }
+          }
+        }
+        
         const architectModel = this.config.apiProvider === 'gemini' ? this.config.geminiModel : this.config.openaiModel;
         await db.tasks.update(task.id, { protocol, architectModel });
         currentTask = { ...currentTask!, protocol, architectModel };

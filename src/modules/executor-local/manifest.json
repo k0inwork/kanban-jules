@@ -27,7 +27,8 @@
     "writeFile": "knowledge-repo-browser.writeFile",
     "saveArtifact": "knowledge-artifacts.saveArtifact",
     "listArtifacts": "knowledge-artifacts.listArtifacts",
-    "askUser": "channel-user-negotiator.askUser"
+    "askUser": "channel-user-negotiator.askUser",
+    "sendUser": "channel-user-negotiator.sendUser"
   },
   "permissions": ["storage"],
   "enabled": true

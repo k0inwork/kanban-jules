@@ -91,6 +91,23 @@ export class UserNegotiator {
     return reply;
   }
 
+  static async sendMessage(taskId: string, message: string): Promise<void> {
+    const appendUnaLog = (msg: string) => {
+      eventBus.emit('module:log', { taskId, moduleId: 'channel-user-negotiator', message: msg });
+    };
+
+    appendUnaLog(`Sending message to user: "${message}"`);
+    
+    await db.messages.add({
+      sender: 'local-agent',
+      taskId: taskId,
+      type: 'alert',
+      content: message,
+      status: 'unread',
+      timestamp: Date.now()
+    });
+  }
+
   private static async validateReply(reply: string, format: string, llmCall: (prompt: string) => Promise<string>): Promise<boolean> {
     const prompt = `Does the following user reply match the expected format?
     Reply: "${reply}"

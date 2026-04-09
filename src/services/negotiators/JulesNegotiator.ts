@@ -21,6 +21,23 @@ export class JulesNegotiator {
       throw new Error("Jules API Key is not configured.");
     }
 
+    const safeLlmCall = async (promptText: string, jsonMode?: boolean, retries = 5): Promise<string> => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          return await llmCall(promptText, jsonMode);
+        } catch (e: any) {
+          const isRateLimit = e?.message?.includes('429') || e?.message?.includes('1302') || e?.message?.includes('rate limit') || e?.message?.includes('速率限制');
+          if (i === retries - 1 || !isRateLimit) {
+            throw e;
+          }
+          const delay = 10000 * (i + 1); // 10s, 20s, 30s...
+          console.warn(`[JulesNegotiator] LLM rate limit hit. Retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+      }
+      throw new Error("Unreachable");
+    };
+
     // 1. Get or create session
     console.log(`[JulesNegotiator] Finding or creating session for task: ${task.id}`);
     
@@ -81,8 +98,17 @@ export class JulesNegotiator {
           throw new Error("Jules timeout: No final response after 15 minutes.");
         }
 
-        const activitiesRes = await julesApi.listActivities(julesApiKey, session.name, 10);
-        const activities = activitiesRes.activities || [];
+        let allActivities: any[] = [];
+        let pageToken: string | undefined = undefined;
+        do {
+          const activitiesRes = await julesApi.listActivities(julesApiKey, session.name, 100, pageToken);
+          if (activitiesRes.activities) {
+            allActivities = allActivities.concat(activitiesRes.activities);
+          }
+          pageToken = activitiesRes.nextPageToken;
+        } while (pageToken);
+        
+        const activities = allActivities;
         
         // Also check session state directly
         const currentSession = await julesApi.getSession(julesApiKey, session.name);
@@ -97,6 +123,7 @@ export class JulesNegotiator {
           lastHeartbeatTime = Date.now();
           lastActivityTime = Date.now(); // Reset idle timer to CURRENT time, not activity creation time
           
+          let foundFinalResult = false;
           for (const a of newActivities) {
             latestActivityTimestamp = Math.max(latestActivityTimestamp, new Date(a.createTime!).getTime());
             
@@ -116,10 +143,11 @@ export class JulesNegotiator {
               Return only "true" or "false".`;
               
               try {
-                const verifyResult = await llmCall(verifyPrompt);
+                const verifyResult = await safeLlmCall(verifyPrompt);
                 if (verifyResult.trim().toLowerCase() === 'true') {
                   appendJnaLog(`Progress update meets success criteria. Treating as final result.`);
                   julesResponse = progressMsg;
+                  foundFinalResult = true;
                   break;
                 }
               } catch (e) {
@@ -136,6 +164,10 @@ export class JulesNegotiator {
             }
           }
           
+          if (foundFinalResult) {
+            break;
+          }
+          
           // Check for agent messages specifically to break out
           const newMessages = newActivities.filter(a => a.agentMessaged);
           if (newMessages.length > 0) {
@@ -147,7 +179,7 @@ export class JulesNegotiator {
           // If session completed but no agent message, break out with whatever progress we have
           if (newActivities.some(a => a.sessionCompleted)) {
             appendJnaLog(`Session completed without a final agent message.`);
-            julesResponse = "Session completed successfully.";
+            julesResponse = julesResponse || "Session completed successfully.";
             break;
           }
         } else {
@@ -214,7 +246,7 @@ Return a JSON object with this exact structure:
 }`;
 
           try {
-            const analysisStr = await llmCall(analysisPrompt, true);
+            const analysisStr = await safeLlmCall(analysisPrompt, true);
             const analysis = JSON.parse(analysisStr);
             appendJnaLog(`Context Analysis: ${analysis.reasoning}`);
             
@@ -272,7 +304,7 @@ Return a JSON object with this exact structure:
       
       Return only "true" or "false".`;
       
-      const verifyResult = await llmCall(verifyPrompt);
+      const verifyResult = await safeLlmCall(verifyPrompt);
       const isSuccess = verifyResult.trim().toLowerCase() === 'true';
 
       if (isSuccess) {

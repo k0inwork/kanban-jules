@@ -9,10 +9,16 @@
       "name": "channel-user-negotiator.askUser",
       "description": "Asks the user a question and waits for a reply.",
       "parameters": { "type": "object", "properties": { "question": { "type": "string" }, "format": { "type": "string" } } }
+    },
+    {
+      "name": "channel-user-negotiator.sendUser",
+      "description": "Sends a message to the user without waiting for a reply and without changing task status.",
+      "parameters": { "type": "object", "properties": { "message": { "type": "string" } } }
     }
   ],
   "sandboxBindings": {
-    "askUser": "channel-user-negotiator.askUser"
+    "askUser": "channel-user-negotiator.askUser",
+    "sendUser": "channel-user-negotiator.sendUser"
   },
   "permissions": []
 }

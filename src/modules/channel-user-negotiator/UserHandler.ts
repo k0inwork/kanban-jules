@@ -6,6 +6,8 @@ export class UserHandler {
     switch (toolName) {
       case 'channel-user-negotiator.askUser':
         return this.askUser(args, context);
+      case 'channel-user-negotiator.sendUser':
+        return this.sendUser(args, context);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
@@ -23,5 +25,17 @@ export class UserHandler {
     }
 
     return UserNegotiator.negotiate(context.taskId, question, format, context.llmCall);
+  }
+
+  private async sendUser(args: any[], context: RequestContext): Promise<void> {
+    let message: string;
+
+    if (args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+      message = args[0].message;
+    } else {
+      message = args[0];
+    }
+
+    return UserNegotiator.sendMessage(context.taskId, message);
   }
 }

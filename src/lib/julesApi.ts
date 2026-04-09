@@ -141,39 +141,67 @@ async function julesRequest<T>(
   apiKey: string,
   path: string,
   options: RequestInit = {},
+  retries = 3
 ): Promise<T> {
   const url = `${JULES_BASE_URL}${path}`;
   console.log(`[Jules API] ${options.method || 'GET'} ${url}`);
   if (options.body) {
     console.log(`[Jules API] Body: ${options.body}`);
   }
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'x-goog-api-key': apiKey,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-
-  if (!response.ok) {
-    let errorBody: { error?: { code?: number; message?: string; status?: string } } = {};
+  
+  let lastError: any;
+  for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      errorBody = await response.json();
-    } catch {
-      // ignore parse error
-    }
-    console.error(`[Jules API Error] ${response.status} ${url}`, errorBody);
-    throw new JulesApiError(
-      response.status,
-      errorBody?.error?.status,
-      errorBody?.error?.message || `HTTP ${response.status}`,
-    );
-  }
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'x-goog-api-key': apiKey,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
 
-  const text = await response.text();
-  if (!text) return {} as T;
-  return JSON.parse(text) as T;
+      if (!response.ok) {
+        let errorBody: { error?: { code?: number; message?: string; status?: string } } = {};
+        try {
+          errorBody = await response.json();
+        } catch {
+          // ignore parse error
+        }
+        
+        // Retry on 5xx errors or 429 Rate Limit
+        if (response.status >= 500 || response.status === 429) {
+          if (attempt < retries - 1) {
+            const delay = 2000 * (attempt + 1);
+            console.warn(`[Jules API] HTTP ${response.status}. Retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+        }
+        
+        console.error(`[Jules API Error] ${response.status} ${url}`, errorBody);
+        throw new JulesApiError(
+          response.status,
+          errorBody?.error?.status,
+          errorBody?.error?.message || `HTTP ${response.status}`,
+        );
+      }
+
+      const text = await response.text();
+      if (!text) return {} as T;
+      return JSON.parse(text) as T;
+    } catch (error: any) {
+      lastError = error;
+      const isNetworkError = error.message?.includes('NetworkError') || error.message?.includes('fetch') || error.message?.includes('ECONNREFUSED');
+      if (!isNetworkError || attempt === retries - 1) {
+        throw error;
+      }
+      const delay = 2000 * (attempt + 1);
+      console.warn(`[Jules API] Network error: ${error.message}. Retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
 }
 
 export const julesApi = {

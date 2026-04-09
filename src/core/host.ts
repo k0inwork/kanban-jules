@@ -72,36 +72,60 @@ export class ModuleHost {
   async llmCall(prompt: string, jsonMode?: boolean): Promise<string> {
     if (!this.config) throw new Error("Host not initialized");
     
-    if (this.config.apiProvider === 'gemini') {
-      const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
-      const response: GenerateContentResponse = await ai.models.generateContent({
-        model: this.config.geminiModel,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: jsonMode ? { responseMimeType: 'application/json' } : undefined
-      });
-      return response.text || '';
-    } else {
-      const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.openaiKey}`
-        },
-        body: JSON.stringify({
-          model: this.config.openaiModel,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          response_format: jsonMode ? { type: 'json_object' } : undefined
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content || '';
-      } else {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${error}`);
+    const maxRetries = 3;
+    let lastError: any;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        if (this.config.apiProvider === 'gemini') {
+          const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
+          const response: GenerateContentResponse = await ai.models.generateContent({
+            model: this.config.geminiModel,
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: jsonMode ? { responseMimeType: 'application/json' } : undefined
+          });
+          return response.text || '';
+        } else {
+          const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${this.config.openaiKey}`
+            },
+            body: JSON.stringify({
+              model: this.config.openaiModel,
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.1,
+              response_format: jsonMode ? { type: 'json_object' } : undefined
+            })
+          });
+          if (response.ok) {
+            const data = await response.json();
+            return data.choices[0].message.content || '';
+          } else {
+            const error = await response.text();
+            throw new Error(`OpenAI API error: ${error}`);
+          }
+        }
+      } catch (error: any) {
+        lastError = error;
+        const isNetworkError = error.message?.includes('NetworkError') || error.message?.includes('fetch') || error.message?.includes('ECONNREFUSED');
+        const isRateLimit = error.message?.includes('429') || error.message?.includes('1302') || error.message?.includes('rate limit') || error.message?.includes('速率限制');
+        
+        if (!isNetworkError && !isRateLimit) {
+          throw error; // Don't retry other errors like 400 Bad Request
+        }
+        
+        if (attempt < maxRetries - 1) {
+          const delay = 5000 * (attempt + 1); // 5s, 10s
+          const msg = `[Host] LLM call failed (attempt ${attempt + 1}/${maxRetries}). Retrying in ${delay}ms... Error: ${error.message}`;
+          console.warn(msg);
+          eventBus.emit('module:log', { taskId: 'system', moduleId: 'orchestrator', message: msg });
+          await new Promise(r => setTimeout(r, delay));
+        }
       }
     }
+    throw lastError;
   }
 
   async init(config: HostConfig) {
@@ -129,6 +153,7 @@ export class ModuleHost {
 
     registry.registerHandler('executor-jules.execute', julesHandler.handleRequest.bind(julesHandler));
     registry.registerHandler('channel-user-negotiator.askUser', userHandler.handleRequest.bind(userHandler));
+    registry.registerHandler('channel-user-negotiator.sendUser', userHandler.handleRequest.bind(userHandler));
     registry.registerHandler('executor-local.execute', localHandler.handleRequest.bind(localHandler));
     registry.registerHandler('executor-github.runWorkflow', githubHandler.handleRequest.bind(githubHandler));
     registry.registerHandler('executor-github.getRunStatus', githubHandler.handleRequest.bind(githubHandler));

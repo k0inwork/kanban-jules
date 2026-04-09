@@ -55,7 +55,7 @@ export class GitFs {
       return cached.content;
     }
     
-    const response = await fetch(this.getApiUrl(path), {
+    const response = await this.fetchWithRetry(this.getApiUrl(path), {
       headers: {
         'Authorization': `token ${this.token}`,
         'Accept': 'application/vnd.github.v3+json'
@@ -74,8 +74,27 @@ export class GitFs {
   }
 
   // List files
+  private async fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
+    let lastError: any;
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fetch(url, options);
+      } catch (e: any) {
+        lastError = e;
+        const isNetworkError = e.message?.includes('NetworkError') || e.message?.includes('fetch') || e.message?.includes('ECONNREFUSED');
+        if (!isNetworkError || i === retries - 1) {
+          throw e;
+        }
+        const delay = 2000 * (i + 1);
+        console.warn(`[GitFs] Network error: ${e.message}. Retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw lastError;
+  }
+
   async listFiles(path: string = ''): Promise<GitFile[]> {
-    const response = await fetch(this.getApiUrl(path), {
+    const response = await this.fetchWithRetry(this.getApiUrl(path), {
       headers: {
         'Authorization': `token ${this.token}`,
         'Accept': 'application/vnd.github.v3+json'
@@ -103,12 +122,12 @@ export class GitFs {
     // 1. Try to get existing file to get SHA
     let sha: string | undefined;
     try {
-      const getResponse = await fetch(this.getApiUrl(path), {
+      const getResponse = await this.fetchWithRetry(this.getApiUrl(path), {
         headers: {
           'Authorization': `token ${this.token}`,
           'Accept': 'application/vnd.github.v3+json'
         }
-      });
+      }, 2); // only retry once for GET
       if (getResponse.ok) {
         const data = await getResponse.json();
         sha = data.sha;
@@ -118,7 +137,7 @@ export class GitFs {
     }
 
     // 2. Write file
-    const response = await fetch(apiUrl, {
+    const response = await this.fetchWithRetry(apiUrl, {
       method: 'PUT',
       headers: {
         'Authorization': `token ${this.token}`,
