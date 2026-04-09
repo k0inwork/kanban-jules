@@ -194,7 +194,7 @@ export default function MailboxView({
         </div>
       )}
 
-      {msg.type !== 'proposal' && (
+      {msg.type !== 'proposal' && (msg.sender === 'user' || msg.sender === 'process-agent') && (
         <div className="mt-3 flex justify-end">
           <button
             disabled={extractingMsgId === msg.id}

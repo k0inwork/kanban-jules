@@ -343,7 +343,7 @@ export class Orchestrator {
       
       await appendLog(`> [Orchestrator] Step execution complete. Status: ${status}\n`);
       
-      let nextWorkflowStatus: WorkflowStatus = 'IN_REVIEW';
+      let nextWorkflowStatus: WorkflowStatus = 'DONE';
       let nextAgentState: AgentState = 'IDLE';
       
       if (status === 'PAUSED') {
@@ -351,7 +351,7 @@ export class Orchestrator {
         nextWorkflowStatus = updatedTask?.workflowStatus || 'IN_PROGRESS';
         nextAgentState = updatedTask?.agentState || 'WAITING_FOR_USER';
       } else if (status === 'DONE') {
-        nextWorkflowStatus = 'IN_REVIEW';
+        nextWorkflowStatus = 'DONE';
         nextAgentState = 'IDLE';
       }
 
