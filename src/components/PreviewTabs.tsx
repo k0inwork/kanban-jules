@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, FileText, Paperclip, Mail, LayoutDashboard, Terminal } from 'lucide-react';
+import { X, FileText, Paperclip, Mail, LayoutDashboard } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 import { AgentMessage } from '../services/db';
@@ -8,7 +8,7 @@ export interface Tab {
   id: string;
   name: string;
   content: string;
-  type: 'file' | 'artifact' | 'constitution' | 'mail' | 'terminal';
+  type: 'file' | 'artifact' | 'constitution' | 'mail';
   message?: AgentMessage;
 }
 
@@ -46,10 +46,9 @@ export default function PreviewTabs({ tabs, activeTabId, onTabSelect, onTabClose
             activeTabId === tab.id ? "bg-neutral-800 text-white" : "text-neutral-500 hover:bg-neutral-800/50 hover:text-neutral-300"
           )}
         >
-          {tab.type === 'file' ? <FileText className="w-3.5 h-3.5" /> :
+          {tab.type === 'file' ? <FileText className="w-3.5 h-3.5" /> : 
            tab.type === 'artifact' ? <Paperclip className="w-3.5 h-3.5" /> :
            tab.type === 'mail' ? <Mail className="w-3.5 h-3.5 text-blue-400" /> :
-           tab.type === 'terminal' ? <Terminal className="w-3.5 h-3.5 text-green-400" /> :
            <FileText className="w-3.5 h-3.5 text-blue-400" />}
           <span className="text-xs font-mono truncate flex-1">{tab.name}</span>
           <button

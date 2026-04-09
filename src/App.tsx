@@ -895,12 +895,6 @@ export default function App() {
                   bundleUrl="/assets/wasm/sys.tar.gz"
                   wasmUrl="/assets/wasm/boot.wasm"
                   wanixUrl="/assets/wasm/wanix.min.js"
-                  apiProvider={apiProvider}
-                  geminiApiKey={geminiApiKey}
-                  geminiModel={geminiModel}
-                  openaiUrl={openaiUrl}
-                  openaiKey={openaiKey}
-                  openaiModel={openaiModel}
                 />
               </div>
               {/* Non-terminal content */}

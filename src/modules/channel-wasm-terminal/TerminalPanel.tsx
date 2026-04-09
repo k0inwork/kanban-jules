@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-export const BUILD = 34;
+export const BUILD = 35;
 
 /**
  * TerminalPanel — xterm.js terminal connected to a Wanix VM.
@@ -114,6 +114,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
     term.open(terminalRef.current);
     fitAddon.fit();
     xtermRef.current = term;
+    (window).__xterm = term; // expose for testing
 
     term.writeln(`\r\n\x1b[1;36m●\x1b[0m Starting terminal (v${BUILD})...\r\n`);
 
@@ -180,6 +181,216 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
             } catch (e: any) {
               console.error('[llmfs] API error:', e);
               return `ERROR: ${e.message}`;
+            }
+          },
+          sendRequest: async (reqJSON: string) => {
+            console.log('[llmfs] sendRequest:', reqJSON.substring(0, 200));
+            try {
+              const req = JSON.parse(reqJSON);
+              if (apiProvider === 'gemini') {
+                // Convert OpenAI format to Gemini format
+                const { GoogleGenAI } = await import('@google/genai');
+                const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+                // Build Gemini contents from OpenAI messages
+                const contents: any[] = [];
+                for (const msg of req.messages || []) {
+                  if (msg.role === 'system') continue; // handle separately
+                  contents.push({
+                    role: msg.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }],
+                  });
+                }
+                // Convert OpenAI tools to Gemini tools
+                const geminiTools: any[] = [];
+                for (const tool of req.tools || []) {
+                  geminiTools.push({
+                    functionDeclarations: [{
+                      name: tool.function.name,
+                      description: tool.function.description,
+                      parameters: tool.function.parameters,
+                    }],
+                  });
+                }
+                const response = await ai.models.generateContent({
+                  model: geminiModel,
+                  contents,
+                  config: {
+                    systemInstruction: req.messages?.find((m: any) => m.role === 'system')?.content,
+                    tools: geminiTools.length > 0 ? geminiTools : undefined,
+                  },
+                });
+                // Convert Gemini response back to OpenAI format
+                const candidate = response.candidates?.[0];
+                const contentParts: any[] = [];
+                const toolCalls: any[] = [];
+                if (candidate?.content?.parts) {
+                  let toolIdx = 0;
+                  for (const part of candidate.content.parts) {
+                    if (part.text) {
+                      contentParts.push({ type: 'text', text: part.text });
+                    } else if (part.functionCall) {
+                      toolCalls.push({
+                        id: `call_${toolIdx}`,
+                        type: 'function',
+                        function: {
+                          name: part.functionCall.name,
+                          arguments: JSON.stringify(part.functionCall.args),
+                        },
+                      });
+                      toolIdx++;
+                    }
+                  }
+                }
+                const openaiResp: any = {
+                  id: `chatcmpl-${Date.now()}`,
+                  object: 'chat.completion',
+                  choices: [{
+                    index: 0,
+                    message: {
+                      role: 'assistant',
+                      content: contentParts.map((p: any) => p.text).filter(Boolean).join('') || null,
+                      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+                    },
+                    finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+                  }],
+                  usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+                };
+                return JSON.stringify(openaiResp);
+              } else {
+                // OpenAI-compatible: pass through directly
+                const response = await fetch(`${openaiUrl}/chat/completions`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${openaiKey}`,
+                  },
+                  body: reqJSON,
+                });
+                if (response.ok) {
+                  const data = await response.json();
+                  return JSON.stringify(data);
+                } else {
+                  const error = await response.text();
+                  throw new Error(`OpenAI API error: ${error}`);
+                }
+              }
+            } catch (e: any) {
+              console.error('[llmfs] sendRequest error:', e);
+              return JSON.stringify({ error: { message: e.message } });
+            }
+          },
+        },
+        toolfs: {
+          listTools: async () => {
+            return JSON.stringify([
+              // Board tools
+              { name: 'list_tasks', description: 'List all kanban board tasks with their status', params: {} },
+              { name: 'get_task', description: 'Get full task details including description, status, steps, and analysis', params: { task_id: { type: 'string', description: 'Task ID', required: true } } },
+              { name: 'update_task', description: 'Update task fields (workflowStatus, agentState, description, etc.)', params: { task_id: { type: 'string', description: 'Task ID', required: true }, updates: { type: 'object', description: 'Fields to update', required: true } } },
+              { name: 'get_task_logs', description: 'Download task execution logs from all modules (executor, negotiator, orchestrator)', params: { task_id: { type: 'string', description: 'Task ID', required: true } } },
+              { name: 'get_jules_activities', description: 'Download Jules session activity log for a task (plans, steps, outputs, errors)', params: { task_id: { type: 'string', description: 'Task ID', required: true } } },
+              { name: 'list_artifacts', description: 'List all artifacts', params: {} },
+              { name: 'read_artifact', description: 'Read artifact content by name', params: { name: { type: 'string', description: 'Artifact name', required: true } } },
+              { name: 'save_artifact', description: 'Save or create an artifact', params: { name: { type: 'string', description: 'Artifact name', required: true }, content: { type: 'string', description: 'Artifact content', required: true } } },
+              // Git/file tools
+              { name: 'git_get_file', description: 'Read a file from the git repository', params: { path: { type: 'string', description: 'File path in repo', required: true } } },
+              { name: 'git_list_files', description: 'List files in a git repository directory', params: { path: { type: 'string', description: 'Directory path (use "" for root)', required: false } } },
+            ]);
+          },
+          callTool: async (name: string, paramsJSON: string) => {
+            console.log('[toolfs] callTool:', name, paramsJSON.substring(0, 200));
+            const params = JSON.parse(paramsJSON);
+            try {
+              const { db } = await import('../../services/db');
+
+              switch (name) {
+                // --- Board tools ---
+                case 'list_tasks': {
+                  const tasks = await db.tasks.toArray();
+                  return JSON.stringify({ content: JSON.stringify(tasks.map(t => ({
+                    id: t.id, title: t.title, workflowStatus: t.workflowStatus,
+                    agentState: t.agentState, createdAt: t.createdAt,
+                    description: t.description?.substring(0, 200),
+                  }))), error: '' });
+                }
+                case 'get_task': {
+                  const task = await db.tasks.get(params.task_id);
+                  if (!task) return JSON.stringify({ content: '', error: `Task ${params.task_id} not found` });
+                  return JSON.stringify({ content: JSON.stringify(task), error: '' });
+                }
+                case 'update_task': {
+                  await db.tasks.update(params.task_id, params.updates);
+                  return JSON.stringify({ content: `Task ${params.task_id} updated`, error: '' });
+                }
+                case 'get_task_logs': {
+                  const task = await db.tasks.get(params.task_id);
+                  if (!task) return JSON.stringify({ content: '', error: `Task ${params.task_id} not found` });
+                  const logs = task.moduleLogs || {};
+                  return JSON.stringify({ content: JSON.stringify({ taskId: task.id, title: task.title, status: task.workflowStatus, agentState: task.agentState, logs }), error: '' });
+                }
+                case 'get_jules_activities': {
+                  const task = await db.tasks.get(params.task_id);
+                  if (!task) return JSON.stringify({ content: '', error: `Task ${params.task_id} not found` });
+                  const session = await db.julesSessions.where('taskId').equals(params.task_id).first();
+                  if (!session) return JSON.stringify({ content: JSON.stringify({ info: 'No Jules session for this task' }), error: '' });
+                  const activities: any[] = [];
+                  try {
+                    const moduleConfigs = JSON.parse(localStorage.getItem('moduleConfigs') || '{}');
+                    const julesApiKey = moduleConfigs['executor-jules']?.julesApiKey;
+                    if (julesApiKey) {
+                      const { julesApi } = await import('../../lib/julesApi');
+                      const resp = await julesApi.listActivities(julesApiKey, session.name, 50);
+                      for (const act of resp.activities || []) {
+                        activities.push({
+                          name: act.name, originator: act.originator,
+                          description: act.description, createTime: act.createTime,
+                          planGenerated: act.planGenerated ? { steps: act.planGenerated.plan.steps.map((s: any) => s.title) } : undefined,
+                          agentMessaged: act.agentMessaged?.agentMessage,
+                          sessionFailed: act.sessionFailed?.reason,
+                          bashOutput: act.artifacts?.find((a: any) => a.bashOutput)?.bashOutput,
+                        });
+                      }
+                    }
+                  } catch (e: any) {
+                    console.warn('[toolfs] Jules activity fetch failed:', e);
+                  }
+                  return JSON.stringify({ content: JSON.stringify({ session: { id: session.id, name: session.name, title: session.title, status: session.status }, activities }), error: '' });
+                }
+                case 'list_artifacts': {
+                  const artifacts = await db.taskArtifacts.toArray();
+                  return JSON.stringify({ content: JSON.stringify(artifacts.map(a => ({ id: a.id, name: a.name, taskId: a.taskId, type: a.type }))), error: '' });
+                }
+                case 'read_artifact': {
+                  const artifact = await db.taskArtifacts.where('name').equals(params.name).first();
+                  if (!artifact) return JSON.stringify({ content: '', error: `Artifact ${params.name} not found` });
+                  return JSON.stringify({ content: artifact.content, error: '' });
+                }
+                case 'save_artifact': {
+                  await db.taskArtifacts.add({ name: params.name, content: params.content, taskId: '', repoName: '', branchName: '' });
+                  return JSON.stringify({ content: `Artifact ${params.name} saved`, error: '' });
+                }
+
+                // --- Git tools (use existing boardVM.gitfs which has credentials) ---
+                case 'git_get_file': {
+                  const gitfs = (window as any).boardVM?.gitfs;
+                  if (!gitfs) return JSON.stringify({ content: '', error: 'GitFS not available' });
+                  const content = await gitfs.getFile(params.path);
+                  if (!content) return JSON.stringify({ content: '', error: `File ${params.path} not found` });
+                  return JSON.stringify({ content: typeof content === 'string' ? content : JSON.stringify(content), error: '' });
+                }
+                case 'git_list_files': {
+                  const gitfs = (window as any).boardVM?.gitfs;
+                  if (!gitfs) return JSON.stringify({ content: '', error: 'GitFS not available' });
+                  const files = await gitfs.listFiles(params.path || '');
+                  return JSON.stringify({ content: JSON.stringify(files), error: '' });
+                }
+
+                default:
+                  return JSON.stringify({ content: '', error: `Unknown tool: ${name}` });
+              }
+            } catch (e: any) {
+              console.error('[toolfs] callTool error:', e);
+              return JSON.stringify({ content: '', error: e.message });
             }
           },
         },

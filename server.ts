@@ -13,6 +13,13 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Required for SharedArrayBuffer (WASI worker's sync mechanism)
+  app.use((_, res, next) => {
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+    next();
+  });
+
   // Agent In-Place Implementation
   app.post("/api/mcp/execute", async (req, res) => {
     const { action, params } = req.body;

@@ -150,6 +150,21 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// ---- ToolFS: /tools (both modes) ----
+	toolfs := NewToolFS(cfg)
+	if err := root.Namespace().Bind(toolfs, ".", "#tools"); err != nil {
+		log.Fatal(err)
+	}
+
+	// Expose #llm and #tools via mount bindings so WASI tasks can see them
+	if err := root.Bind("#llm", "llm"); err != nil {
+		log.Fatal(err)
+	}
+	if err := root.Bind("#tools", "tools"); err != nil {
+		log.Fatal(err)
+	}
+
+
 	// ---- VM boot ----
 	vmraw, err := fs.ReadFile(root.Namespace(), "vm/new/default")
 	if err != nil {
@@ -167,6 +182,8 @@ func main() {
 		{"#pipe", fmt.Sprintf("vm/%s/fsys/#pipe", vmID)},
 		{"#|", fmt.Sprintf("vm/%s/fsys/#|", vmID)},
 		{".", fmt.Sprintf("vm/%s/fsys", vmID)},
+		{"#llm", fmt.Sprintf("vm/%s/fsys/#llm", vmID)},
+		{"#tools", fmt.Sprintf("vm/%s/fsys/#tools", vmID)},
 		{"#env", fmt.Sprintf("vm/%s/fsys", vmID)},
 	}
 	for _, b := range vmBindings {
