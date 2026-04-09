@@ -32,6 +32,7 @@ export interface SessionOutput {
     url: string;
     title: string;
     description?: string;
+    [key: string]: any; // Allow other fields like branch, headRef, etc.
   };
 }
 

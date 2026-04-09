@@ -3,7 +3,7 @@
   "name": "GitHub Actions Executor",
   "version": "1.0.0",
   "type": "executor",
-  "description": "Use for compute-intensive, deterministic, or heavy-lifting tasks (e.g., running test suites, building images, data processing pipelines). Executes heavy-compute tasks via GitHub Actions. Requires a GitHub Token.",
+  "description": "Use for compiling, testing, CI/CD, debug logs, and running workflows on branches pushed by Jules. Executes heavy-compute tasks via GitHub Actions. Requires a GitHub Token.",
   "tools": [
     {
       "name": "executor-github.runWorkflow",

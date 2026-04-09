@@ -41,7 +41,7 @@ export class JulesNegotiator {
     };
 
     // 2. Send prompt
-    const systemInstruction = `SYSTEM INSTRUCTION: You are an automated agent. You MUST output your final results, answers, or requested data directly in a chat message when you are finished. Do NOT just save it to a file and go idle. The orchestrator is waiting for your chat message to proceed.`;
+    const systemInstruction = `SYSTEM INSTRUCTION: You are an automated agent. You MUST output your final results, answers, or requested data directly in a chat message when you are finished. Do NOT just save it to a file and go idle. If you create or push to a git branch, you MUST explicitly state the exact branch name in your final message so the orchestrator can use it for CI/CD. The orchestrator is waiting for your chat message to proceed.`;
     appendJnaLog(`Sending prompt to Jules:\n${prompt}`);
     
     let sendAttempts = 0;
@@ -240,6 +240,28 @@ Return a JSON object with this exact structure:
             break;
           }
         }
+      }
+
+      // Fetch final session state to check for outputs (like PR URLs or branch names)
+      try {
+        const finalSession = await julesApi.getSession(julesApiKey, session.name);
+        if (finalSession.outputs && finalSession.outputs.length > 0) {
+          const prOutput = finalSession.outputs.find(o => o.pullRequest);
+          if (prOutput && prOutput.pullRequest) {
+            const pr = prOutput.pullRequest;
+            const branchInfo = pr.branch || pr.headRef || pr.sourceBranch || 'unknown';
+            const prInfo = `\n\n[System Note: Jules created a Pull Request: ${pr.url} (Branch: ${branchInfo})]`;
+            
+            // Also log the raw PR object to see what fields are actually available
+            appendJnaLog(`Found PR in session outputs: ${JSON.stringify(pr)}`);
+            
+            if (!julesResponse.includes(pr.url)) {
+              julesResponse += prInfo;
+            }
+          }
+        }
+      } catch (e) {
+        appendJnaLog(`Failed to fetch final session outputs: ${e}`);
       }
 
       // 4. Verify with LLM

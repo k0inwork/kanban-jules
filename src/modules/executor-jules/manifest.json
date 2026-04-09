@@ -3,7 +3,7 @@
   "name": "Google Jules",
   "version": "1.0.0",
   "type": "executor",
-  "description": "Use for AI-intensive, exploratory, or reasoning tasks (e.g., debugging, writing code, analyzing architecture). Fully autonomous coding agent in a cloud VM.",
+  "description": "Use for development, writing code, creating features, and pushing branches. Fully autonomous coding agent in a cloud VM. Can push code to branches which can then be tested via GitHub Actions.",
   "tools": [
     {
       "name": "executor-jules.execute",
