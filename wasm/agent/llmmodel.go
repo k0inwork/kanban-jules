@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/cloudwego/eino/components/model"
@@ -88,16 +89,19 @@ func (m *LLMModel) Generate(ctx context.Context, input []*schema.Message, opts .
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	// Write request to /llm/request (Close triggers the API call synchronously)
+	// Write request to /llm/request
+	log.Printf("[llmmodel] writing request to %s, size=%d bytes", llmRequestPath, len(reqJSON))
 	if err := os.WriteFile(llmRequestPath, reqJSON, 0666); err != nil {
 		return nil, fmt.Errorf("write request: %w", err)
 	}
+	log.Printf("[llmmodel] request written, now reading result from %s", llmResultPath)
 
-	// Read result from /llm/result
+	// Read result from /llm/result (opening this file triggers the LLM call in LLMFS)
 	resultBytes, err := os.ReadFile(llmResultPath)
 	if err != nil {
 		return nil, fmt.Errorf("read result: %w", err)
 	}
+	log.Printf("[llmmodel] got result, size=%d bytes, content=%.200s", len(resultBytes), string(resultBytes))
 
 	var resp openaiResponse
 	if err := json.Unmarshal(resultBytes, &resp); err != nil {
@@ -109,7 +113,7 @@ func (m *LLMModel) Generate(ctx context.Context, input []*schema.Message, opts .
 	}
 
 	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("no response from LLM")
+		return nil, fmt.Errorf("no response from LLM (result was: %.200s)", string(resultBytes))
 	}
 
 	return m.convertResponse(&resp.Choices[0].Message), nil

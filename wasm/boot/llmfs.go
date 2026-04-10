@@ -19,8 +19,8 @@ import (
 //
 //	/#llm/prompt   → write to send a plain text prompt, read to get last prompt
 //	/#llm/response → read to get the LLM response
-//	/#llm/request  → write full OpenAI Chat Completions JSON, triggers structured API call
-//	/#llm/result   → read to get the structured JSON response (with tool_calls etc.)
+//	/#llm/request  → write full OpenAI Chat Completions JSON, accumulates
+//	/#llm/result   → read triggers the API call and returns the structured JSON response
 //
 // The JS side must expose on window.boardVM.llmfs:
 //
@@ -29,6 +29,7 @@ import (
 type LLMFS struct {
 	cfg      js.Value
 	mu       sync.Mutex
+	lastReq  []byte
 	lastResp []byte
 }
 
@@ -38,6 +39,29 @@ func NewLLMFS(cfg js.Value) *LLMFS {
 
 func (l *LLMFS) js() js.Value {
 	return l.cfg.Get("llmfs")
+}
+
+// callSendRequest fires the structured LLM call and stores the response.
+func (l *LLMFS) callSendRequest(reqData []byte) []byte {
+	reqJSON := string(reqData)
+	log.Printf("[llmfs] callSendRequest: json len=%d", len(reqJSON))
+	jsObj := l.js()
+	log.Printf("[llmfs] js obj valid=%v", jsObj.Truthy())
+	resultVal, err := jsutil.AwaitErr(jsObj.Call("sendRequest", reqJSON))
+	log.Printf("[llmfs] sendRequest returned, err=%v, result valid=%v", err, resultVal.Truthy())
+	resp := []byte("{}")
+	if err == nil && resultVal.Truthy() {
+		resp = []byte(resultVal.String())
+		log.Printf("[llmfs] response len=%d", len(resp))
+	} else if err != nil {
+		resp = []byte(`{"error":"` + err.Error() + `"}`)
+		log.Printf("[llmfs] error: %s", err.Error())
+	}
+	l.mu.Lock()
+	l.lastResp = resp
+	l.mu.Unlock()
+	log.Printf("[llmfs] lastResp set, len=%d", len(resp))
+	return resp
 }
 
 // Open implements fs.FS.
@@ -80,11 +104,23 @@ func (l *LLMFS) OpenContext(ctx context.Context, name string) (fs.File, error) {
 			llm:  l,
 		}, nil
 	case "result":
+		// Fire the LLM call now — writes to "request" have accumulated
+		// in lastReq. Opening "result" is the sync trigger point.
 		l.mu.Lock()
-		resp := l.lastResp
+		reqData := l.lastReq
+		l.lastReq = nil
 		l.mu.Unlock()
-		if resp == nil {
-			resp = []byte("{}")
+
+		var resp []byte
+		if len(reqData) > 0 {
+			resp = l.callSendRequest(reqData)
+		} else {
+			l.mu.Lock()
+			resp = l.lastResp
+			l.mu.Unlock()
+			if resp == nil {
+				resp = []byte("{}")
+			}
 		}
 		node := fskit.Entry("result", 0444, resp)
 		return node.Open(".")
@@ -169,7 +205,7 @@ func (f *promptFile) Close() error {
 	return nil
 }
 
-// --- requestFile: writable file that calls sendRequest on close ---
+// --- requestFile: writable file that accumulates into LLMFS.lastReq ---
 
 type requestFile struct {
 	*fskit.Node
@@ -190,38 +226,20 @@ func (f *requestFile) Read(p []byte) (int, error) {
 }
 
 func (f *requestFile) Write(b []byte) (int, error) {
-	f.buf = append(f.buf, b...)
+	// Accumulate directly into lastReq on each write — WASI may not call Close().
+	f.llm.mu.Lock()
+	f.llm.lastReq = append(f.llm.lastReq, b...)
+	f.llm.mu.Unlock()
 	return len(b), nil
 }
 
 func (f *requestFile) Close() error {
-	log.Printf("[llmfs] requestFile.Close() called, buf len=%d", len(f.buf))
-	if len(f.buf) > 0 {
-		reqJSON := string(f.buf)
-		f.buf = nil
-		log.Printf("[llmfs] calling sendRequest, json len=%d", len(reqJSON))
-		jsObj := f.llm.js()
-		log.Printf("[llmfs] js obj valid=%v", jsObj.Truthy())
-		resultVal, err := jsutil.AwaitErr(jsObj.Call("sendRequest", reqJSON))
-		log.Printf("[llmfs] sendRequest returned, err=%v, result valid=%v", err, resultVal.Truthy())
-		resp := []byte("{}")
-		if err == nil && resultVal.Truthy() {
-			resp = []byte(resultVal.String())
-			log.Printf("[llmfs] response len=%d", len(resp))
-		} else if err != nil {
-			resp = []byte(`{"error":"` + err.Error() + `"}`)
-			log.Printf("[llmfs] error: %s", err.Error())
-		}
-		f.llm.mu.Lock()
-		f.llm.lastResp = resp
-		f.llm.mu.Unlock()
-		log.Printf("[llmfs] lastResp set, len=%d", len(resp))
-	}
+	// No-op: data already accumulated in Write().
 	return nil
 }
 
 var (
-	_ fs.FS           = (*LLMFS)(nil)
+	_ fs.FS            = (*LLMFS)(nil)
 	_ fs.OpenContextFS = (*LLMFS)(nil)
-	_ fs.StatFS       = (*LLMFS)(nil)
+	_ fs.StatFS        = (*LLMFS)(nil)
 )

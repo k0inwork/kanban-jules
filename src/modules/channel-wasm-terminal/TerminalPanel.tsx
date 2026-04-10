@@ -75,6 +75,20 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
   const [cmdInput, setCmdInput] = useState('');
   const [serialReady, setSerialReady] = useState(false);
 
+  // Refs to always read latest props inside closures created at mount time
+  const apiProviderRef = useRef(apiProvider);
+  const geminiApiKeyRef = useRef(geminiApiKey);
+  const geminiModelRef = useRef(geminiModel);
+  const openaiUrlRef = useRef(openaiUrl);
+  const openaiKeyRef = useRef(openaiKey);
+  const openaiModelRef = useRef(openaiModel);
+  apiProviderRef.current = apiProvider;
+  geminiApiKeyRef.current = geminiApiKey;
+  geminiModelRef.current = geminiModel;
+  openaiUrlRef.current = openaiUrl;
+  openaiKeyRef.current = openaiKey;
+  openaiModelRef.current = openaiModel;
+
   const sendCommand = useCallback((text: string) => {
     const fn = (window as any).__boardSend;
     if (fn) fn(text);
@@ -149,23 +163,23 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
           sendPrompt: async (prompt: string) => {
             console.log('[llmfs] sendPrompt:', prompt);
             try {
-              if (apiProvider === 'gemini') {
+              if (apiProviderRef.current === 'gemini') {
                 const { GoogleGenAI } = await import('@google/genai');
-                const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+                const ai = new GoogleGenAI({ apiKey: geminiApiKeyRef.current });
                 const response = await ai.models.generateContent({
-                  model: geminiModel,
+                  model: geminiModelRef.current,
                   contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 });
                 return response.text || '';
               } else {
-                const response = await fetch(`${openaiUrl}/chat/completions`, {
+                const response = await fetch(`${openaiUrlRef.current}/chat/completions`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKey}`,
+                    'Authorization': `Bearer ${openaiKeyRef.current}`,
                   },
                   body: JSON.stringify({
-                    model: openaiModel,
+                    model: openaiModelRef.current,
                     messages: [{ role: 'user', content: prompt }],
                     temperature: 0.1,
                   }),
@@ -187,10 +201,13 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
             console.log('[llmfs] sendRequest:', reqJSON.substring(0, 200));
             try {
               const req = JSON.parse(reqJSON);
-              if (apiProvider === 'gemini') {
+              // Override the model name with the configured one
+              console.log('[llmfs] model:', req.model, '->', openaiModelRef.current, '| url:', openaiUrlRef.current, '| key:', openaiKeyRef.current ? 'set' : 'unset');
+              req.model = openaiModelRef.current;
+              if (apiProviderRef.current === 'gemini') {
                 // Convert OpenAI format to Gemini format
                 const { GoogleGenAI } = await import('@google/genai');
-                const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+                const ai = new GoogleGenAI({ apiKey: geminiApiKeyRef.current });
                 // Build Gemini contents from OpenAI messages
                 const contents: any[] = [];
                 for (const msg of req.messages || []) {
@@ -212,7 +229,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
                   });
                 }
                 const response = await ai.models.generateContent({
-                  model: geminiModel,
+                  model: geminiModelRef.current,
                   contents,
                   config: {
                     systemInstruction: req.messages?.find((m: any) => m.role === 'system')?.content,
@@ -258,13 +275,13 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
                 return JSON.stringify(openaiResp);
               } else {
                 // OpenAI-compatible: pass through directly
-                const response = await fetch(`${openaiUrl}/chat/completions`, {
+                const response = await fetch(`${openaiUrlRef.current}/chat/completions`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKey}`,
+                    'Authorization': `Bearer ${openaiKeyRef.current}`,
                   },
-                  body: reqJSON,
+                  body: JSON.stringify(req),
                 });
                 if (response.ok) {
                   const data = await response.json();

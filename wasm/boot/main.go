@@ -199,7 +199,7 @@ func main() {
 	}
 	profile = append(profile, "")
 	if err := fs.WriteFile(root.Namespace(), "#env/etc/profile.d/board-vm.sh", []byte(strings.Join(profile, "\n")), 0644); err != nil {
-		log.Fatal(err)
+		log.Printf("warning: could not write board-vm.sh profile: %v", err)
 	}
 
 	cmdline := []string{

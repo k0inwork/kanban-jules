@@ -1,12 +1,9 @@
 # Dockerfile.wasm — builds the WASM VM assets
-# Used by GitHub Actions workflow (.github/workflows/build-wasm-assets.yml)
-#
 # Outputs:
 #   /bundles/sys.tar.gz  — Alpine rootfs + kernel + v86 WASM + BIOS
 
 ARG LINUX_AMD64=linux/amd64
 ARG LINUX_386=linux/386
-ARG GO_VERSION=1.25.0
 ARG ALPINE_VERSION=3.22
 
 # Pre-built kernel image
@@ -17,11 +14,18 @@ FROM --platform=$LINUX_AMD64 ghcr.io/progrium/v86:latest AS v86
 
 # Alpine rootfs for the VM (32-bit)
 FROM --platform=$LINUX_386 docker.io/i386/alpine:$ALPINE_VERSION AS rootfs
-RUN apk add --no-cache fuse make git esbuild
+RUN apk add --no-cache fuse make git esbuild dvtm
 
-# Copy init scripts and make executable
-COPY wasm/system/bin/* /bin/
-RUN chmod +x /bin/init /bin/init-executor /bin/init-terminal
+# Copy init scripts, wexec, and make executable
+COPY wasm/system/bin/init /bin/init
+COPY wasm/system/bin/init-executor /bin/init-executor
+COPY wasm/system/bin/init-terminal /bin/init-terminal
+COPY wasm/system/bin/wexec /bin/wexec
+RUN chmod +x /bin/init /bin/init-executor /bin/init-terminal /bin/wexec
+
+# Copy WASM binaries
+COPY wasm/agent/agent.wasm /bin/agent.wasm
+COPY wasm/system/bin/lsfs.wasm /bin/lsfs.wasm
 
 # Package everything into sys.tar.gz
 FROM alpine:$ALPINE_VERSION AS bundle
