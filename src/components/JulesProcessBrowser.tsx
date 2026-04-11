@@ -20,7 +20,7 @@ export default function JulesProcessBrowser({ tasks, julesApiKey }: JulesProcess
       if (!julesApiKey) return;
       try {
         const res = await julesApi.listSessions(julesApiKey, 100);
-        const remoteSessionNames = new Set(res.sessions.map(s => s.name));
+        const remoteSessionNames = new Set((res.sessions || []).map(s => s.name));
         
         const localSessions = await db.julesSessions.toArray();
         for (const localSession of localSessions) {

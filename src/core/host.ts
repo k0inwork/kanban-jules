@@ -77,35 +77,51 @@ export class ModuleHost {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        if (this.config.apiProvider === 'gemini') {
-          const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
-          const response: GenerateContentResponse = await ai.models.generateContent({
-            model: this.config.geminiModel,
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: jsonMode ? { responseMimeType: 'application/json' } : undefined
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+        
+        try {
+          const llmPromise = (async () => {
+            if (this.config!.apiProvider === 'gemini') {
+              const ai = new GoogleGenAI({ apiKey: this.config!.geminiApiKey || process.env.GEMINI_API_KEY || '' });
+              const response: GenerateContentResponse = await ai.models.generateContent({
+                model: this.config!.geminiModel,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: jsonMode ? { responseMimeType: 'application/json' } : undefined
+              });
+              return response.text || '';
+            } else {
+              const response = await fetch(`${this.config!.openaiUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${this.config!.openaiKey}`
+                },
+                body: JSON.stringify({
+                  model: this.config!.openaiModel,
+                  messages: [{ role: 'user', content: prompt }],
+                  temperature: 0.1,
+                  response_format: jsonMode ? { type: 'json_object' } : undefined
+                }),
+                signal: controller.signal
+              });
+              if (response.ok) {
+                const data = await response.json();
+                return data.choices[0].message.content || '';
+              } else {
+                const error = await response.text();
+                throw new Error(`OpenAI API error: ${error}`);
+              }
+            }
+          })();
+
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('NetworkError: LLM call timed out after 60 seconds')), 60000);
           });
-          return response.text || '';
-        } else {
-          const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${this.config.openaiKey}`
-            },
-            body: JSON.stringify({
-              model: this.config.openaiModel,
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.1,
-              response_format: jsonMode ? { type: 'json_object' } : undefined
-            })
-          });
-          if (response.ok) {
-            const data = await response.json();
-            return data.choices[0].message.content || '';
-          } else {
-            const error = await response.text();
-            throw new Error(`OpenAI API error: ${error}`);
-          }
+
+          return await Promise.race([llmPromise, timeoutPromise]);
+        } finally {
+          clearTimeout(timeoutId);
         }
       } catch (error: any) {
         lastError = error;

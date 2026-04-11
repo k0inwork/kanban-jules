@@ -1,4 +1,10 @@
 import { db } from './db';
+import git from 'isomorphic-git';
+import http from 'isomorphic-git/http/web';
+import FS from '@isomorphic-git/lightning-fs';
+
+const fs = new FS('git-repos');
+const pfs = fs.promises;
 
 export interface GitFile {
   name: string;
@@ -11,153 +17,202 @@ export class GitFs {
   private repoUrl: string;
   private branch: string;
   private token: string;
+  private owner: string;
+  private repo: string;
+  private dir: string;
 
   constructor(repoUrl: string, branch: string = 'main', token: string) {
     this.repoUrl = repoUrl;
     this.branch = branch;
     this.token = token;
-  }
 
-  private getApiUrl(path: string): string {
-    let owner: string;
-    let repo: string;
-
-    // Handle the specific 'sources/github/owner/repo' format
+    // Parse owner and repo
     if (this.repoUrl.startsWith('sources/github/')) {
       const parts = this.repoUrl.split('/');
-      owner = parts[2];
-      repo = parts[3];
+      this.owner = parts[2];
+      this.repo = parts[3];
     } else if (this.repoUrl.includes('github.com')) {
       const urlString = this.repoUrl.startsWith('http') ? this.repoUrl : `https://${this.repoUrl}`;
       const url = new URL(urlString);
       const parts = url.pathname.split('/').filter(Boolean);
-      [owner, repo] = parts;
+      this.owner = parts[0];
+      this.repo = parts[1];
     } else {
       const parts = this.repoUrl.split('/');
       if (parts.length >= 2) {
-        [owner, repo] = parts;
+        this.owner = parts[0];
+        this.repo = parts[1];
       } else {
-        owner = 'unknown';
-        repo = this.repoUrl;
+        this.owner = 'unknown';
+        this.repo = this.repoUrl;
       }
     }
     
-    const pathSegment = path ? `/${path}` : '';
-    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents${pathSegment}?ref=${this.branch}`;
-    console.log(`[GitFs] Constructed API URL: ${apiUrl} (owner: ${owner}, repo: ${repo}, path: ${path}, branch: ${this.branch})`);
-    return apiUrl;
+    this.dir = `/${this.owner}/${this.repo}`;
   }
 
-  // Fetch file content, caching it in IndexedDB
-  async getFile(path: string): Promise<string> {
-    const cached = await db.gitCache.get(path);
-    if (cached && (Date.now() - cached.timestamp < 3600000)) { // 1 hour cache
-      return cached.content;
-    }
-    
-    const response = await this.fetchWithRetry(this.getApiUrl(path), {
-      headers: {
-        'Authorization': `token ${this.token}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    });
+  private static initPromises: Record<string, Promise<void>> = {};
+  private static lastInitTimes: Record<string, number> = {};
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${path}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const content = atob(data.content);
-    
-    await db.gitCache.put({ path, content, timestamp: Date.now() });
-    return content;
-  }
-
-  // List files
-  private async fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
-    let lastError: any;
-    for (let i = 0; i < retries; i++) {
-      try {
-        return await fetch(url, options);
-      } catch (e: any) {
-        lastError = e;
-        const isNetworkError = e.message?.includes('NetworkError') || e.message?.includes('fetch') || e.message?.includes('ECONNREFUSED');
-        if (!isNetworkError || i === retries - 1) {
-          throw e;
+  private async wipeDir(dir: string) {
+    try {
+      const entries = await pfs.readdir(dir);
+      for (const entry of entries) {
+        const fullPath = `${dir}/${entry}`;
+        const stat = await pfs.stat(fullPath);
+        if (stat.isDirectory()) {
+          await this.wipeDir(fullPath);
+          await pfs.rmdir(fullPath);
+        } else {
+          await pfs.unlink(fullPath);
         }
-        const delay = 2000 * (i + 1);
-        console.warn(`[GitFs] Network error: ${e.message}. Retrying in ${delay}ms...`);
-        await new Promise(r => setTimeout(r, delay));
       }
+    } catch (e) {
+      // Ignore errors
     }
-    throw lastError;
+  }
+
+  private async initRepo() {
+    const now = Date.now();
+    const cacheKey = `${this.owner}/${this.repo}/${this.branch}`;
+    
+    if (GitFs.initPromises[cacheKey] && (now - GitFs.lastInitTimes[cacheKey] < 60000)) { // 1 minute cache
+      return GitFs.initPromises[cacheKey];
+    }
+
+    GitFs.initPromises[cacheKey] = (async () => {
+      try {
+        await pfs.mkdir(`/${this.owner}`);
+      } catch (e) {}
+      try {
+        await pfs.mkdir(this.dir);
+      } catch (e) {}
+
+      const url = `https://github.com/${this.owner}/${this.repo}`;
+      const corsProxy = 'https://cors.isomorphic-git.org';
+
+      let needsClone = false;
+      try {
+        // Check if repo is already cloned
+        await git.resolveRef({ fs, dir: this.dir, ref: 'HEAD' });
+        // Pull latest changes
+        console.log(`[GitFs] Pulling latest changes for ${this.dir}...`);
+        await git.pull({
+          fs,
+          http,
+          dir: this.dir,
+          ref: this.branch,
+          singleBranch: true,
+          author: { name: 'Fleet', email: 'fleet@example.com' },
+          corsProxy,
+          onAuth: () => ({ username: this.token })
+        });
+      } catch (e) {
+        console.warn(`[GitFs] Pull failed or repo not initialized:`, e);
+        needsClone = true;
+      }
+
+      if (needsClone) {
+        // Wipe directory before cloning to ensure clean state
+        await this.wipeDir(this.dir);
+        try {
+          await pfs.mkdir(this.dir);
+        } catch (e) {}
+
+        // Clone if not exists or if pull failed
+        console.log(`[GitFs] Cloning ${url} into ${this.dir}...`);
+        await git.clone({
+          fs,
+          http,
+          dir: this.dir,
+          url,
+          ref: this.branch,
+          singleBranch: true,
+          depth: 1,
+          corsProxy,
+          onAuth: () => ({ username: this.token })
+        });
+        console.log(`[GitFs] Successfully cloned ${url} into ${this.dir}.`);
+      }
+      GitFs.lastInitTimes[cacheKey] = Date.now();
+    })();
+
+    return GitFs.initPromises[cacheKey];
+  }
+
+  async getFile(path: string): Promise<string> {
+    await this.initRepo();
+    const filepath = `${this.dir}/${path}`;
+    const content = await pfs.readFile(filepath, 'utf8');
+    return content as string;
   }
 
   async listFiles(path: string = ''): Promise<GitFile[]> {
-    const response = await this.fetchWithRetry(this.getApiUrl(path), {
-      headers: {
-        'Authorization': `token ${this.token}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Failed to list files: ${response.status} ${response.statusText} - ${errorBody}`);
+    await this.initRepo();
+    const dirpath = path ? `${this.dir}/${path}` : this.dir;
+    
+    let entries: string[] = [];
+    try {
+      entries = await pfs.readdir(dirpath);
+    } catch (e) {
+      return [];
     }
 
-    const data = await response.json();
-    const items = Array.isArray(data) ? data : [data];
-    return items.map(f => ({
-      name: f.name,
-      path: f.path,
-      type: f.type,
-      size: f.size
-    }));
+    const files: GitFile[] = [];
+    for (const entry of entries) {
+      if (entry === '.git') continue;
+      
+      const fullPath = `${dirpath}/${entry}`;
+      const stat = await pfs.stat(fullPath);
+      
+      files.push({
+        name: entry,
+        path: path ? `${path}/${entry}` : entry,
+        type: stat.isDirectory() ? 'dir' : 'file',
+        size: stat.size
+      });
+    }
+    
+    return files;
   }
 
   async writeFile(path: string, content: string, message: string = 'Update from Fleet'): Promise<void> {
-    const apiUrl = this.getApiUrl(path).split('?')[0]; // Remove ?ref=... for PUT
+    await this.initRepo();
+    const filepath = `${this.dir}/${path}`;
     
-    // 1. Try to get existing file to get SHA
-    let sha: string | undefined;
-    try {
-      const getResponse = await this.fetchWithRetry(this.getApiUrl(path), {
-        headers: {
-          'Authorization': `token ${this.token}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      }, 2); // only retry once for GET
-      if (getResponse.ok) {
-        const data = await getResponse.json();
-        sha = data.sha;
-      }
-    } catch (e) {
-      // Ignore errors (file might not exist)
+    // Ensure directory exists
+    const parts = path.split('/');
+    parts.pop(); // remove filename
+    let currentDir = this.dir;
+    for (const part of parts) {
+      currentDir += `/${part}`;
+      try {
+        await pfs.mkdir(currentDir);
+      } catch (e) {}
     }
 
-    // 2. Write file
-    const response = await this.fetchWithRetry(apiUrl, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `token ${this.token}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/vnd.github.v3+json'
-      },
-      body: JSON.stringify({
-        message,
-        content: btoa(content),
-        branch: this.branch,
-        sha
-      })
+    // Write file
+    await pfs.writeFile(filepath, content, 'utf8');
+    
+    // Git add
+    await git.add({ fs, dir: this.dir, filepath: path });
+    
+    // Git commit
+    await git.commit({
+      fs,
+      dir: this.dir,
+      message,
+      author: { name: 'Fleet', email: 'fleet@example.com' }
     });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Failed to write ${path}: ${response.status} ${response.statusText} - ${errorBody}`);
-    }
-
-    // Update cache
-    await db.gitCache.put({ path, content, timestamp: Date.now() });
+    
+    // Git push
+    await git.push({
+      fs,
+      http,
+      dir: this.dir,
+      ref: this.branch,
+      corsProxy: 'https://cors.isomorphic-git.org',
+      onAuth: () => ({ username: this.token })
+    });
   }
 }
