@@ -82,59 +82,66 @@ export class GitFs {
 
     GitFs.initPromises[cacheKey] = (async () => {
       try {
-        await pfs.mkdir(`/${this.owner}`);
-      } catch (e) {}
-      try {
-        await pfs.mkdir(this.dir);
-      } catch (e) {}
-
-      const url = `https://github.com/${this.owner}/${this.repo}`;
-      const corsProxy = 'https://cors.isomorphic-git.org';
-
-      let needsClone = false;
-      try {
-        // Check if repo is already cloned
-        await git.resolveRef({ fs, dir: this.dir, ref: 'HEAD' });
-        // Pull latest changes
-        console.log(`[GitFs] Pulling latest changes for ${this.dir}...`);
-        await git.pull({
-          fs,
-          http,
-          dir: this.dir,
-          ref: this.branch,
-          singleBranch: true,
-          author: { name: 'Fleet', email: 'fleet@example.com' },
-          corsProxy,
-          onAuth: () => ({ username: this.token })
-        });
-      } catch (e) {
-        console.warn(`[GitFs] Pull failed or repo not initialized:`, e);
-        needsClone = true;
-      }
-
-      if (needsClone) {
-        // Wipe directory before cloning to ensure clean state
-        await this.wipeDir(this.dir);
+        try {
+          await pfs.mkdir(`/${this.owner}`);
+        } catch (e) {}
         try {
           await pfs.mkdir(this.dir);
         } catch (e) {}
 
-        // Clone if not exists or if pull failed
-        console.log(`[GitFs] Cloning ${url} into ${this.dir}...`);
-        await git.clone({
-          fs,
-          http,
-          dir: this.dir,
-          url,
-          ref: this.branch,
-          singleBranch: true,
-          depth: 1,
-          corsProxy,
-          onAuth: () => ({ username: this.token })
-        });
-        console.log(`[GitFs] Successfully cloned ${url} into ${this.dir}.`);
+        const url = `https://github.com/${this.owner}/${this.repo}`;
+        const corsProxy = 'https://cors.isomorphic-git.org';
+
+        let needsClone = false;
+        try {
+          // Check if repo is already cloned
+          await git.resolveRef({ fs, dir: this.dir, ref: 'HEAD' });
+          // Pull latest changes
+          console.log(`[GitFs] Pulling latest changes for ${this.dir}...`);
+          await git.pull({
+            fs,
+            http,
+            dir: this.dir,
+            ref: this.branch,
+            singleBranch: true,
+            author: { name: 'Fleet', email: 'fleet@example.com' },
+            corsProxy,
+            onAuth: () => ({ username: this.token })
+          });
+        } catch (e) {
+          console.warn(`[GitFs] Pull failed or repo not initialized:`, e);
+          needsClone = true;
+        }
+
+        if (needsClone) {
+          // Wipe directory before cloning to ensure clean state
+          await this.wipeDir(this.dir);
+          try {
+            await pfs.mkdir(this.dir);
+          } catch (e) {}
+
+          // Clone if not exists or if pull failed
+          console.log(`[GitFs] Cloning ${url} into ${this.dir}...`);
+          await git.clone({
+            fs,
+            http,
+            dir: this.dir,
+            url,
+            ref: this.branch,
+            singleBranch: true,
+            depth: 1,
+            corsProxy,
+            onAuth: () => ({ username: this.token })
+          });
+          console.log(`[GitFs] Successfully cloned ${url} into ${this.dir}.`);
+        }
+        GitFs.lastInitTimes[cacheKey] = Date.now();
+      } catch (error) {
+        // If initialization fails, remove from cache so we can retry later
+        delete GitFs.initPromises[cacheKey];
+        delete GitFs.lastInitTimes[cacheKey];
+        throw error;
       }
-      GitFs.lastInitTimes[cacheKey] = Date.now();
     })();
 
     return GitFs.initPromises[cacheKey];

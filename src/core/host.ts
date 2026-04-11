@@ -167,29 +167,22 @@ export class ModuleHost {
     const localHandler = new LocalHandler();
     const githubHandler = new GithubHandler();
 
-    registry.registerHandler('executor-jules.execute', julesHandler.handleRequest.bind(julesHandler));
-    registry.registerHandler('channel-user-negotiator.askUser', userHandler.handleRequest.bind(userHandler));
-    registry.registerHandler('channel-user-negotiator.sendUser', userHandler.handleRequest.bind(userHandler));
-    registry.registerHandler('executor-local.execute', localHandler.handleRequest.bind(localHandler));
-    registry.registerHandler('executor-github.runWorkflow', githubHandler.handleRequest.bind(githubHandler));
-    registry.registerHandler('executor-github.getRunStatus', githubHandler.handleRequest.bind(githubHandler));
-    registry.registerHandler('executor-github.fetchArtifacts', githubHandler.handleRequest.bind(githubHandler));
-    registry.registerHandler('knowledge-artifacts.listArtifacts', ArtifactTool.handleRequest);
-    registry.registerHandler('knowledge-artifacts.readArtifact', ArtifactTool.handleRequest);
-    registry.registerHandler('knowledge-artifacts.saveArtifact', ArtifactTool.handleRequest);
-    registry.registerHandler('knowledge-repo-browser.listFiles', RepositoryTool.handleRequest);
-    registry.registerHandler('knowledge-repo-browser.readFile', RepositoryTool.handleRequest);
-    registry.registerHandler('knowledge-repo-browser.writeFile', RepositoryTool.handleRequest);
-    registry.registerHandler('knowledge-repo-browser.deleteFile', RepositoryTool.handleRequest);
-    registry.registerHandler('knowledge-repo-browser.headFile', RepositoryTool.handleRequest);
+    registry.registerModuleHandlers('executor-jules', julesHandler.handleRequest.bind(julesHandler));
+    registry.registerModuleHandlers('channel-user-negotiator', userHandler.handleRequest.bind(userHandler));
+    registry.registerModuleHandlers('executor-local', localHandler.handleRequest.bind(localHandler));
+    registry.registerModuleHandlers('executor-github', githubHandler.handleRequest.bind(githubHandler));
+    registry.registerModuleHandlers('knowledge-artifacts', ArtifactTool.handleRequest);
+    registry.registerModuleHandlers('knowledge-repo-browser', RepositoryTool.handleRequest);
+    registry.registerModuleHandlers('architect-codegen', ArchitectTool.handleRequest);
+    registry.registerModuleHandlers('process-project-manager', ProcessAgent.handleRequest);
+    registry.registerModuleHandlers('knowledge-local-analyzer', LocalAnalyzer.handleRequest.bind(LocalAnalyzer));
+
+    // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
     registry.registerHandler('host.agentContextSet', async (tool, args) => {
       agentContext.set(args[0], args[1]);
       return true;
     });
-    registry.registerHandler('architect-codegen.generateProtocol', ArchitectTool.handleRequest);
-    registry.registerHandler('process-project-manager.runReview', ProcessAgent.handleRequest);
-    registry.registerHandler('knowledge-local-analyzer.scan', LocalAnalyzer.handleRequest.bind(LocalAnalyzer));
   }
 
   stop() {

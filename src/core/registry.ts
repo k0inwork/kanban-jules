@@ -41,6 +41,19 @@ export class ModuleRegistry {
     this.handlers.set(toolName, handler);
   }
 
+  registerModuleHandlers(moduleId: string, handler: (toolName: string, args: any[], context: RequestContext) => Promise<any>) {
+    const module = this.get(moduleId);
+    if (!module) {
+      console.warn(`[Registry] Module ${moduleId} not found, cannot register handlers.`);
+      return;
+    }
+    if (module.tools && Array.isArray(module.tools)) {
+      for (const tool of module.tools) {
+        this.registerHandler(tool.name, handler);
+      }
+    }
+  }
+
   async invokeHandler(toolName: string, args: any[], context: RequestContext): Promise<any> {
     const handler = this.handlers.get(toolName);
     if (!handler) {

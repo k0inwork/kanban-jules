@@ -71,6 +71,9 @@ self.onmessage = async (event) => {
         interpreter.import('setTimeout', denyTimers);
         interpreter.import('setInterval', denyTimers);
         interpreter.import('requestAnimationFrame', denyTimers);
+      } else {
+        interpreter.import('setTimeout', setTimeout);
+        interpreter.import('setInterval', setInterval);
       }
 
       // 2. Inject allowed tools based on sandboxBindings

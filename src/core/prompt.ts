@@ -145,8 +145,9 @@ RULES:
 - Respect each executor's stated granularity preferences.
 - "executor-local" is best for small, tool-based tasks (file read/write, artifact creation).
 - "executor-jules" is best for large, ambitious coding tasks in a remote VM.
-- "executor-github" is best for heavy compute, CI/CD, or long-running processes.
+- "executor-github" is best for heavy compute, CI/CD, or long-running processes. The executor's tools (like runAndWait) automatically create, push, and trigger the workflow. You do NOT need to instruct the user to trigger it manually or wait for a push event.
 - Combine all steps assigned to "executor-github" into a single, non-reentrant step. Jules steps can remain separate.
+- CRITICAL: Do NOT use "executor-jules" just to create simple local files, configuration files, or GitHub Actions workflow files. Use "executor-local" or the built-in capabilities of "executor-github" (like runAndWait) for simple file creation and workflow execution.
 - CRITICAL: NEVER instruct executors to communicate with each other by creating GitHub issues, PRs, or writing temporary files to the repository. All inter-step communication MUST happen by saving results to the AgentContext (which is shared between steps).
 
 Output ONLY valid JSON matching this schema:

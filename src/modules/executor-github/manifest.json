@@ -32,6 +32,54 @@
       }
     },
     {
+      "name": "executor-github.runAndWait",
+      "description": "Creates, triggers, and polls a GitHub Actions workflow until it completes. Signature: runAndWait({ workflowYaml: string, workflowName?: string, repoUrl?: string, branch?: string, timeoutMs?: number }). Returns an object with runId, status, conclusion, and url.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workflowYaml": {
+            "type": "string",
+            "description": "The YAML content for the GitHub Actions workflow."
+          },
+          "workflowName": {
+            "type": "string",
+            "description": "A descriptive name for the workflow file (e.g., 'fleet-test-run.yml')."
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "Optional. The repository URL (owner/repo) to run the workflow in. Defaults to the current context repository."
+          },
+          "branch": {
+            "type": "string",
+            "description": "Optional. The branch to run the workflow on. Defaults to the current context branch."
+          },
+          "timeoutMs": {
+            "type": "number",
+            "description": "Optional. Maximum time to wait in milliseconds. Defaults to 300000 (5 minutes)."
+          }
+        },
+        "required": ["workflowYaml", "workflowName"]
+      }
+    },
+    {
+      "name": "executor-github.fetchLogs",
+      "description": "Fetches the raw text logs for a completed GitHub Actions workflow run. Signature: fetchLogs({ runId: number, repoUrl?: string }). Returns a string containing the concatenated logs of all jobs in the run.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "number",
+            "description": "The ID of the workflow run."
+          },
+          "repoUrl": {
+            "type": "string",
+            "description": "Optional. The repository URL (owner/repo). Defaults to the current context repository."
+          }
+        },
+        "required": ["runId"]
+      }
+    },
+    {
       "name": "executor-github.getRunStatus",
       "description": "Checks the status of a previously triggered GitHub Actions workflow run. Signature: getRunStatus({ runId: number, repoUrl?: string }). Returns an object with status and conclusion.",
       "parameters": {
@@ -75,6 +123,8 @@
   "configFields": [],
   "sandboxBindings": {
     "runWorkflow": "executor-github.runWorkflow",
+    "runAndWait": "executor-github.runAndWait",
+    "fetchLogs": "executor-github.fetchLogs",
     "getRunStatus": "executor-github.getRunStatus",
     "fetchArtifacts": "executor-github.fetchArtifacts",
     "askUser": "channel-user-negotiator.askUser"

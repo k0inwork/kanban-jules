@@ -1,11 +1,17 @@
 import { RequestContext } from '../../core/types';
 import { db } from '../../services/db';
+import { GitFs } from '../../services/GitFs';
+import YAML from 'yaml';
 
 export class GithubHandler {
   async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<any> {
     switch (toolName) {
       case 'executor-github.runWorkflow':
         return this.runWorkflow(args, context);
+      case 'executor-github.runAndWait':
+        return this.runAndWait(args, context);
+      case 'executor-github.fetchLogs':
+        return this.fetchLogs(args, context);
       case 'executor-github.getRunStatus':
         return this.getRunStatus(args, context);
       case 'executor-github.fetchArtifacts':
@@ -13,6 +19,19 @@ export class GithubHandler {
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
+  }
+
+  private async fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fetch(url, options);
+      } catch (e) {
+        console.error(`[GithubHandler] Network error (attempt ${i + 1}/${retries}): ${url}`, e);
+        if (i === retries - 1) throw e;
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
+    throw new Error("Unreachable");
   }
 
   private async runWorkflow(args: any[], context: RequestContext): Promise<any> {
@@ -50,6 +69,27 @@ export class GithubHandler {
       throw new Error("workflowYaml is required.");
     }
 
+    // Ensure workflow_dispatch is present so we can trigger it
+    try {
+      const parsedYaml = YAML.parse(workflowYaml);
+      if (!parsedYaml.on) {
+        parsedYaml.on = { workflow_dispatch: {} };
+      } else if (typeof parsedYaml.on === 'string') {
+        parsedYaml.on = { [parsedYaml.on]: null, workflow_dispatch: {} };
+      } else if (Array.isArray(parsedYaml.on)) {
+        if (!parsedYaml.on.includes('workflow_dispatch')) {
+          parsedYaml.on.push('workflow_dispatch');
+        }
+      } else if (typeof parsedYaml.on === 'object') {
+        if (!parsedYaml.on.workflow_dispatch) {
+          parsedYaml.on.workflow_dispatch = {};
+        }
+      }
+      workflowYaml = YAML.stringify(parsedYaml);
+    } catch (e) {
+      console.warn("[GithubHandler] Failed to parse and patch workflow YAML, using original:", e);
+    }
+
     // If workflowName is not provided, generate a default one
     let finalWorkflowName = workflowName || `fleet-workflow-${Date.now()}.yml`;
     if (!finalWorkflowName.endsWith('.yml') && !finalWorkflowName.endsWith('.yaml')) {
@@ -74,8 +114,8 @@ export class GithubHandler {
     const [owner, repo] = targetRepoUrl.split('/');
 
     // Detect default branch if not provided
-    let branch = targetBranch;
-    if (!branch) {
+    let baseBranch = targetBranch;
+    if (!baseBranch) {
       const url = `https://api.github.com/repos/${owner}/${repo}`;
       console.log(`[GithubHandler] Fetching repo info: ${url}`);
       let repoRes: Response;
@@ -93,82 +133,55 @@ export class GithubHandler {
       
       if (repoRes.ok) {
         const repoData = await repoRes.json();
-        branch = repoData.default_branch;
+        baseBranch = repoData.default_branch;
       } else {
         console.warn(`[GithubHandler] Failed to fetch repo info, status: ${repoRes.status}`);
-        branch = 'main';
+        baseBranch = 'main';
       }
+    }
+
+    // Create a temporary branch
+    const tempBranch = `fleet-temp-${Date.now()}`;
+    console.log(`[GithubHandler] Creating temporary branch ${tempBranch} from ${baseBranch}`);
+    
+    // 1. Get SHA of base branch
+    const refRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`, {
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+    if (!refRes.ok) {
+      throw new Error(`Failed to get SHA for branch ${baseBranch}`);
+    }
+    const refData = await refRes.json();
+    const sha = refData.object.sha;
+
+    // 2. Create new branch
+    const createRefRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/refs`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.github.v3+json'
+      },
+      body: JSON.stringify({
+        ref: `refs/heads/${tempBranch}`,
+        sha: sha
+      })
+    });
+    if (!createRefRes.ok) {
+      throw new Error(`Failed to create temporary branch ${tempBranch}`);
     }
 
     const workflowPath = `.github/workflows/${finalWorkflowName}`;
     
-    // Add a longer delay to allow GitHub to index the file
-    await new Promise(resolve => setTimeout(resolve, 10000));
-
-    // Helper for fetch with retries
-    const fetchWithRetry = async (url: string, options: RequestInit, retries = 3): Promise<Response> => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          return await fetch(url, options);
-        } catch (e) {
-          console.error(`[GithubHandler] Network error (attempt ${i + 1}/${retries}): ${url}`, e);
-          if (i === retries - 1) throw e;
-          await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-        }
-      }
-      throw new Error("Unreachable");
-    };
-
-    // 1. Create/Update the workflow file
-    let sha: string | undefined;
-    let updateRes: Response | undefined;
-    
-    // Retry loop for file update to handle SHA conflicts
-    for (let attempt = 0; attempt < 3; attempt++) {
-      // Always fetch the latest SHA before attempting update
-      const fileRes = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}?ref=${branch}`, {
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
-
-      sha = fileRes.ok ? (await fileRes.json()).sha : undefined;
-
-      updateRes = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/contents/${workflowPath}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/vnd.github.v3+json'
-        },
-        body: JSON.stringify({
-          message: `Fleet: Update workflow ${finalWorkflowName}`,
-          content: btoa(workflowYaml),
-          branch: branch,
-          sha
-        })
-      });
-
-      if (updateRes.ok) break;
-      
-      // If conflict (409), wait and retry
-      if (updateRes.status === 409 && attempt < 2) {
-        await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
-        continue;
-      }
-      
-      break;
-    }
-
-    if (!updateRes || !updateRes.ok) {
-      const errorText = await updateRes?.text();
-      let errorMessage = errorText || 'Unknown error';
-      try {
-        const errorData = JSON.parse(errorText || '{}');
-        errorMessage = errorData.message || errorText;
-      } catch (e) {}
-      throw new Error(`Failed to update workflow file: ${errorMessage}`);
+    // 3. Create/Update the workflow file using GitFs on the TEMP branch
+    try {
+      const gitFs = new GitFs(targetRepoUrl, tempBranch, githubToken);
+      await gitFs.writeFile(workflowPath, workflowYaml, `Fleet: Update workflow ${finalWorkflowName}`);
+    } catch (e: any) {
+      throw new Error(`Failed to update workflow file via Git: ${e.message}`);
     }
 
     // Wait for GitHub to index the new/updated workflow
@@ -183,10 +196,10 @@ export class GithubHandler {
       if (checkRes.ok) break;
     }
 
-    // 2. Trigger the workflow via workflow_dispatch
+    // 4. Trigger the workflow via workflow_dispatch on the TEMP branch
     let dispatchRes: Response | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
-      dispatchRes = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}/dispatches`, {
+      dispatchRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}/dispatches`, {
         method: 'POST',
         headers: {
           'Authorization': `token ${githubToken}`,
@@ -194,7 +207,7 @@ export class GithubHandler {
           'Accept': 'application/vnd.github.v3+json'
         },
         body: JSON.stringify({
-          ref: branch
+          ref: tempBranch
         })
       });
 
@@ -223,7 +236,7 @@ export class GithubHandler {
     let runId: number | undefined;
     for (let i = 0; i < 5; i++) {
       await new Promise(resolve => setTimeout(resolve, 2000));
-      const runsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${branch}&event=workflow_dispatch`, {
+      const runsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${tempBranch}&event=workflow_dispatch`, {
         headers: {
           'Authorization': `token ${githubToken}`,
           'Accept': 'application/vnd.github.v3+json'
@@ -243,7 +256,150 @@ export class GithubHandler {
       throw new Error("Workflow triggered but could not find the run ID. Please check GitHub Actions.");
     }
 
-    return { runId, status: 'queued' };
+    return { runId, status: 'queued', tempBranch };
+  }
+
+  private async runAndWait(args: any[], context: RequestContext): Promise<any> {
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const obj = unpack(args[0]);
+    const timeoutMs = (obj && obj.timeoutMs) || 300000; // Default 5 minutes
+
+    // 1. Trigger the workflow
+    const runResult = await this.runWorkflow(args, context);
+    const runId = runResult.runId;
+    const tempBranch = runResult.tempBranch;
+
+    // Helper to delete the temporary branch
+    const cleanupBranch = async () => {
+      if (tempBranch) {
+        try {
+          const targetRepoUrl = obj?.repoUrl || context.repoUrl;
+          const [owner, repo] = targetRepoUrl.split('/');
+          const githubToken = context.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+          await fetch(`https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${tempBranch}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `token ${githubToken}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          });
+          console.log(`[GithubHandler] Deleted temporary branch ${tempBranch}`);
+        } catch (e) {
+          console.warn(`[GithubHandler] Failed to delete temporary branch ${tempBranch}:`, e);
+        }
+      }
+    };
+
+    // 2. Poll for completion
+    let executionStartTime = Date.now();
+    let statusResult: any = { status: 'queued' };
+
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Poll every 10 seconds
+      
+      try {
+        statusResult = await this.getRunStatus([{ runId, repoUrl: obj?.repoUrl }], context);
+        if (statusResult.status === 'completed' || statusResult.status === 'done') {
+          await cleanupBranch();
+          return {
+            runId,
+            status: statusResult.status,
+            conclusion: statusResult.conclusion,
+            url: statusResult.url
+          };
+        }
+
+        if (statusResult.status === 'queued') {
+          // Reset the timeout clock while it's waiting in GitHub's queue
+          executionStartTime = Date.now();
+        } else if (Date.now() - executionStartTime > timeoutMs) {
+          await cleanupBranch();
+          throw new Error(`Workflow run ${runId} timed out after ${timeoutMs}ms. Last status: ${statusResult.status}`);
+        }
+      } catch (e) {
+        console.warn(`[GithubHandler] Error polling run status for runId ${runId}:`, e);
+        if (Date.now() - executionStartTime > timeoutMs) {
+          await cleanupBranch();
+          throw new Error(`Workflow run ${runId} timed out after ${timeoutMs}ms. Last status: ${statusResult.status}`);
+        }
+      }
+    }
+  }
+
+  private async fetchLogs(args: any[], context: RequestContext): Promise<string> {
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const obj = unpack(args[0]);
+    
+    let runId = obj ? obj.runId : null;
+    let targetRepoUrl = obj ? obj.repoUrl : null;
+
+    if (!obj) {
+      if (typeof args[0] === 'string' && args[0].includes('/')) {
+        targetRepoUrl = args[0];
+        runId = args[1];
+      } else {
+        runId = args[0];
+        targetRepoUrl = args[1];
+      }
+    }
+    
+    targetRepoUrl = targetRepoUrl || context.repoUrl;
+
+    const { githubToken: contextToken } = context;
+    const githubToken = contextToken || import.meta.env.VITE_GITHUB_TOKEN;
+
+    if (!githubToken) {
+      throw new Error("GitHub Token is required for the GitHub Executor.");
+    }
+
+    if (!targetRepoUrl) {
+      throw new Error("Repository URL (owner/repo) is required.");
+    }
+
+    const [owner, repo] = targetRepoUrl.split('/');
+
+    // 1. Fetch jobs for the run
+    const jobsRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/jobs`, {
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!jobsRes.ok) {
+      const errorData = await jobsRes.json();
+      throw new Error(`Failed to list jobs for run ${runId}: ${errorData.message}`);
+    }
+
+    const jobsData = await jobsRes.json();
+    const jobs = jobsData.jobs || [];
+
+    let allLogs = '';
+
+    // 2. Fetch logs for each job
+    for (const job of jobs) {
+      allLogs += `\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\n`;
+      
+      try {
+        const logRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`, {
+          headers: {
+            'Authorization': `token ${githubToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+
+        if (logRes.ok) {
+          const logText = await logRes.text();
+          allLogs += logText + '\n';
+        } else {
+          allLogs += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\n`;
+        }
+      } catch (e: any) {
+        allLogs += `[Error fetching logs for this job: ${e.message}]\n`;
+      }
+    }
+
+    return allLogs;
   }
 
   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {
