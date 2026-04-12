@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { CONSTITUTION_TEMPLATES } from '../constants/constitutions';
-import { Save, RefreshCw, FileText, BookOpen } from 'lucide-react';
+import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION } from '../core/constitution';
+import { Save, RefreshCw, FileText, BookOpen, BrainCircuit, Code2 } from 'lucide-react';
 import { registry } from '../core/registry';
 import { cn } from '../lib/utils';
 
@@ -31,9 +32,12 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
         setConstitution(CONSTITUTION_TEMPLATES.default);
       }
 
-      // Load Module Knowledge
+      // Load Module Knowledge (including system constitutions)
       const knowledgeRecords = await db.moduleKnowledge.toArray();
-      const knowledgeMap: Record<string, string> = {};
+      const knowledgeMap: Record<string, string> = {
+        'system:architect': ARCHITECT_CONSTITUTION,
+        'system:programmer': PROGRAMMER_CONSTITUTION
+      };
       for (const record of knowledgeRecords) {
         knowledgeMap[record.id] = record.content;
       }
@@ -74,6 +78,8 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
   const handleKnowledgeChange = (moduleId: string, value: string) => {
     setModuleKnowledge(prev => ({ ...prev, [moduleId]: value }));
   };
+
+  const isSystemTab = activeTab.startsWith('system:');
 
   return (
     <div className="flex flex-col h-full bg-neutral-900 text-neutral-100 overflow-hidden">
@@ -117,22 +123,40 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
         </div>
       </div>
 
-      <div className="flex border-b border-neutral-800 bg-neutral-950/50 px-6">
+      <div className="flex border-b border-neutral-800 bg-neutral-950/50 px-6 overflow-x-auto custom-scrollbar">
         <button
           onClick={() => setActiveTab('constitution')}
           className={cn(
-            "px-4 py-3 text-sm font-medium border-b-2 transition-colors",
+            "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
             activeTab === 'constitution' ? "border-blue-500 text-blue-400" : "border-transparent text-neutral-400 hover:text-neutral-200"
           )}
         >
-          Project Constitution
+          Project
+        </button>
+        <button
+          onClick={() => setActiveTab('system:architect')}
+          className={cn(
+            "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+            activeTab === 'system:architect' ? "border-blue-500 text-blue-400" : "border-transparent text-neutral-400 hover:text-neutral-200"
+          )}
+        >
+          Architect
+        </button>
+        <button
+          onClick={() => setActiveTab('system:programmer')}
+          className={cn(
+            "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+            activeTab === 'system:programmer' ? "border-blue-500 text-blue-400" : "border-transparent text-neutral-400 hover:text-neutral-200"
+          )}
+        >
+          Programmer
         </button>
         {modules.map(m => (
           <button
             key={m.id}
             onClick={() => setActiveTab(m.id)}
             className={cn(
-              "px-4 py-3 text-sm font-medium border-b-2 transition-colors",
+              "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
               activeTab === m.id ? "border-blue-500 text-blue-400" : "border-transparent text-neutral-400 hover:text-neutral-200"
             )}
           >
@@ -152,6 +176,21 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
               onChange={(e) => setConstitution(e.target.value)}
               className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg p-4 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none custom-scrollbar"
               placeholder="Enter project rules here..."
+            />
+          </>
+        ) : isSystemTab ? (
+          <>
+            <div className="flex items-center space-x-2 mb-4">
+              {activeTab === 'system:architect' ? <BrainCircuit className="w-4 h-4 text-purple-400" /> : <Code2 className="w-4 h-4 text-emerald-400" />}
+              <p className="text-sm text-neutral-400">
+                Define the core {activeTab === 'system:architect' ? 'Architect' : 'Programmer'} rules. These instructions are injected into every agent prompt.
+              </p>
+            </div>
+            <textarea
+              value={moduleKnowledge[activeTab] || ''}
+              onChange={(e) => handleKnowledgeChange(activeTab, e.target.value)}
+              className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg p-4 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none custom-scrollbar"
+              placeholder={`Enter ${activeTab.split(':')[1]} rules here...`}
             />
           </>
         ) : (
