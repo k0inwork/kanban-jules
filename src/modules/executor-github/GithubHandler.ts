@@ -2,8 +2,15 @@ import { RequestContext } from '../../core/types';
 import { db } from '../../services/db';
 import { GitFs } from '../../services/GitFs';
 import YAML from 'yaml';
+import { eventBus } from '../../core/event-bus';
 
 export class GithubHandler {
+  private logToExecutor(taskId: string | undefined, message: string) {
+    if (taskId) {
+      eventBus.emit('module:log', { taskId, moduleId: 'executor-github', message: `> [GitHub] ${message}` });
+    }
+  }
+
   async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<any> {
     switch (toolName) {
       case 'executor-github.runWorkflow':
@@ -37,6 +44,7 @@ export class GithubHandler {
   private async runWorkflow(args: any[], context: RequestContext): Promise<any> {
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
     const obj = unpack(args[0]);
+    const taskId = context.taskId;
     
     // The agent often passes (repoUrl, workflowYaml) or (repoUrl, workflowName, workflowYaml)
     let workflowYaml = obj ? obj.workflowYaml : null;
@@ -96,7 +104,7 @@ export class GithubHandler {
     let baseBranch = targetBranch;
     if (!baseBranch) {
       const url = `https://api.github.com/repos/${owner}/${repo}`;
-      console.log(`[GithubHandler] Fetching repo info: ${url}`);
+      this.logToExecutor(taskId, `Fetching repo info: ${url}`);
       let repoRes: Response;
       try {
         repoRes = await fetch(url, {
@@ -106,22 +114,22 @@ export class GithubHandler {
           }
         });
       } catch (e) {
-        console.error(`[GithubHandler] Network error fetching repo info: ${url}`, e);
         throw new Error(`Network error fetching repo info: ${e}`);
       }
       
       if (repoRes.ok) {
         const repoData = await repoRes.json();
         baseBranch = repoData.default_branch;
+        this.logToExecutor(taskId, `Detected default branch: ${baseBranch}`);
       } else {
-        console.warn(`[GithubHandler] Failed to fetch repo info, status: ${repoRes.status}`);
         baseBranch = 'main';
+        this.logToExecutor(taskId, `Failed to fetch repo info, assuming default branch: ${baseBranch}`);
       }
     }
 
     // Create a temporary branch
     const tempBranch = `fleet-temp-${Date.now()}`;
-    console.log(`[GithubHandler] Creating temporary branch ${tempBranch} from ${baseBranch}`);
+    this.logToExecutor(taskId, `Creating temporary branch ${tempBranch} from ${baseBranch}`);
 
     // Force the workflow to trigger on push to the temporary branch
     try {
@@ -167,6 +175,7 @@ export class GithubHandler {
     // 3. Create/Update the workflow file using GitFs on the TEMP branch
     // This push will automatically trigger the workflow because of the 'on: push' rule.
     try {
+      this.logToExecutor(taskId, `Pushing workflow YAML to temporary branch...`);
       const gitFs = new GitFs(targetRepoUrl, tempBranch, githubToken);
       await gitFs.writeFile(workflowPath, workflowYaml, `Fleet: Update workflow ${finalWorkflowName}`);
     } catch (e: any) {
@@ -175,6 +184,7 @@ export class GithubHandler {
 
     // 4. Find the run ID (polling briefly)
     let runId: number | undefined;
+    this.logToExecutor(taskId, `Waiting for GitHub to register the workflow run...`);
     for (let i = 0; i < 10; i++) { // Poll up to 30 seconds for the push event to register
       await new Promise(resolve => setTimeout(resolve, 3000));
       const runsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${tempBranch}&event=push`, {
@@ -188,6 +198,8 @@ export class GithubHandler {
         const latestRun = runsData.workflow_runs[0];
         if (latestRun && latestRun.status !== 'completed') {
           runId = latestRun.id;
+          this.logToExecutor(taskId, `Workflow successfully triggered! Run ID: ${runId}`);
+          this.logToExecutor(taskId, `Run URL: ${latestRun.html_url}`);
           break;
         }
       }
@@ -204,6 +216,7 @@ export class GithubHandler {
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
     const obj = unpack(args[0]);
     const timeoutMs = (obj && obj.timeoutMs) || 300000; // Default 5 minutes
+    const taskId = context.taskId;
 
     // 1. Trigger the workflow
     const runResult = await this.runWorkflow(args, context);
@@ -224,7 +237,7 @@ export class GithubHandler {
               'Accept': 'application/vnd.github.v3+json'
             }
           });
-          console.log(`[GithubHandler] Deleted temporary branch ${tempBranch}`);
+          this.logToExecutor(taskId, `Deleted temporary branch ${tempBranch}`);
         } catch (e) {
           console.warn(`[GithubHandler] Failed to delete temporary branch ${tempBranch}:`, e);
         }
@@ -240,7 +253,11 @@ export class GithubHandler {
       
       try {
         statusResult = await this.getRunStatus([{ runId, repoUrl: obj?.repoUrl }], context);
+        const elapsedSec = Math.floor((Date.now() - executionStartTime) / 1000);
+        this.logToExecutor(taskId, `Status check (${elapsedSec}s): ${statusResult.status}...`);
+
         if (statusResult.status === 'completed' || statusResult.status === 'done') {
+          this.logToExecutor(taskId, `Workflow completed! Conclusion: ${statusResult.conclusion}`);
           await cleanupBranch();
           return {
             runId,
@@ -254,12 +271,14 @@ export class GithubHandler {
           // Reset the timeout clock while it's waiting in GitHub's queue
           executionStartTime = Date.now();
         } else if (Date.now() - executionStartTime > timeoutMs) {
+          this.logToExecutor(taskId, `Workflow timed out after ${timeoutMs}ms. Last status: ${statusResult.status}`);
           await cleanupBranch();
           throw new Error(`Workflow run ${runId} timed out after ${timeoutMs}ms. Last status: ${statusResult.status}`);
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn(`[GithubHandler] Error polling run status for runId ${runId}:`, e);
         if (Date.now() - executionStartTime > timeoutMs) {
+          this.logToExecutor(taskId, `Workflow timed out after ${timeoutMs}ms. Last status: ${statusResult.status}`);
           await cleanupBranch();
           throw new Error(`Workflow run ${runId} timed out after ${timeoutMs}ms. Last status: ${statusResult.status}`);
         }
@@ -374,7 +393,7 @@ export class GithubHandler {
     }
 
     const [owner, repo] = targetRepoUrl.split('/');
-    const res = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`, {
+    const res = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`, {
       headers: {
         'Authorization': `token ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json'

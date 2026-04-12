@@ -153,7 +153,14 @@ export class Orchestrator {
       attempt++;
       
       const modules = registry.getEnabled();
-      const prompt = composeProgrammerPrompt(modules, task, step, errorContext);
+      
+      const knowledgeRecords = await db.moduleKnowledge.toArray();
+      const moduleKnowledge: Record<string, string> = {};
+      for (const record of knowledgeRecords) {
+        moduleKnowledge[record.id] = record.content;
+      }
+
+      const prompt = composeProgrammerPrompt(modules, task, step, errorContext, moduleKnowledge);
       
       try {
         let code: string;

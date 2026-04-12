@@ -59,6 +59,12 @@ export interface ProjectConfig {
   updatedAt: number;
 }
 
+export interface ModuleKnowledge {
+  id: string; // e.g., 'executor-github', 'executor-jules'
+  content: string;
+  updatedAt: number;
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -67,6 +73,7 @@ export class MyDatabase extends Dexie {
   messages!: Table<AgentMessage>;
   tasks!: Table<Task>;
   projectConfigs!: Table<ProjectConfig>;
+  moduleKnowledge!: Table<ModuleKnowledge>;
 
   constructor() {
     super('AgentKanbanDB');
@@ -142,6 +149,16 @@ export class MyDatabase extends Dexie {
           delete task.globalVars;
         }
       });
+    });
+    this.version(19).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id'
     });
   }
 }

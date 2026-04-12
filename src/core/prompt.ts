@@ -72,7 +72,7 @@ Output ONLY valid JSON matching this schema:
   }];
 };
 
-export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, step: TaskStep, errorContext: string): string {
+export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, step: TaskStep, errorContext: string, moduleKnowledge: Record<string, string> = {}): string {
   const enabledModules = modules.filter(m => m.enabled !== false);
   const executorId = step.executor || 'executor-local';
   const executor = enabledModules.find(m => m.id === executorId);
@@ -89,6 +89,8 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
     "- analyze(data, options?): Analyzes the provided data using an LLM and adds the summary to the AgentContext. options: { includeContext?: boolean } (default: true). Set includeContext: false for a 'clean' analysis of only the provided data.",
     "- addToContext(key, value): Directly adds a key-value pair to the AgentContext. If only one argument is provided, it directly appends the data to the context without an LLM call."
   ].join('\n');
+
+  const knowledge = moduleKnowledge[executorId] ? `\nMODULE KNOWLEDGE BASE:\n${moduleKnowledge[executorId]}\n` : '';
 
   return `
 You are the Programmer Agent. Write executable JavaScript code to accomplish
@@ -107,7 +109,7 @@ ${task.analysis ? `\nAccumulated Analysis Results:\n${task.analysis}\n` : ''}
 You have access to the following async APIs (injected into your scope):
 ${apiSection}
 ${commonTools}
-
+${knowledge}
 ${errorContext ? `PREVIOUS EXECUTION FAILED:\n${errorContext}\nRewrite the code or use askUser().\n` : ''}
 
 RULES:
@@ -122,15 +124,17 @@ RULES:
   `;
 }
 
-export function composeArchitectPrompt(modules: ModuleManifest[]): string {
+export function composeArchitectPrompt(modules: ModuleManifest[], moduleKnowledge: Record<string, string> = {}): string {
   const enabledModules = modules.filter(m => m.enabled !== false);
   const executors = enabledModules.filter(m => m.type === 'executor');
 
-  const executorSection = executors.map(e => `
+  const executorSection = executors.map(e => {
+    const knowledge = moduleKnowledge[e.id] ? `\nKnowledge Base:\n${moduleKnowledge[e.id]}` : '';
+    return `
 ## Executor ID: "${e.id}"
 Name: ${e.name}
-Description: ${e.description}
-  `).join('\n---\n');
+Description: ${e.description}${knowledge}
+  `}).join('\n---\n');
 
   return `
 You are a Task Architect. Break down the task into steps and assign
