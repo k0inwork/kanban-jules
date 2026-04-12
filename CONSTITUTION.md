@@ -14,6 +14,7 @@ The Architect is responsible for breaking down high-level requests into actionab
   - `executor-github`: For heavy compute, CI/CD, or long-running processes.
 - **Inter-Step Communication**: Use the `AgentContext` for all data passing between steps. Never use the repository as a temporary storage for inter-step communication.
 - **Defensive Design**: Explicitly instruct subsequent steps to verify the existence of required data in the `AgentContext`.
+- **Data Integrity**: Instruct the programmer to perform a "Self-Verification" check at the end of a step. If critical data was not successfully saved, the step should report the failure via `askUser()`.
 
 ### GitHub Workflow Rules
 - Combine GitHub operations into single steps where possible.
@@ -34,12 +35,18 @@ The Programmer is responsible for writing the actual JavaScript code for each st
   - **Check Inputs**: Always verify that `AgentContext` variables are defined before use.
   - **Optional Chaining**: Use `?.` for deep property access.
   - **Error Handling**: Use `askUser()` to report missing data or critical failures.
+- **Data Persistence & Verification**:
+  - Verify extraction was successful before saving to `AgentContext`.
+  - Ensure all related values are valid before proceeding.
+  - If a critical value is missing, use `askUser()` to explain the failure and provide debug info.
 
 ### Log Parsing Guidelines
 - **Clean Logs**: Use Regex to strip timestamps and ANSI color codes from GitHub logs.
   - Timestamp Regex: `/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s+/g`
   - ANSI Regex: `/\x1b\[[0-9;]*m/g`
 - **Flexible Matching**: Use Regex instead of `indexOf` for markers to handle whitespace and formatting variations.
+- **Avoid Echo Interference**: Be aware of shell command echoing. Always look for the *last* occurrence of a marker.
+- **Prefer analyze() for Complex Logs**: Use `analyze(logs, { format: 'json' })` for robust extraction of structured data from large or messy logs. Results are stored in `AgentContext.analyses`.
 
 ### Reporting
 - Use `sendUser()` for final results.

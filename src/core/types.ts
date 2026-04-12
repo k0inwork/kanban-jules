@@ -82,4 +82,7 @@ export interface OrchestratorConfig {
   githubToken?: string;
   moduleConfigs: Record<string, any>;
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
+  apiProvider?: string;
+  geminiModel?: string;
+  openaiModel?: string;
 }

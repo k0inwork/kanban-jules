@@ -32,6 +32,12 @@ export class Orchestrator {
         if (key && value !== undefined) {
           agentContext.set(key, value);
           this.appendActionLog(taskId, `Context updated: ${key}`);
+          
+          // Immediate persistence to DB to prevent data loss during long steps
+          await db.tasks.update(taskId, { 
+            agentContext: agentContext.getAll() 
+          });
+          
           return true;
         }
       }
@@ -45,6 +51,7 @@ export class Orchestrator {
       if (toolName === 'host.analyze') {
         const options = args[1] || {};
         const includeContext = options.includeContext !== false;
+        const format = options.format || 'summary'; // 'summary' or 'json'
         
         const contextStr = includeContext ? JSON.stringify(agentContext.getAll(), null, 2) : 'N/A (Clean Analysis Requested)';
         const previousAnalysis = (includeContext && task?.analysis) ? `Previous Analysis Results:\n${task?.analysis}\n` : '';
@@ -56,20 +63,21 @@ export class Orchestrator {
           
           ${includeContext ? `Current Agent Context:\n${contextStr}\n\n${previousAnalysis}` : 'Note: This is a clean analysis of the provided data only.'}
           
-          Analyze the following data and provide a concise, actionable summary (max 3-5 sentences) for the next steps of the task.
-          Focus on what is important for the programmer to know.
+          Analyze the following data and extract the requested information.
           
           Data to Analyze:
           ---
           ${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}
           ---
           
-          Output ONLY the summary.
+          OUTPUT FORMAT: ${format === 'json' ? 'Output ONLY a valid JSON object.' : 'Provide a concise, actionable summary (max 3-5 sentences). Focus on what is important for the programmer to know.'}
+          
+          Output ONLY the ${format === 'json' ? 'JSON' : 'summary'}.
         `;
         
         try {
-          summary = await this.config.llmCall(analysisPrompt);
-          this.appendActionLog(taskId, `Analysis completed and added to context.`);
+          summary = await this.config.llmCall(analysisPrompt, format === 'json');
+          this.appendActionLog(taskId, `Analysis completed (${format}) and added to context.`);
         } catch (e: any) {
           this.appendActionLog(taskId, `Analysis failed: ${e.message}`);
           throw e;
@@ -82,10 +90,16 @@ export class Orchestrator {
       
       // Add to agentContext (cumulative)
       const currentAnalyses = agentContext.get('analyses') || [];
-      agentContext.set('analyses', [...currentAnalyses, summary]);
+      const updatedAnalyses = [...currentAnalyses, summary];
+      agentContext.set('analyses', updatedAnalyses);
       
       // Add to accumulatedAnalysis (for the task.analysis field/UI)
       this.context.accumulatedAnalysis.push(summary);
+
+      // Persist cumulative analyses immediately
+      await db.tasks.update(taskId, { 
+        agentContext: agentContext.getAll() 
+      });
       
       return summary;
     }

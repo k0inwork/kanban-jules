@@ -448,7 +448,7 @@ export class GithubHandler {
     }
 
     const [owner, repo] = targetRepoUrl.split('/');
-    const res = await fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`, {
+    const res = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`, {
       headers: {
         'Authorization': `token ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json'
@@ -466,7 +466,7 @@ export class GithubHandler {
 
     for (const artifact of artifacts) {
       // Download the artifact (it's a zip file)
-      const downloadRes = await fetchWithRetry(artifact.archive_download_url, {
+      const downloadRes = await this.fetchWithRetry(artifact.archive_download_url, {
         headers: {
           'Authorization': `token ${githubToken}`
         }
