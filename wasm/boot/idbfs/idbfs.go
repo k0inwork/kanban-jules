@@ -925,10 +925,14 @@ func (fi *idbFileInfo) IsDir() bool  { return fi.mode&fs.ModeDir != 0 }
 func (fi *idbFileInfo) Sys() any     { return nil }
 
 func recordToInfo(r *record) fs.FileInfo {
+	mode := fs.FileMode(r.mode)
+	if r.isDir {
+		mode |= fs.ModeDir
+	}
 	return &idbFileInfo{
 		name:  path.Base(r.path),
 		size:  int64(len(r.data)),
-		mode:  fs.FileMode(r.mode),
+		mode:  mode,
 		mtime: time.UnixMilli(r.modTime),
 	}
 }

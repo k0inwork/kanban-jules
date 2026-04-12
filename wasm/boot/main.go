@@ -203,8 +203,10 @@ func main() {
 		{".", fmt.Sprintf("vm/%s/fsys", vmID)},
 		{"#llm", fmt.Sprintf("vm/%s/fsys/#llm", vmID)},
 		{"#tools", fmt.Sprintf("vm/%s/fsys/#tools", vmID)},
-		{"#yuan", fmt.Sprintf("vm/%s/fsys/#yuan", vmID)},
 		{"#env", fmt.Sprintf("vm/%s/fsys", vmID)},
+	}
+	if cfg.Get("yuan").Truthy() {
+		vmBindings = append(vmBindings, struct{ dst, src string }{"#yuan", fmt.Sprintf("vm/%s/fsys/#yuan", vmID)})
 	}
 	for _, b := range vmBindings {
 		if err := root.Bind(b.dst, b.src); err != nil {
