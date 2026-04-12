@@ -246,7 +246,7 @@ func main() {
 	ctlcmd = append(ctlcmd, "-netdev")
 	ctlcmd = append(ctlcmd, netdevOpts)
 
-	log.Println("booting vm")
+	log.Println("booting vm with wispURL:", wispURL)
 	if err := fs.WriteFile(root.Namespace(), fmt.Sprintf("vm/%s/ctl", vmID), []byte(strings.Join(ctlcmd, " ")), 0755); err != nil {
 		log.Fatal(err)
 	}

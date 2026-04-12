@@ -1,0 +1,44 @@
+#!/bin/sh
+# wexec - run a WASI task and bridge I/O
+# usage: wexec <wasm> [args...]
+
+if [ -z "$1" ]; then
+    echo "usage: wexec <wasm> [args...]"
+    exit 1
+fi
+
+# Allocate a WASI task
+PID=$(cat /task/new/wasi)
+if [ -z "$PID" ]; then
+    echo "error: could not allocate task"
+    exit 1
+fi
+
+# Resolve binary path - make absolute if needed
+CMD="$1"
+shift
+case "$CMD" in
+    /*) ;;
+    *) CMD="/${CMD}" ;;
+esac
+
+CMD="vm/1/fsys${CMD}"
+echo "${CMD} $*" >> /task/${PID}/cmd
+
+# Stream stdout/stderr in background
+cat /task/${PID}/fd/1 &
+cat /task/${PID}/fd/2 >&2 &
+
+# Start the task
+echo start >> /task/${PID}/ctl
+
+# Wait for exit
+while true; do
+    E=$(cat /task/${PID}/exit)
+    if [ -n "$E" ]; then
+        sleep 0.2
+        kill %1 %2 2>/dev/null
+        exit "${E}"
+    fi
+    sleep 0.1
+done
