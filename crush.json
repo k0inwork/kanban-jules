@@ -1,0 +1,19 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "lsp": {
+    "go": {
+      "command": "gopls",
+      "env": {
+        "GOTOOLCHAIN": "go1.25.0"
+      }
+    },
+    "python": {
+      "command": "pyright-langserver",
+      "args": ["--stdio"]
+    },
+    "typescript": {
+      "command": "typescript-language-server",
+      "args": ["--stdio"]
+    }
+  }
+}

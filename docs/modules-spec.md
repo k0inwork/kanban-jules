@@ -110,6 +110,8 @@ interface ConfigField {
 }
 ```
 
+> **Migration note:** Current codebase uses `{ name, type, description, required }`. Must align to `{ key, label, secret, default, options }`. The `name` → `key` rename is breaking — all manifest configFields and `moduleConfigs` lookups must update.
+
 ```typescript
 // Hard resource limits the host enforces programmatically.
 // The host checks these at runtime — not soft guidance, actual walls.
@@ -130,13 +132,55 @@ interface ResourceLimit {
 
 **Rendering:** Each module with `configFields` gets a tab in Settings. The host reads all manifests at startup, builds the Settings UI dynamically, and stores values in a central `ModuleConfig` store. Modules receive their config via `init(config)` and on config change events.
 
-**Shared config (LLM):** Multiple modules need LLM access (architects, negotiators, process modules). LLM keys are a **host-level config**, not per-module. The host injects an `llm` sandbox tool that all modules use. Modules only override model selection in their own `configFields`:
+**Three-layer config architecture.** Config is split into three layers with clear ownership:
+
+| Layer | What lives here | Who owns it | When it's used |
+|-------|----------------|-------------|----------------|
+| **Host Config** | LLM API keys, default model, repo URL, repo branch | Host (Settings → General) | Global — shared by all modules |
+| **Module Config** | Per-module `configFields` only (API keys specific to the module, tuning knobs) | Module declares, host stores | Module `init()` — receives own config only |
+| **Runtime Context** | Per-call data: `taskId`, `llmCall()` function | Host constructs per invocation | Every handler call — passed as `RequestContext` |
+
+**Why this split:** LLM keys are host-level because multiple modules (architects, executors via JulesPostman, process controllers) all need LLM access. Duplicating LLM keys per module is wrong — the host owns them and provides `llmCall()` as a callable function via RequestContext, so modules never see raw keys. Module config only contains what's truly module-specific: the Jules API key (for calling the Jules service, not for LLM), poll intervals, concurrency limits, model overrides.
 
 ```typescript
-// executor-jules configFields — only module-specific config
+// RequestContext — constructed per handler invocation by the host
+interface RequestContext {
+  taskId: string;        // which task this call belongs to
+  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
+                         // host-provided LLM — uses host-level keys
+}
+
+// Handler signature change — RequestContext added as third parameter
+type ModuleHandler = (
+  toolName: string,
+  args: any[],
+  context: RequestContext
+) => Promise<any>;
+
+// Old: (toolName, args[]) => Promise<any>
+// New: (toolName, args[], context: RequestContext) => Promise<any>
+```
+
+**How llmCall works:** The host creates the `llmCall` closure when constructing RequestContext, binding it to the host-level LLM config (API key, default model, endpoint). Modules call `context.llmCall(prompt)` without knowing which provider or model is configured. If a module needs a specific model, it adds `{ key: 'modelOverride', type: 'string' }` to its configFields, and the host uses that override when building `llmCall` for that module.
+
+**Current codebase gap:** `JulesPostman` creates its own `GoogleGenAI` instance for message classification and stores LLM keys in `JulesConfig`. `Architect.ts` does the same. Both must be refactored to use `context.llmCall()` instead. `JulesConfig` shrinks from `{ apiKey, geminiApiKey, geminiModel, openaiUrl, openaiKey, openaiModel, apiProvider, ... }` to `{ apiKey, dailyLimit, concurrentLimit }`. `ArchitectConfig` shrinks to `{ modelOverride? }` or becomes empty.
+
+**Module configFields examples — only module-specific fields:**
+
+```typescript
+// executor-jules configFields — Jules service key, not LLM key
 configFields: [
-  { key: 'apiKey', type: 'string', label: 'Jules API Key', secret: true, required: true },
+  { key: 'apiKey', type: 'string', label: 'Jules API Key', secret: true, required: true,
+    description: 'API key for the Google Jules service (not your LLM key)' },
   { key: 'pollInterval', type: 'number', label: 'Poll interval (ms)', default: 5000 },
+  { key: 'dailyLimit', type: 'number', label: 'Daily task limit', default: 10 },
+  { key: 'concurrentLimit', type: 'number', label: 'Concurrent task limit', default: 3 },
+]
+
+// architect-codegen configFields — optional model override only
+configFields: [
+  { key: 'modelOverride', type: 'string', label: 'Model Override',
+    description: 'Override the host-level default LLM model for this architect' },
 ]
 
 // process-project-manager configFields — no secrets, just tuning
@@ -583,10 +627,23 @@ Benefits:
 ```typescript
 // What the module author implements inside the worker
 interface ModuleWorker {
-  init(config: ModuleConfig): Promise<void>;
-  handleRequest(method: string, args: any): Promise<any>;
+  // init receives module-level config only (the module's own configFields values).
+  // LLM keys and host config are NOT passed here — they arrive via RequestContext
+  // on each handler call.
+  init(config: Record<string, any>, hostRpc: HostRpc): Promise<void>;
+
+  // handleRequest is called for every tool invocation.
+  // context.llmCall() provides LLM access without the module owning keys.
+  handleRequest(method: string, args: any, context: RequestContext): Promise<any>;
+
   emit(event: ModuleEvent): void;
   destroy(): Promise<void>;
+}
+
+// Host RPC interface available in workers
+interface HostRpc {
+  log(message: string): void;
+  emit(event: ModuleEvent): void;
 }
 ```
 
@@ -597,9 +654,10 @@ interface ModuleHost {
   manifest: ModuleManifest;
   worker: Worker;
 
-  request(method: string, args: any): Promise<any>;
+  // request now includes RequestContext with taskId + llmCall
+  request(method: string, args: any, context: RequestContext): Promise<any>;
   onEvent(handler: (event: ModuleEvent) => void): void;
-  start(config: ModuleConfig): Promise<void>;
+  start(config: Record<string, any>): Promise<void>;
   stop(): Promise<void>;
 }
 ```
@@ -740,7 +798,70 @@ When `dependsOn` is present and non-empty, the host builds a dependency graph. S
 
 The specific executor being waited on is tracked in `Task.pendingExecutorId`, not in the state enum.
 
-### 7.3 `Task` gets executor-agnostic fields and per-module log separation
+### 7.4 `OrchestratorConfig` loses module-specific keys
+
+```diff
+ export interface OrchestratorConfig {
+   // ... existing fields ...
+-  julesApiKey?: string;           // moved to executor-jules configFields
+-  julesDailyLimit?: number;       // moved to executor-jules configFields
+-  julesConcurrentLimit?: number;  // moved to executor-jules configFields
+-  geminiApiKey?: string;          // moved to Host Config (shared LLM)
+-  openaiKey?: string;             // moved to Host Config (shared LLM)
+-  openaiUrl?: string;             // moved to Host Config (shared LLM)
+-  openaiModel?: string;           // moved to Host Config (shared LLM)
+-  geminiModel?: string;           // moved to Host Config (shared LLM)
+-  apiProvider?: string;           // moved to Host Config (shared LLM)
++  // LLM config is now in Host Config, accessed via RequestContext.llmCall()
++  // Module-specific config is now in module configFields, stored in moduleConfigs
+   moduleConfigs: Record<string, any>;  // stays — now keyed by configField.key
+ }
+```
+
+### 7.5 Handler signature in registry
+
+```diff
+ // Current (registry.ts)
+-type HandlerFn = (toolName: string, args: any[]) => Promise<any>;
++// Proposed — adds RequestContext
++type HandlerFn = (toolName: string, args: any[], context: RequestContext) => Promise<any>;
+
+ // handlers: Map<string, HandlerFn> — keyed by module ID
+```
+
+### 7.6 JulesConfig and ArchitectConfig shrink
+
+```diff
+ // JulesConfig — executor-jules types.ts
+ export interface JulesConfig {
+-  julesApiKey: string;      // was module-specific already, keep as apiKey
+-  apiProvider?: string;     // moved to Host Config
+-  geminiApiKey?: string;    // moved to Host Config
+-  geminiModel?: string;     // moved to Host Config
+-  openaiUrl?: string;       // moved to Host Config
+-  openaiKey?: string;       // moved to Host Config
+-  openaiModel?: string;     // moved to Host Config
+-  repoUrl?: string;         // moved to Host Config
+-  repoBranch?: string;      // moved to Host Config
++  apiKey: string;           // Jules service key only
++  dailyLimit: number;
++  concurrentLimit: number;
++  pollInterval?: number;
+ }
+
+ // ArchitectConfig — architect-codegen types.ts
+ export interface ArchitectConfig {
+-  apiProvider?: string;     // moved to Host Config
+-  geminiApiKey?: string;    // moved to Host Config
+-  geminiModel?: string;     // moved to Host Config
+-  openaiUrl?: string;       // moved to Host Config
+-  openaiKey?: string;       // moved to Host Config
+-  openaiModel?: string;     // moved to Host Config
+-  repoUrl?: string;         // moved to Host Config
+-  repoBranch?: string;      // moved to Host Config
++  modelOverride?: string;   // optional per-module LLM model override
+ }
+```
 
 Current `Task` already has `jnaLogs`, `unaLogs`, `programmingLog` (added in latest commit). With modules, JNA/UNA logs generalize:
 

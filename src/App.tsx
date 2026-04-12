@@ -24,14 +24,16 @@ import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
 import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
-import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User } from 'lucide-react';
+import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User, Terminal } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
 import MailboxView from './components/MailboxView';
 import ConstitutionEditor from './components/ConstitutionEditor';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
+import { TerminalPanel } from './modules/channel-wasm-terminal/TerminalPanel';
 import PreviewPane from './components/PreviewPane';
 import { Artifact, db, AgentMessage } from './services/db';
+import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
 import { GitFs, GitFile } from './services/GitFs';
 import { ArtifactTool, artifactToolDeclarations } from './modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-repo-browser/RepositoryTool';
@@ -729,6 +731,32 @@ export default function App() {
           >
             <Folder className="w-5 h-5" />
           </button>
+
+          <button
+            onClick={() => {
+              if (activeTabId === 'terminal-vm') {
+                // Terminal is visible — switch away
+                const otherTabs = tabs.filter(t => t.type !== 'terminal');
+                if (otherTabs.length > 0) {
+                  setActiveTabId(otherTabs[otherTabs.length - 1].id);
+                } else {
+                  setIsViewingBoard(true);
+                  setActiveTabId(null);
+                }
+              } else {
+                // Show terminal
+                setIsViewingBoard(false);
+                setActiveTabId('terminal-vm');
+              }
+            }}
+            className={cn(
+              "p-2 rounded-md transition-colors",
+              activeTabId === 'terminal-vm' ? "text-green-400 bg-neutral-800" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+            )}
+            title="Toggle Terminal"
+          >
+            <Terminal className="w-5 h-5" />
+          </button>
           
           
           <button
@@ -867,34 +895,60 @@ export default function App() {
             />
           )}
           {isConstitutionOpen ? (
-            <ConstitutionEditor 
-              repoUrl={repoUrl} 
-              branch={repoBranch} 
+            <ConstitutionEditor
+              repoUrl={repoUrl}
+              branch={repoBranch}
               onSave={() => setIsConstitutionOpen(false)}
             />
-          ) : tabs.length > 0 && !isViewingBoard ? (
-            <PreviewPane 
-              activeTab={tabs.find(t => t.id === activeTabId) || null} 
-              onAcceptProposal={handleAcceptProposal}
-              onDeclineProposal={handleDeclineProposal}
-              onReplyToMail={handleReplyToMail}
-              autonomyMode={autonomyMode}
-              apiProvider={apiProvider}
-              geminiModel={geminiModel}
-              openaiUrl={openaiUrl}
-              openaiKey={openaiKey}
-              openaiModel={openaiModel}
-              geminiApiKey={geminiApiKey}
-            />
           ) : (
-            <KanbanBoard 
-              tasks={tasks} 
-              onMoveTask={handleMoveTask} 
-              onTaskClick={setSelectedTask}
-              onStartTask={processTask}
-              onDeleteTask={confirmDeleteTask}
-              onAttachArtifact={handleAttachArtifact}
-            />
+            <div className="flex-1 min-h-0 relative">
+              {/* Terminal: always mounted, boots on app start. Overlays everything when active. */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  display: activeTabId === 'terminal-vm' ? 'flex' : 'none',
+                  flexDirection: 'column',
+                  zIndex: 10,
+                }}
+              >
+                <TerminalPanel
+                  bundleUrl="/assets/wasm/sys.tar.gz"
+                  wasmUrl="/assets/wasm/boot.wasm"
+                  wanixUrl="/assets/wasm/wanix.min.js"
+                  apiProvider={apiProvider}
+                  geminiApiKey={geminiApiKey}
+                  geminiModel={geminiModel}
+                  openaiUrl={openaiUrl}
+                  openaiKey={openaiKey}
+                  openaiModel={openaiModel}
+                />
+              </div>
+              {/* Non-terminal content */}
+              {tabs.length > 0 && !isViewingBoard ? (
+                <PreviewPane
+                  activeTab={tabs.find(t => t.id === activeTabId) || null}
+                  onAcceptProposal={handleAcceptProposal}
+                  onDeclineProposal={handleDeclineProposal}
+                  onReplyToMail={handleReplyToMail}
+                  autonomyMode={autonomyMode}
+                  apiProvider={apiProvider}
+                  geminiModel={geminiModel}
+                  openaiUrl={openaiUrl}
+                  openaiKey={openaiKey}
+                  openaiModel={openaiModel}
+                  geminiApiKey={geminiApiKey}
+                />
+              ) : (
+                <KanbanBoard
+                  tasks={tasks}
+                  onMoveTask={handleMoveTask}
+                  onTaskClick={setSelectedTask}
+                  onStartTask={processTask}
+                  onDeleteTask={confirmDeleteTask}
+                  onAttachArtifact={handleAttachArtifact}
+                />
+              )}
+            </div>
           )}
         </div>
       </div>

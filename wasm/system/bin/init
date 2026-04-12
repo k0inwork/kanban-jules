@@ -1,0 +1,22 @@
+#!/bin/busybox sh
+# Dispatcher: runs init-executor or init-terminal based on BOARD_MODE
+# The kernel cmdline always passes init=/bin/init
+# This script checks BOARD_MODE from profile and execs the right init.
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+
+# Read BOARD_MODE from profile (set by boot.go into /etc/profile.d/board-vm.sh)
+BOARD_MODE=""
+if [ -f /etc/profile.d/board-vm.sh ]; then
+    . /etc/profile.d/board-vm.sh
+fi
+
+case "$BOARD_MODE" in
+    terminal)
+        exec /bin/init-terminal
+        ;;
+    *)
+        exec /bin/init-executor
+        ;;
+esac

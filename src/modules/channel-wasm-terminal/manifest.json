@@ -1,0 +1,40 @@
+{
+  "id": "channel-wasm-terminal",
+  "name": "WASM Terminal",
+  "version": "0.1.0",
+  "type": "channel",
+  "description": "An xterm.js terminal connected to a WASM Linux VM with board filesystem access and network. Can run Claude Code or other CLI tools.",
+  "tools": [
+    {
+      "name": "channel-wasm-terminal.sendToTerminal",
+      "description": "Inject text into the terminal as if typed by the user.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to type into the terminal."
+          }
+        },
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "channel-wasm-terminal.onTerminalOutput",
+      "description": "Subscribe to terminal output. Board modules can use this to monitor what the terminal produces.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "callback": {
+            "type": "string",
+            "description": "Callback function ID for output events."
+          }
+        },
+        "required": ["callback"]
+      }
+    }
+  ],
+  "component": "TerminalPanel",
+  "permissions": ["web-worker", "shared-array-buffer"],
+  "enabled": false
+}

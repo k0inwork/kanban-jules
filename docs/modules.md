@@ -93,6 +93,8 @@ The system is already a multi-agent orchestration framework. Understanding this 
 
 5. **Format validation on askUser.** `askUser(question, format)` triggers LLM-based validation of user input. Failed validation throws back to the Programmer for retry.
 
+6. **Config separation.** LLM keys are host-level, not per-module. Modules access LLM via `context.llmCall()` provided through RequestContext on each handler call. Module configFields contain only module-specific settings (service API keys, tuning knobs). See §4 in [modules-spec.md](modules-spec.md) for the three-layer config architecture (Host Config / Module Config / Runtime Context).
+
 ---
 
 ## 3. Module Categories
@@ -171,7 +173,7 @@ Future: pluggable architects for different task complexity levels
 
 ---
 
-> **§4–7: Interface & Core** — Module manifest, sandbox bindings, permissions, presentations, worker threads, prompt composition, type changes.
+> **§4–7: Interface & Core** — Module manifest, sandbox bindings, permissions, presentations, worker threads, prompt composition, type changes, **config architecture (three-layer: Host / Module / Runtime Context)**, **RequestContext with llmCall**, handler signature changes.
 > → See [modules-spec.md](modules-spec.md)
 
 > **§8: Bundled & Future Modules** — All module manifests, registry, install flow, future catalog.
