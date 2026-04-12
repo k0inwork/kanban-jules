@@ -12,4 +12,4 @@ udhcpc -i eth0
 # Board tools available in PATH
 export PATH=$PATH:/board/bin
 
-exec /bin/sh
+exec setsid sh -c 'exec sh </dev/ttyS0 >/dev/ttyS0 2>&1'
