@@ -18,6 +18,7 @@ import (
 	"tractor.dev/wanix/fs"
 	"tractor.dev/wanix/fs/cowfs"
 	"tractor.dev/wanix/fs/fskit"
+	"boardvm/idbfs"
 	"tractor.dev/wanix/fs/memfs"
 	"tractor.dev/wanix/fs/tarfs"
 	"tractor.dev/wanix/vfs/pipe"
@@ -124,9 +125,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var envScratch fs.FS = memfs.New()
+	envScratch := idbfs.New("wanix-env")
+	if err := envScratch.Init(); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("about to bind idbfs to #scratch")
 	root.Namespace().Bind(envScratch, ".", "#scratch")
+	log.Println("idbfs bound to #scratch")
 	root.Namespace().Bind(&cowfs.FS{Base: envBase, Overlay: envScratch}, ".", "#env")
+	log.Println("cowfs bound to #env")
 	root.Namespace().Bind(fskit.RawNode([]byte(Version+"\n")), ".", "#version")
 	log.Printf("env (cow) loaded in %v\n", time.Since(startTime))
 
@@ -156,12 +163,24 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// ---- YuanFS: /yuan (both modes) ----
+	if cfg.Get("yuan").Truthy() {
+		yuanfs := NewYuanFS(cfg)
+		if err := root.Namespace().Bind(yuanfs, ".", "#yuan"); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	// Expose #llm and #tools via mount bindings so WASI tasks can see them
 	if err := root.Bind("#llm", "llm"); err != nil {
 		log.Fatal(err)
 	}
 	if err := root.Bind("#tools", "tools"); err != nil {
 		log.Fatal(err)
+	}
+	if err := root.Bind("#yuan", "yuan"); err != nil {
+		// non-fatal: yuan is optional
+		log.Printf("warning: could not bind #yuan: %v", err)
 	}
 
 
@@ -184,6 +203,7 @@ func main() {
 		{".", fmt.Sprintf("vm/%s/fsys", vmID)},
 		{"#llm", fmt.Sprintf("vm/%s/fsys/#llm", vmID)},
 		{"#tools", fmt.Sprintf("vm/%s/fsys/#tools", vmID)},
+		{"#yuan", fmt.Sprintf("vm/%s/fsys/#yuan", vmID)},
 		{"#env", fmt.Sprintf("vm/%s/fsys", vmID)},
 	}
 	for _, b := range vmBindings {
@@ -218,9 +238,11 @@ func main() {
 		"-m", "1G",
 		"-append", fmt.Sprintf("'%s'", strings.Join(cmdline, " ")),
 	}
-	// Always enable network via fetch adapter (zero cost, no server)
+	// Network via WISP for full TCP tunneling
+	wispURL := "wisp://" + js.Global().Get("location").Get("host").String() + "/wisp"
+	netdevOpts := "user,type=virtio,relay_url=" + wispURL
 	ctlcmd = append(ctlcmd, "-netdev")
-	ctlcmd = append(ctlcmd, "user,type=virtio,relay_url=fetch")
+	ctlcmd = append(ctlcmd, netdevOpts)
 
 	log.Println("booting vm")
 	if err := fs.WriteFile(root.Namespace(), fmt.Sprintf("vm/%s/ctl", vmID), []byte(strings.Join(ctlcmd, " ")), 0755); err != nil {
