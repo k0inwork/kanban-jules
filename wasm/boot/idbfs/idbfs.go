@@ -491,6 +491,21 @@ func (fsys *FS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, erro
 		mode = fs.FileMode(rec.mode)
 	}
 
+	// Persist the record immediately so subsequent Stat calls find it.
+	// Without this, p9 Create calls info() which Stat's via the filesystem
+	// and won't see the unflushed in-memory record.
+	if rec == nil {
+		if err := fsys.putRecord(&record{
+			path:    name,
+			data:    nil,
+			mode:    uint32(mode),
+			modTime: time.Now().UnixMilli(),
+			isDir:   false,
+		}); err != nil {
+			return nil, &fs.PathError{Op: "openfile", Path: name, Err: err}
+		}
+	}
+
 	return &writableFile{
 		fsys:   fsys,
 		name:   name,
@@ -561,6 +576,54 @@ func (fsys *FS) MkdirAll(name string, perm fs.FileMode) error {
 				return &fs.PathError{Op: "mkdirall", Path: dir, Err: err}
 			}
 		}
+	}
+	return nil
+}
+
+func (fsys *FS) Chtimes(name string, atime, mtime time.Time) error {
+	if !fs.ValidPath(name) {
+		return &fs.PathError{Op: "chtimes", Path: name, Err: fs.ErrNotExist}
+	}
+
+	fsys.mu.Lock()
+	defer fsys.mu.Unlock()
+
+	name = path.Clean(name)
+	rec, err := fsys.getRecord(name)
+	if err != nil {
+		return &fs.PathError{Op: "chtimes", Path: name, Err: err}
+	}
+	if rec == nil {
+		return &fs.PathError{Op: "chtimes", Path: name, Err: fs.ErrNotExist}
+	}
+
+	rec.modTime = mtime.UnixMilli()
+	if err := fsys.putRecord(rec); err != nil {
+		return &fs.PathError{Op: "chtimes", Path: name, Err: err}
+	}
+	return nil
+}
+
+func (fsys *FS) Chmod(name string, mode fs.FileMode) error {
+	if !fs.ValidPath(name) {
+		return &fs.PathError{Op: "chmod", Path: name, Err: fs.ErrNotExist}
+	}
+
+	fsys.mu.Lock()
+	defer fsys.mu.Unlock()
+
+	name = path.Clean(name)
+	rec, err := fsys.getRecord(name)
+	if err != nil {
+		return &fs.PathError{Op: "chmod", Path: name, Err: err}
+	}
+	if rec == nil {
+		return &fs.PathError{Op: "chmod", Path: name, Err: fs.ErrNotExist}
+	}
+
+	rec.mode = uint32(mode)
+	if err := fsys.putRecord(rec); err != nil {
+		return &fs.PathError{Op: "chmod", Path: name, Err: err}
 	}
 	return nil
 }
@@ -848,6 +911,38 @@ func (f *writableFile) Write(p []byte) (int, error) {
 		f.offset = end
 	}
 
+	f.dirty = true
+	return len(p), nil
+}
+
+func (f *writableFile) ReadAt(p []byte, off int64) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if off >= int64(len(f.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, f.data[off:])
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (f *writableFile) WriteAt(p []byte, off int64) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.closed {
+		return 0, fs.ErrClosed
+	}
+
+	end := off + int64(len(p))
+	if end > int64(len(f.data)) {
+		newData := make([]byte, end)
+		copy(newData, f.data)
+		f.data = newData
+	}
+	copy(f.data[off:], p)
 	f.dirty = true
 	return len(p), nil
 }
