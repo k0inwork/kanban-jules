@@ -8,6 +8,9 @@ export interface TaskStep {
   description: string;
   executor: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  currentCode?: string;
+  executionHistory?: any[];
+  seed?: number;
 }
 
 export interface TaskProtocol {

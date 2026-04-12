@@ -157,23 +157,46 @@ export class Orchestrator {
       
       try {
         let code: string;
-        try {
-          code = await this.config.llmCall(prompt);
-        } catch (llmError: any) {
-          // If the LLM call itself fails (e.g. network error), don't count it as a code execution attempt.
-          // The host.ts llmCall already retries 3 times, but if it still fails, we should pause or wait.
-          throw new Error(`LLM Generation Failed: ${llmError.message}`);
-        }
-        
-        const codeMatch = code.match(/```(?:javascript|js)?\n([\s\S]*?)\n```/i);
-        if (codeMatch) {
-          code = codeMatch[1].trim();
+        let isReplay = false;
+
+        // Check if we have saved code for this step (Replay Mode)
+        if (step.currentCode) {
+          code = step.currentCode;
+          isReplay = true;
+          await this.logToChat(taskId, `Resuming from saved code (Attempt ${attempt})...`);
+          this.appendActionLog(taskId, `Resuming Step ${stepId} from saved state`);
         } else {
-          code = code.replace(/^\`\`\`(?:javascript|js)?\n/i, '').replace(/\n\`\`\`$/i, '').trim();
+          // Live Mode: Generate new code
+          try {
+            code = await this.config.llmCall(prompt);
+          } catch (llmError: any) {
+            // If the LLM call itself fails (e.g. network error), don't count it as a code execution attempt.
+            // The host.ts llmCall already retries 3 times, but if it still fails, we should pause or wait.
+            throw new Error(`LLM Generation Failed: ${llmError.message}`);
+          }
+          
+          const codeMatch = code.match(/```(?:javascript|js)?\n([\s\S]*?)\n```/i);
+          if (codeMatch) {
+            code = codeMatch[1].trim();
+          } else {
+            code = code.replace(/^\`\`\`(?:javascript|js)?\n/i, '').replace(/\n\`\`\`$/i, '').trim();
+          }
+          
+          // Save the generated code and initialize a new seed for this attempt
+          const newSeed = Date.now();
+          const updatedSteps = task.protocol.steps.map(s => 
+            s.id === stepId ? { ...s, currentCode: code, seed: newSeed, executionHistory: [] } : s
+          );
+          await db.tasks.update(taskId, { protocol: { ...task.protocol, steps: updatedSteps } });
+          
+          // Update our local step reference so executeInSandbox has the right data
+          step.currentCode = code;
+          step.seed = newSeed;
+          step.executionHistory = [];
+
+          await this.logToChat(taskId, `Generated Code (Attempt ${attempt}):\n\`\`\`javascript\n${code}\n\`\`\``);
+          this.appendProgrammingLog(taskId, `Step ${stepId} (Attempt ${attempt}) - code:\n"${code}"`);
         }
-        
-        await this.logToChat(taskId, `Generated Code (Attempt ${attempt}):\n\`\`\`javascript\n${code}\n\`\`\``);
-        this.appendProgrammingLog(taskId, `Step ${stepId} (Attempt ${attempt}) - code:\n"${code}"`);
 
         await this.executeInSandbox(taskId, code, stepId);
         return;
@@ -192,6 +215,18 @@ export class Orchestrator {
           await new Promise(r => setTimeout(r, 15000));
         } else {
           errorContext = error.message + (error.stack ? `\n${error.stack}` : '');
+          
+          // If execution failed, wipe the saved code and history so the next attempt starts fresh
+          const currentTask = await db.tasks.get(taskId);
+          if (currentTask && currentTask.protocol) {
+            const updatedSteps = currentTask.protocol.steps.map(s => 
+              s.id === stepId ? { ...s, currentCode: undefined, executionHistory: undefined, seed: undefined } : s
+            );
+            await db.tasks.update(taskId, { protocol: { ...currentTask.protocol, steps: updatedSteps } });
+            step.currentCode = undefined;
+            step.executionHistory = undefined;
+            step.seed = undefined;
+          }
         }
       }
     }
@@ -209,7 +244,9 @@ export class Orchestrator {
     const task = await db.tasks.get(taskId);
     if (!task || !task.protocol) throw new Error("Task or protocol not found");
     const step = task.protocol.steps.find(s => s.id === stepId);
-    const executorId = step?.executor || 'executor-local';
+    if (!step) throw new Error("Step not found");
+
+    const executorId = step.executor || 'executor-local';
     const module = registry.get(executorId);
     const permissions = module?.permissions || [];
     const sandboxBindings = {
@@ -224,28 +261,92 @@ export class Orchestrator {
 
     this.context.accumulatedAnalysis = [];
     const sandbox = new Sandbox();
-    injectBindings(sandbox, (toolName, args) => this.moduleRequest(taskId, toolName, args), this.context);
+    
+    let callIndex = 0;
+
+    // Wrap the moduleRequest to intercept and use the history log
+    const interceptingModuleRequest = async (toolName: string, args: any[]) => {
+      const currentIndex = callIndex++;
+      
+      // 1. Check if we have a saved result for this exact tool call index
+      if (step.executionHistory && currentIndex < step.executionHistory.length) {
+        const savedRecord = step.executionHistory[currentIndex];
+        console.log(`[Replay] Fast-forwarding tool call ${currentIndex}: ${toolName}`);
+        
+        if (savedRecord.error) {
+          throw new Error(savedRecord.error);
+        }
+        return savedRecord.result;
+      }
+
+      // 2. Live Mode: Execute the real tool
+      console.log(`[Live] Executing tool call ${currentIndex}: ${toolName}`);
+      try {
+        // Special case for Date.now() override
+        let result;
+        if (toolName === 'host.dateNow') {
+           result = Date.now();
+        } else {
+           result = await this.moduleRequest(taskId, toolName, args);
+        }
+
+        // Save the result to the history log
+        const currentTask = await db.tasks.get(taskId);
+        if (currentTask && currentTask.protocol) {
+          const currentStep = currentTask.protocol.steps.find(s => s.id === stepId);
+          if (currentStep) {
+            const history = currentStep.executionHistory || [];
+            history[currentIndex] = { result };
+            
+            const updatedSteps = currentTask.protocol.steps.map(s => 
+              s.id === stepId ? { ...s, executionHistory: history } : s
+            );
+            await db.tasks.update(taskId, { protocol: { ...currentTask.protocol, steps: updatedSteps } });
+            step.executionHistory = history; // Update local ref
+          }
+        }
+        return result;
+      } catch (error: any) {
+        // Save the error to the history log
+        const currentTask = await db.tasks.get(taskId);
+        if (currentTask && currentTask.protocol) {
+          const currentStep = currentTask.protocol.steps.find(s => s.id === stepId);
+          if (currentStep) {
+            const history = currentStep.executionHistory || [];
+            history[currentIndex] = { error: error.message };
+            
+            const updatedSteps = currentTask.protocol.steps.map(s => 
+              s.id === stepId ? { ...s, executionHistory: history } : s
+            );
+            await db.tasks.update(taskId, { protocol: { ...currentTask.protocol, steps: updatedSteps } });
+            step.executionHistory = history; // Update local ref
+          }
+        }
+        throw error;
+      }
+    };
+
+    injectBindings(sandbox, interceptingModuleRequest, this.context);
 
     try {
-      const result = await sandbox.execute(code, permissions, sandboxBindings);
+      const result = await sandbox.execute(code, permissions, sandboxBindings, undefined, step.seed);
       await this.logToChat(taskId, `Execution Success. Result: ${JSON.stringify(result)}`);
       
       const currentTask = await db.tasks.get(taskId);
       const existingAnalysis = currentTask?.analysis ? currentTask.analysis + '\n' : '';
       const newAnalysis = (this.context.accumulatedAnalysis.length > 0) ? this.context.accumulatedAnalysis.join('\n') : '';
 
+      // Clean up the saved code and history now that the step is fully complete
+      const updatedSteps = currentTask!.protocol!.steps.map(s => 
+        s.id === stepId ? { ...s, status: 'completed' as const, currentCode: undefined, executionHistory: undefined, seed: undefined } : s
+      );
+
       await db.tasks.update(taskId, { 
         agentContext: agentContext.getAll(),
-        analysis: (existingAnalysis + newAnalysis).trim() || undefined
+        analysis: (existingAnalysis + newAnalysis).trim() || undefined,
+        protocol: { ...currentTask!.protocol!, steps: updatedSteps }
       });
       
-      const updatedTask = await db.tasks.get(taskId);
-      if (updatedTask && updatedTask.protocol) {
-        const updatedSteps = updatedTask.protocol.steps.map(s => 
-          s.id === stepId ? { ...s, status: 'completed' as const } : s
-        );
-        await db.tasks.update(taskId, { protocol: { ...updatedTask.protocol, steps: updatedSteps } });
-      }
     } catch (error: any) {
       throw error;
     }

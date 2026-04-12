@@ -247,6 +247,21 @@ export default function App() {
 
   // Agent Loop
   useEffect(() => {
+    // Recovery Mechanism: On mount, find any tasks stuck in EXECUTING and reset them to IDLE
+    const recoverStuckTasks = async () => {
+      const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();
+      for (const task of stuckTasks) {
+        console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);
+        await db.tasks.update(task.id, { agentState: 'IDLE' });
+        eventBus.emit('module:log', { 
+          taskId: task.id, 
+          moduleId: 'orchestrator', 
+          message: `> [System] Recovered task from interrupted state. Resuming execution...` 
+        });
+      }
+    };
+    recoverStuckTasks();
+
     const interval = setInterval(async () => {
       // 1. Task Orchestration
       if (autonomyMode !== 'manual') {

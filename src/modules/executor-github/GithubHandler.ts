@@ -69,27 +69,6 @@ export class GithubHandler {
       throw new Error("workflowYaml is required.");
     }
 
-    // Ensure workflow_dispatch is present so we can trigger it
-    try {
-      const parsedYaml = YAML.parse(workflowYaml);
-      if (!parsedYaml.on) {
-        parsedYaml.on = { workflow_dispatch: {} };
-      } else if (typeof parsedYaml.on === 'string') {
-        parsedYaml.on = { [parsedYaml.on]: null, workflow_dispatch: {} };
-      } else if (Array.isArray(parsedYaml.on)) {
-        if (!parsedYaml.on.includes('workflow_dispatch')) {
-          parsedYaml.on.push('workflow_dispatch');
-        }
-      } else if (typeof parsedYaml.on === 'object') {
-        if (!parsedYaml.on.workflow_dispatch) {
-          parsedYaml.on.workflow_dispatch = {};
-        }
-      }
-      workflowYaml = YAML.stringify(parsedYaml);
-    } catch (e) {
-      console.warn("[GithubHandler] Failed to parse and patch workflow YAML, using original:", e);
-    }
-
     // If workflowName is not provided, generate a default one
     let finalWorkflowName = workflowName || `fleet-workflow-${Date.now()}.yml`;
     if (!finalWorkflowName.endsWith('.yml') && !finalWorkflowName.endsWith('.yaml')) {
@@ -143,6 +122,15 @@ export class GithubHandler {
     // Create a temporary branch
     const tempBranch = `fleet-temp-${Date.now()}`;
     console.log(`[GithubHandler] Creating temporary branch ${tempBranch} from ${baseBranch}`);
+
+    // Force the workflow to trigger on push to the temporary branch
+    try {
+      const parsedYaml = YAML.parse(workflowYaml);
+      parsedYaml.on = { push: { branches: [tempBranch] } };
+      workflowYaml = YAML.stringify(parsedYaml);
+    } catch (e) {
+      console.warn("[GithubHandler] Failed to parse and patch workflow YAML, using original:", e);
+    }
     
     // 1. Get SHA of base branch
     const refRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`, {
@@ -177,6 +165,7 @@ export class GithubHandler {
     const workflowPath = `.github/workflows/${finalWorkflowName}`;
     
     // 3. Create/Update the workflow file using GitFs on the TEMP branch
+    // This push will automatically trigger the workflow because of the 'on: push' rule.
     try {
       const gitFs = new GitFs(targetRepoUrl, tempBranch, githubToken);
       await gitFs.writeFile(workflowPath, workflowYaml, `Fleet: Update workflow ${finalWorkflowName}`);
@@ -184,59 +173,11 @@ export class GithubHandler {
       throw new Error(`Failed to update workflow file via Git: ${e.message}`);
     }
 
-    // Wait for GitHub to index the new/updated workflow
-    for (let i = 0; i < 10; i++) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}`, {
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      });
-      if (checkRes.ok) break;
-    }
-
-    // 4. Trigger the workflow via workflow_dispatch on the TEMP branch
-    let dispatchRes: Response | undefined;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      dispatchRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/workflows/${finalWorkflowName}/dispatches`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/vnd.github.v3+json'
-        },
-        body: JSON.stringify({
-          ref: tempBranch
-        })
-      });
-
-      if (dispatchRes.ok) break;
-      
-      // If rate limited or conflict, wait and retry
-      if ((dispatchRes.status === 429 || dispatchRes.status === 409) && attempt < 2) {
-        await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
-        continue;
-      }
-      
-      break;
-    }
-
-    if (!dispatchRes || !dispatchRes.ok) {
-      const errorText = await dispatchRes?.text();
-      let errorMessage = errorText || 'Unknown error';
-      try {
-        const errorData = JSON.parse(errorText || '{}');
-        errorMessage = errorData.message || errorText;
-      } catch (e) {}
-      throw new Error(`Failed to trigger workflow: ${errorMessage}`);
-    }
-
-    // 3. Find the run ID (polling briefly)
+    // 4. Find the run ID (polling briefly)
     let runId: number | undefined;
-    for (let i = 0; i < 5; i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const runsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${tempBranch}&event=workflow_dispatch`, {
+    for (let i = 0; i < 10; i++) { // Poll up to 30 seconds for the push event to register
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      const runsRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${tempBranch}&event=push`, {
         headers: {
           'Authorization': `token ${githubToken}`,
           'Accept': 'application/vnd.github.v3+json'
@@ -253,7 +194,7 @@ export class GithubHandler {
     }
 
     if (!runId) {
-      throw new Error("Workflow triggered but could not find the run ID. Please check GitHub Actions.");
+      throw new Error("Workflow file pushed but could not find the run ID. Please check GitHub Actions.");
     }
 
     return { runId, status: 'queued', tempBranch };
