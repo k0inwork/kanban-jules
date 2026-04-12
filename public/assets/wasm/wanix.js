@@ -925,7 +925,8 @@ currentExtensions[15] = (value) => {
 };
 var glbl = { Error, RegExp };
 currentExtensions[27] = (data) => {
-  return (glbl[data[0]] || Error)(data[1], data[2]);
+  console.log('[wanix] ESC[27] save/restore disabled to fix xterm.js parsing errors');
+  // No-op - don't send ANSI save/restore cursor sequences
 };
 var packedTable = (read3) => {
   if (src[position++] != 132) {
