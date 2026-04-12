@@ -75,7 +75,7 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
       setIsHovered(true);
-    }, 800); // 800ms delay before showing popup
+    }, 1500); // 1.5s delay before showing popup
   };
 
   const handleMouseLeave = () => {
@@ -153,14 +153,14 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
           let text = cleanEntry.replace(/> \[\d{2}:\d{2}:\d{2}\]\s*/, '');
           text = text.replace(/^>\s*\[.*?\]\s*/, ''); // Remove existing module prefix if any
 
-          // Truncate long code blocks or messages
-          if (text.length > 300 || text.includes('```') || text.includes('\n')) {
+          // Aggressive truncation for architect code blocks
+          if (module === 'architect' && (text.includes('code:') || text.includes('```'))) {
             const lines = text.split('\n');
-            if (lines.length > 3) {
-              text = lines.slice(0, 2).join('\n') + '\n... [code truncated, view in details] ...';
-            } else if (text.length > 300) {
-              text = text.substring(0, 297) + '...';
-            }
+            text = lines[0].substring(0, 100) + '... [code hidden in hover]';
+          } else if (text.length > 400 || text.split('\n').length > 5) {
+            // General truncation for other long logs
+            const lines = text.split('\n');
+            text = lines.slice(0, 3).join('\n') + '\n... [truncated]';
           }
 
           logEntries.push({ time, module, text });
@@ -171,7 +171,7 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
     // Sort lexicographically by time
     logEntries.sort((a, b) => a.time.localeCompare(b.time));
 
-    return logEntries.slice(-100); // Show last 100 lines
+    return logEntries.slice(-500); // Show last 500 lines
   };
 
   const sortedLogs = isHovered ? getSortedLogs() : [];
@@ -259,9 +259,12 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
           }}
           onMouseLeave={handleMouseLeave}
         >
-          <div className="flex items-center px-3 py-1.5 bg-[#161b22] border-b border-neutral-800">
-            <Terminal className="w-3.5 h-3.5 text-neutral-400 mr-2" />
-            <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">Live Logs</span>
+          <div className="flex items-center justify-between px-3 py-1.5 bg-[#161b22] border-b border-neutral-800">
+            <div className="flex items-center">
+              <Terminal className="w-3.5 h-3.5 text-neutral-400 mr-2" />
+              <span className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider">Live Logs</span>
+            </div>
+            <span className="text-[9px] font-mono text-neutral-500">Showing last {sortedLogs.length} lines</span>
           </div>
           <div className="p-3 overflow-y-auto font-mono text-[10px] leading-relaxed text-neutral-300 custom-scrollbar flex flex-col min-h-0 pointer-events-auto">
             {sortedLogs.length > 0 ? (
@@ -276,6 +279,9 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
               <div className="text-neutral-600 italic">No logs available.</div>
             )}
             <div ref={(el) => el?.scrollIntoView()} />
+          </div>
+          <div className="px-3 py-1 bg-[#161b22] border-t border-neutral-800 text-[9px] text-neutral-500 text-center">
+            Click card for full details and artifacts
           </div>
         </div>,
         document.body

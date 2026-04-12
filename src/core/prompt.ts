@@ -1,6 +1,7 @@
 import { ModuleManifest } from './types';
 import { Task, TaskStep } from '../types';
 import { GoogleGenAI } from '@google/genai';
+import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION } from './constitution';
 
 export const parseTasksFromMessage = async (
   messageContent: string,
@@ -91,11 +92,12 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
   ].join('\n');
 
   const knowledge = moduleKnowledge[executorId] ? `\nMODULE KNOWLEDGE BASE:\n${moduleKnowledge[executorId]}\n` : '';
+  const constitution = moduleKnowledge['system:programmer'] || PROGRAMMER_CONSTITUTION;
 
   return `
-You are the Programmer Agent. Write executable JavaScript code to accomplish
-the following protocol step.
+${constitution}
 
+TASK CONTEXT:
 Task Title: ${task.title}
 Task Description: ${task.description}
 
@@ -106,21 +108,12 @@ You have access to a persistent AgentContext object.
 Current AgentContext: ${JSON.stringify(task.agentContext || {})}
 ${task.analysis ? `\nAccumulated Analysis Results:\n${task.analysis}\n` : ''}
 
-You have access to the following async APIs (injected into your scope):
+AVAILABLE APIS:
 ${apiSection}
 ${commonTools}
 ${knowledge}
-${errorContext ? `PREVIOUS EXECUTION FAILED:\n${errorContext}\nRewrite the code or use askUser().\n` : ''}
 
-RULES:
-- Write ONLY valid JavaScript code.
-- No markdown formatting (no \`\`\` blocks).
-- The code runs in an async context. You can use await.
-- CRITICAL: The code runs in a secure browser-based Web Worker sandbox (Sval). You DO NOT have access to Node.js built-ins (like require, fs, child_process) or the host filesystem. You MUST use the provided async APIs (like askJules, repo.readFile, etc.) to perform any work.
-- Use AgentContext to store state between steps if needed.
-- If you need user input, use askUser(prompt).
-- If you are just reporting the final result, use sendUser(message) instead of askUser so the agent doesn't pause waiting for an "ok".
-- If you are using executor-github, you must first runWorkflow, then poll getRunStatus, then fetchArtifacts.
+${errorContext ? `PREVIOUS EXECUTION FAILED:\n${errorContext}\nRewrite the code or use askUser().\n` : ''}
   `;
 }
 
@@ -136,23 +129,13 @@ Name: ${e.name}
 Description: ${e.description}${knowledge}
   `}).join('\n---\n');
 
+  const constitution = moduleKnowledge['system:architect'] || ARCHITECT_CONSTITUTION;
+
   return `
-You are a Task Architect. Break down the task into steps and assign
-each step to the best executor.
+${constitution}
 
 AVAILABLE EXECUTORS:
 ${executorSection}
-
-RULES:
-- Read each executor's description carefully.
-- Assign each step to the executor that fits best by using its "Executor ID".
-- Respect each executor's stated granularity preferences.
-- "executor-local" is best for small, tool-based tasks (file read/write, artifact creation).
-- "executor-jules" is best for large, ambitious coding tasks in a remote VM.
-- "executor-github" is best for heavy compute, CI/CD, or long-running processes. The executor's tools (like runAndWait) automatically create, push, and trigger the workflow. You do NOT need to instruct the user to trigger it manually or wait for a push event.
-- Combine all steps assigned to "executor-github" into a single, non-reentrant step. Jules steps can remain separate.
-- CRITICAL: Do NOT use "executor-jules" just to create simple local files, configuration files, or GitHub Actions workflow files. Use "executor-local" or the built-in capabilities of "executor-github" (like runAndWait) for simple file creation and workflow execution.
-- CRITICAL: NEVER instruct executors to communicate with each other by creating GitHub issues, PRs, or writing temporary files to the repository. All inter-step communication MUST happen by saving results to the AgentContext (which is shared between steps).
 
 Output ONLY valid JSON matching this schema:
 {
