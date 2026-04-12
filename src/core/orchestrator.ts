@@ -262,74 +262,26 @@ export class Orchestrator {
     this.context.accumulatedAnalysis = [];
     const sandbox = new Sandbox();
     
-    let callIndex = 0;
-
-    // Wrap the moduleRequest to intercept and use the history log
-    const interceptingModuleRequest = async (toolName: string, args: any[]) => {
-      const currentIndex = callIndex++;
+    const history = step.executionHistory || [];
+    sandbox.setHistoryRecorder((index, result, error) => {
+      if (error) history[index] = { error };
+      else history[index] = { result };
       
-      // 1. Check if we have a saved result for this exact tool call index
-      if (step.executionHistory && currentIndex < step.executionHistory.length) {
-        const savedRecord = step.executionHistory[currentIndex];
-        console.log(`[Replay] Fast-forwarding tool call ${currentIndex}: ${toolName}`);
-        
-        if (savedRecord.error) {
-          throw new Error(savedRecord.error);
-        }
-        return savedRecord.result;
-      }
-
-      // 2. Live Mode: Execute the real tool
-      console.log(`[Live] Executing tool call ${currentIndex}: ${toolName}`);
-      try {
-        // Special case for Date.now() override
-        let result;
-        if (toolName === 'host.dateNow') {
-           result = Date.now();
-        } else {
-           result = await this.moduleRequest(taskId, toolName, args);
-        }
-
-        // Save the result to the history log
-        const currentTask = await db.tasks.get(taskId);
+      // Fire and forget DB update
+      db.tasks.get(taskId).then(currentTask => {
         if (currentTask && currentTask.protocol) {
-          const currentStep = currentTask.protocol.steps.find(s => s.id === stepId);
-          if (currentStep) {
-            const history = currentStep.executionHistory || [];
-            history[currentIndex] = { result };
-            
-            const updatedSteps = currentTask.protocol.steps.map(s => 
-              s.id === stepId ? { ...s, executionHistory: history } : s
-            );
-            await db.tasks.update(taskId, { protocol: { ...currentTask.protocol, steps: updatedSteps } });
-            step.executionHistory = history; // Update local ref
-          }
+          const updatedSteps = currentTask.protocol.steps.map(s => 
+            s.id === stepId ? { ...s, executionHistory: history } : s
+          );
+          db.tasks.update(taskId, { protocol: { ...currentTask.protocol, steps: updatedSteps } });
         }
-        return result;
-      } catch (error: any) {
-        // Save the error to the history log
-        const currentTask = await db.tasks.get(taskId);
-        if (currentTask && currentTask.protocol) {
-          const currentStep = currentTask.protocol.steps.find(s => s.id === stepId);
-          if (currentStep) {
-            const history = currentStep.executionHistory || [];
-            history[currentIndex] = { error: error.message };
-            
-            const updatedSteps = currentTask.protocol.steps.map(s => 
-              s.id === stepId ? { ...s, executionHistory: history } : s
-            );
-            await db.tasks.update(taskId, { protocol: { ...currentTask.protocol, steps: updatedSteps } });
-            step.executionHistory = history; // Update local ref
-          }
-        }
-        throw error;
-      }
-    };
+      });
+    });
 
-    injectBindings(sandbox, interceptingModuleRequest, this.context);
+    injectBindings(sandbox, (toolName, args) => this.moduleRequest(taskId, toolName, args), this.context);
 
     try {
-      const result = await sandbox.execute(code, permissions, sandboxBindings, undefined, step.seed);
+      const result = await sandbox.execute(code, permissions, sandboxBindings, undefined, step.executionHistory, step.seed);
       await this.logToChat(taskId, `Execution Success. Result: ${JSON.stringify(result)}`);
       
       const currentTask = await db.tasks.get(taskId);

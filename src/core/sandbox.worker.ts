@@ -1,45 +1,15 @@
 import Sval from 'sval';
 
-// Helper to bridge tool calls
-const createToolHandler = (toolName: string, permissions: string[]) => async (...args: any[]) => {
-  const storageTools = [
-    'knowledge-repo-browser.readFile',
-    'knowledge-repo-browser.writeFile',
-    'knowledge-repo-browser.deleteFile',
-    'knowledge-repo-browser.headFile',
-    'knowledge-artifacts.readArtifact',
-    'knowledge-artifacts.saveArtifact',
-    'knowledge-artifacts.listArtifacts'
-  ];
-
-  if (storageTools.includes(toolName) && !permissions.includes('storage')) {
-    throw new Error(`Permission denied: storage (tool: ${toolName})`);
-  }
-
-  const requestId = Math.random().toString(36).substring(7);
-  postMessage({ type: 'toolCall', toolName, args, requestId });
-  
-  return new Promise((resolve, reject) => {
-    const handler = (event: MessageEvent) => {
-      if (event.data.type === 'toolResponse' && event.data.requestId === requestId) {
-        self.removeEventListener('message', handler);
-        if (event.data.error) reject(new Error(event.data.error));
-        else resolve(event.data.result);
-      }
-    };
-    self.addEventListener('message', handler);
-  });
-};
-
 // Handle messages from main thread
 self.onmessage = async (event) => {
-  const { type, code, requestId, permissions, sandboxBindings, globals, seed } = event.data as {
+  const { type, code, requestId, permissions, sandboxBindings, globals, executionHistory, seed } = event.data as {
     type: string;
     code: string;
     requestId: string;
     permissions: string[];
     sandboxBindings: Record<string, string>;
     globals?: Record<string, any>;
+    executionHistory?: any[];
     seed?: number;
   };
 
@@ -50,8 +20,48 @@ self.onmessage = async (event) => {
         sandBox: true,
       });
 
+      let callIndex = 0;
+      const execHistory = executionHistory || [];
+
+      // Helper to bridge tool calls
+      const createToolHandler = (toolName: string, perms: string[]) => async (...args: any[]) => {
+        const storageTools = [
+          'knowledge-repo-browser.readFile',
+          'knowledge-repo-browser.writeFile',
+          'knowledge-repo-browser.deleteFile',
+          'knowledge-repo-browser.headFile',
+          'knowledge-artifacts.readArtifact',
+          'knowledge-artifacts.saveArtifact',
+          'knowledge-artifacts.listArtifacts'
+        ];
+
+        if (storageTools.includes(toolName) && !perms.includes('storage')) {
+          throw new Error(`Permission denied: storage (tool: ${toolName})`);
+        }
+
+        const idx = callIndex++;
+        if (idx < execHistory.length) {
+          const record = execHistory[idx];
+          if (record.error) throw new Error(record.error);
+          return record.result;
+        }
+
+        const reqId = Math.random().toString(36).substring(7);
+        postMessage({ type: 'toolCall', toolName, args, requestId: reqId, index: idx });
+        
+        return new Promise((resolve, reject) => {
+          const handler = (e: MessageEvent) => {
+            if (e.data.type === 'toolResponse' && e.data.requestId === reqId) {
+              self.removeEventListener('message', handler);
+              if (e.data.error) reject(new Error(e.data.error));
+              else resolve(e.data.result);
+            }
+          };
+          self.addEventListener('message', handler);
+        });
+      };
+
       // --- Determinism Overrides ---
-      // Override Math.random with a seeded PRNG (Mulberry32)
       let currentSeed = seed || Date.now();
       const mulberry32 = () => {
         let t = currentSeed += 0x6D2B79F5;
@@ -59,22 +69,16 @@ self.onmessage = async (event) => {
         t ^= t + Math.imul(t ^ t >>> 7, t | 61);
         return ((t ^ t >>> 14) >>> 0) / 4294967296;
       };
-      
+
       const deterministicMath = Object.create(Math);
       deterministicMath.random = mulberry32;
       interpreter.import('Math', deterministicMath);
 
-      // Override Date.now() to be a tool call so it's recorded in the history log
-      const dateNowHandler = createToolHandler('host.dateNow', permissions);
       const deterministicDate = function(...args: any[]) {
         if (args.length === 0) return new Date(); // Partial mock, Date.now is the critical one
         return new (Date as any)(...args);
       };
       deterministicDate.now = () => {
-        // We must return synchronously to match Date.now() signature. 
-        // Sval doesn't support async Date.now().
-        // To fix this, we will use a pseudo-clock that advances slightly every call,
-        // but starts at the exact same time during replay.
         currentSeed += 10;
         return currentSeed;
       };

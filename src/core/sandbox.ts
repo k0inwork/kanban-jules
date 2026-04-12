@@ -4,19 +4,27 @@ export class Sandbox {
   private worker: Worker;
   private pendingToolCalls: Map<string, (result: any, error?: string) => void> = new Map();
 
+  private historyRecorder: ((index: number, result: any, error?: string) => void) | null = null;
+
+  setHistoryRecorder(handler: (index: number, result: any, error?: string) => void) {
+    this.historyRecorder = handler;
+  }
+
   constructor() {
     this.worker = new Worker(new URL('./sandbox.worker.ts', import.meta.url), { type: 'module' });
     
     this.worker.onmessage = async (event) => {
-      const { type, requestId, result, error, toolName, args } = event.data;
+      const { type, requestId, result, error, toolName, args, index } = event.data;
 
       if (type === 'toolCall') {
         if (this.toolRequestHandler) {
           try {
-            const result = await this.toolRequestHandler(toolName, args);
-            this.worker.postMessage({ type: 'toolResponse', requestId, result });
-          } catch (error: any) {
-            this.worker.postMessage({ type: 'toolResponse', requestId, error: error.message });
+            const res = await this.toolRequestHandler(toolName, args);
+            if (this.historyRecorder && index !== undefined) this.historyRecorder(index, res, undefined);
+            this.worker.postMessage({ type: 'toolResponse', requestId, result: res });
+          } catch (err: any) {
+            if (this.historyRecorder && index !== undefined) this.historyRecorder(index, undefined, err.message);
+            this.worker.postMessage({ type: 'toolResponse', requestId, error: err.message });
           }
         }
       } else if (type === 'result') {
@@ -40,7 +48,7 @@ export class Sandbox {
     console.warn('[Sandbox] Injection is not supported in the worker yet.');
   }
 
-  async execute(code: string, permissions: string[] = [], sandboxBindings: Record<string, string> = {}, globals?: Record<string, any>, seed?: number): Promise<any> {
+  async execute(code: string, permissions: string[] = [], sandboxBindings: Record<string, string> = {}, globals?: Record<string, any>, executionHistory: any[] = [], seed?: number): Promise<any> {
     return new Promise((resolve, reject) => {
       const requestId = Math.random().toString(36).substring(7);
       
@@ -49,7 +57,7 @@ export class Sandbox {
         else resolve(result);
       });
 
-      this.worker.postMessage({ type: 'execute', code, requestId, permissions, sandboxBindings, globals, seed });
+      this.worker.postMessage({ type: 'execute', code, requestId, permissions, sandboxBindings, globals, executionHistory, seed });
     });
   }
 }
