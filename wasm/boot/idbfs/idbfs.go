@@ -356,12 +356,16 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 }
 
 func (fsys *FS) ReadDir(name string) ([]fs.DirEntry, error) {
+	fsys.mu.Lock()
+	defer fsys.mu.Unlock()
+	return fsys.readDirLocked(name)
+}
+
+// readDirLocked reads directory entries. Caller must hold fsys.mu.
+func (fsys *FS) readDirLocked(name string) ([]fs.DirEntry, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrNotExist}
 	}
-
-	fsys.mu.Lock()
-	defer fsys.mu.Unlock()
 
 	name = path.Clean(name)
 
@@ -735,7 +739,7 @@ func (fsys *FS) Truncate(name string, size int64) error {
 
 // openDir opens a directory and returns a dirFile.
 func (fsys *FS) openDir(name string) (fs.File, error) {
-	entries, err := fsys.ReadDir(name)
+	entries, err := fsys.readDirLocked(name)
 	if err != nil {
 		return nil, err
 	}
