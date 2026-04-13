@@ -39,8 +39,10 @@ import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
 import { parseTasksFromMessage } from './core/prompt';
+import { useSettings } from './contexts/SettingsContext';
 
 export default function App() {
+  const { autonomyMode, updateAutonomyMode, hostConfig, saveSettings, settings } = useSettings();
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
 
   useEffect(() => {
@@ -53,7 +55,6 @@ export default function App() {
     initDb();
   }, []);
 
-  const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => (localStorage.getItem('autonomyMode') as AutonomyMode) || 'assisted');
   const [globalLogs, setGlobalLogs] = useState<string[]>([]);
   const [isReviewing, setIsReviewing] = useState(false);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
@@ -64,61 +65,15 @@ export default function App() {
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const processingRef = useRef<Set<string>>(new Set());
 
-  // Jules Settings
-  const [julesEndpoint, setJulesEndpoint] = useState(() => localStorage.getItem('julesEndpoint') || '/api/mcp/execute');
-  const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || '');
-  const [repoBranch, setRepoBranch] = useState(() => localStorage.getItem('repoBranch') || 'main');
-  const [julesSourceName, setJulesSourceName] = useState(() => localStorage.getItem('julesSourceName') || '');
-  const [julesSourceId, setJulesSourceId] = useState(() => localStorage.getItem('julesSourceId') || '');
-  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('geminiApiKey') || process.env.GEMINI_API_KEY || '');
-  const [githubToken, setGithubToken] = useState(() => localStorage.getItem('githubToken') || import.meta.env.VITE_GITHUB_TOKEN || '');
-
   // Preview Tabs
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isViewingBoard, setIsViewingBoard] = useState(true);
   const [isConstitutionOpen, setIsConstitutionOpen] = useState(false);
 
-  // LLM Settings
-  const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('apiProvider') || 'gemini');
-  const [geminiModel, setGeminiModel] = useState(() => localStorage.getItem('geminiModel') || 'gemini-3-flash-preview');
-  const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
-  const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
-  const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
-  const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(() => {
-    const saved = localStorage.getItem('moduleConfigs');
-    return saved ? JSON.parse(saved) : {};
-  });
-
   const handleSaveSettings = (config: HostConfig) => {
     console.log("Saving settings:", config);
-    setJulesEndpoint(config.julesEndpoint);
-    setRepoUrl(config.repoUrl);
-    setRepoBranch(config.repoBranch);
-    setJulesSourceName(config.julesSourceName);
-    setJulesSourceId(config.julesSourceId);
-    setApiProvider(config.apiProvider);
-    setGeminiModel(config.geminiModel);
-    setOpenaiUrl(config.openaiUrl);
-    setOpenaiKey(config.openaiKey);
-    setOpenaiModel(config.openaiModel);
-    setGeminiApiKey(config.geminiApiKey);
-    setGithubToken(config.githubToken);
-    setModuleConfigs(config.moduleConfigs);
-
-    localStorage.setItem('julesEndpoint', config.julesEndpoint);
-    localStorage.setItem('repoUrl', config.repoUrl);
-    localStorage.setItem('repoBranch', config.repoBranch);
-    localStorage.setItem('julesSourceName', config.julesSourceName);
-    localStorage.setItem('julesSourceId', config.julesSourceId);
-    localStorage.setItem('apiProvider', config.apiProvider);
-    localStorage.setItem('geminiModel', config.geminiModel);
-    localStorage.setItem('openaiUrl', config.openaiUrl);
-    localStorage.setItem('openaiKey', config.openaiKey);
-    localStorage.setItem('openaiModel', config.openaiModel);
-    localStorage.setItem('geminiApiKey', config.geminiApiKey);
-    localStorage.setItem('githubToken', config.githubToken);
-    localStorage.setItem('moduleConfigs', JSON.stringify(config.moduleConfigs));
+    saveSettings(config);
 
     const token = config.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
     if (token && config.repoUrl) {
@@ -160,12 +115,12 @@ export default function App() {
       // Use LLM to extract tasks from the message content
       tasksToCreate = await parseTasksFromMessage(
         message.content,
-        apiProvider,
-        geminiModel,
-        openaiUrl,
-        openaiKey,
-        openaiModel,
-        geminiApiKey
+        settings.apiProvider,
+        settings.geminiModel,
+        settings.openaiUrl,
+        settings.openaiKey,
+        settings.openaiModel,
+        settings.geminiApiKey
       );
     }
 
@@ -201,38 +156,27 @@ export default function App() {
   // Initialize Module Host
   useEffect(() => {
     const config: HostConfig = {
-      apiProvider,
-      geminiModel,
-      openaiUrl,
-      openaiKey,
-      openaiModel,
-      geminiApiKey,
-      githubToken,
-      repoUrl,
-      repoBranch,
-      julesEndpoint,
-      julesSourceName,
-      julesSourceId,
+      ...settings,
       moduleConfigs: {
-        ...moduleConfigs,
+        ...settings.moduleConfigs,
         'knowledge-repo-browser': { 
-          ...(moduleConfigs['knowledge-repo-browser'] || {}),
-          repoUrl, 
-          repoBranch 
+          ...(settings.moduleConfigs['knowledge-repo-browser'] || {}),
+          repoUrl: settings.repoUrl, 
+          repoBranch: settings.repoBranch 
         }
       }
     };
     const orchestratorConfig: OrchestratorConfig = {
-      repoUrl,
-      repoBranch,
-      githubToken,
-      moduleConfigs,
+      repoUrl: settings.repoUrl,
+      repoBranch: settings.repoBranch,
+      githubToken: settings.githubToken,
+      moduleConfigs: settings.moduleConfigs,
       llmCall: host.llmCall.bind(host)
     };
     host.init(config);
     orchestrator.init(orchestratorConfig);
     return () => host.stop();
-  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, githubToken, repoUrl, repoBranch, moduleConfigs, julesEndpoint, julesSourceName, julesSourceId]);
+  }, [settings]);
 
   // Auto-accept proposals in Full Autonomy mode
   const latestProposal = useLiveQuery(() => 
@@ -302,8 +246,7 @@ export default function App() {
       }
     } catch (error: any) {
       processingRef.current.delete(task.id);
-      setAutonomyMode('manual');
-      localStorage.setItem('autonomyMode', 'manual');
+      updateAutonomyMode('manual');
     }
   };
 
@@ -419,8 +362,8 @@ export default function App() {
   };
 
   const handleFileSelect = async (file: GitFile) => {
-    const token = githubToken || import.meta.env.VITE_GITHUB_TOKEN;
-    if (!token || !repoUrl) return;
+    const token = settings.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    if (!token || !settings.repoUrl) return;
 
     const tabId = `file-${file.path}`;
     if (tabs.find(t => t.id === tabId)) {
@@ -429,7 +372,7 @@ export default function App() {
     }
 
     try {
-      const gitFs = new GitFs(repoUrl, repoBranch, token);
+      const gitFs = new GitFs(settings.repoUrl, settings.repoBranch, token);
       const content = await gitFs.getFile(file.path);
       const newTab: Tab = {
         id: tabId,
@@ -542,7 +485,7 @@ export default function App() {
       const session = await db.julesSessions.where('taskId').equals(task.id).first();
       if (session) {
         try {
-          const julesApiKey = moduleConfigs['executor-jules']?.julesApiKey;
+          const julesApiKey = settings.moduleConfigs['executor-jules']?.julesApiKey;
           if (julesApiKey) {
             await JulesSessionManager.sendMessage(julesApiKey, session.name, `{Task} ${message}`);
           }
@@ -594,7 +537,7 @@ export default function App() {
   const handleTestXmlTool = async () => {
     console.log("Starting XML Tool Debug Test...");
     let ai: GoogleGenAI | undefined;
-    if (apiProvider === 'gemini') {
+    if (settings.apiProvider === 'gemini') {
       ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     }
 
@@ -613,21 +556,21 @@ export default function App() {
 
     try {
       let responseText = '';
-      if (apiProvider === 'gemini' && ai) {
+      if (settings.apiProvider === 'gemini' && ai) {
         const response = await ai.models.generateContent({
-          model: geminiModel,
+          model: settings.geminiModel,
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
         });
         responseText = response.text || '';
       } else {
-        const response = await fetch(`${openaiUrl}/chat/completions`, {
+        const response = await fetch(`${settings.openaiUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openaiKey}`
+            'Authorization': `Bearer ${settings.openaiKey}`
           },
           body: JSON.stringify({
-            model: openaiModel,
+            model: settings.openaiModel,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1
           })
@@ -666,9 +609,9 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight">Agent Kanban</h1>
             <div className="flex items-center space-x-2">
               <p className="text-xs font-mono text-neutral-400">Agent Edition</p>
-              {repoUrl && (
+              {settings.repoUrl && (
                 <span className="text-[10px] font-mono bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded border border-neutral-700">
-                  {repoUrl} @ {repoBranch}
+                  {settings.repoUrl} @ {settings.repoBranch}
                 </span>
               )}
             </div>
@@ -756,7 +699,7 @@ export default function App() {
             </button>
             <div className="absolute right-0 top-full mt-1 w-48 bg-neutral-900 border border-neutral-800 rounded-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
               <button
-                onClick={() => { setAutonomyMode('manual'); localStorage.setItem('autonomyMode', 'manual'); }}
+                onClick={() => { updateAutonomyMode('manual'); }}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-neutral-800 flex items-center gap-2"
               >
                 <User className="w-4 h-4 text-neutral-400" />
@@ -766,7 +709,7 @@ export default function App() {
                 </div>
               </button>
               <button
-                onClick={() => { setAutonomyMode('assisted'); localStorage.setItem('autonomyMode', 'assisted'); }}
+                onClick={() => { updateAutonomyMode('assisted'); }}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-neutral-800 flex items-center gap-2 border-t border-neutral-800"
               >
                 <Shield className="w-4 h-4 text-blue-400" />
@@ -776,7 +719,7 @@ export default function App() {
                 </div>
               </button>
               <button
-                onClick={() => { setAutonomyMode('full'); localStorage.setItem('autonomyMode', 'full'); }}
+                onClick={() => { updateAutonomyMode('full'); }}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-neutral-800 flex items-center gap-2 border-t border-neutral-800"
               >
                 <Zap className="w-4 h-4 text-emerald-400" />
@@ -807,9 +750,9 @@ export default function App() {
                 <CollapsiblePane title="Repository" defaultExpanded={false}>
                   <div className="p-4">
                     <RepositoryBrowser 
-                      repoUrl={repoUrl} 
-                      branch={repoBranch} 
-                      token={githubToken || import.meta.env.VITE_GITHUB_TOKEN} 
+                      repoUrl={settings.repoUrl} 
+                      branch={settings.repoBranch} 
+                      token={settings.githubToken || import.meta.env.VITE_GITHUB_TOKEN} 
                       onFileSelect={handleFileSelect}
                     />
                   </div>
@@ -822,14 +765,14 @@ export default function App() {
                 </CollapsiblePane>
 
                 <CollapsiblePane title="Jules Processes" defaultExpanded={false}>
-                  <JulesProcessBrowser tasks={tasks} julesApiKey={moduleConfigs['executor-jules']?.julesApiKey || ''} />
+                  <JulesProcessBrowser tasks={tasks} julesApiKey={settings.moduleConfigs['executor-jules']?.julesApiKey || ''} />
                 </CollapsiblePane>
 
                 <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
                   <GithubWorkflowMonitor 
-                    repoUrl={repoUrl} 
-                    branch={repoBranch || 'main'} 
-                    token={githubToken || import.meta.env.VITE_GITHUB_TOKEN || ''} 
+                    repoUrl={settings.repoUrl} 
+                    branch={settings.repoBranch || 'main'} 
+                    token={settings.githubToken || import.meta.env.VITE_GITHUB_TOKEN || ''} 
                   />
                 </CollapsiblePane>
               </>
@@ -838,13 +781,13 @@ export default function App() {
                 onAcceptProposal={handleAcceptProposal} 
                 onOpenMail={handleOpenMail}
                 onSendMessageToTask={handleSendMessageToTask}
-                autonomyMode={autonomyMode}
-                apiProvider={apiProvider}
-                geminiModel={geminiModel}
-                geminiApiKey={geminiApiKey}
-                openaiUrl={openaiUrl}
-                openaiKey={openaiKey}
-                openaiModel={openaiModel}
+                autonomyMode={autonomyMode as any}
+                apiProvider={settings.apiProvider}
+                geminiModel={settings.geminiModel}
+                geminiApiKey={settings.geminiApiKey}
+                openaiUrl={settings.openaiUrl}
+                openaiKey={settings.openaiKey}
+                openaiModel={settings.openaiModel}
               />
             )}
           </div>
@@ -868,8 +811,8 @@ export default function App() {
           )}
           {isConstitutionOpen ? (
             <ConstitutionEditor 
-              repoUrl={repoUrl} 
-              branch={repoBranch} 
+              repoUrl={settings.repoUrl} 
+              branch={settings.repoBranch} 
               onSave={() => setIsConstitutionOpen(false)}
             />
           ) : tabs.length > 0 && !isViewingBoard ? (
@@ -878,13 +821,13 @@ export default function App() {
               onAcceptProposal={handleAcceptProposal}
               onDeclineProposal={handleDeclineProposal}
               onReplyToMail={handleReplyToMail}
-              autonomyMode={autonomyMode}
-              apiProvider={apiProvider}
-              geminiModel={geminiModel}
-              openaiUrl={openaiUrl}
-              openaiKey={openaiKey}
-              openaiModel={openaiModel}
-              geminiApiKey={geminiApiKey}
+              autonomyMode={autonomyMode as any}
+              apiProvider={settings.apiProvider}
+              geminiModel={settings.geminiModel}
+              openaiUrl={settings.openaiUrl}
+              openaiKey={settings.openaiKey}
+              openaiModel={settings.openaiModel}
+              geminiApiKey={settings.geminiApiKey}
             />
           ) : (
             <KanbanBoard 
@@ -910,20 +853,6 @@ export default function App() {
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
-        onSave={handleSaveSettings}
-        initialEndpoint={julesEndpoint}
-        initialRepoUrl={repoUrl}
-        initialBranch={repoBranch}
-        initialSourceName={julesSourceName}
-        initialSourceId={julesSourceId}
-        initialApiProvider={apiProvider}
-        initialGeminiModel={geminiModel}
-        initialOpenaiUrl={openaiUrl}
-        initialOpenaiKey={openaiKey}
-        initialOpenaiModel={openaiModel}
-        initialGeminiApiKey={geminiApiKey}
-        initialGithubToken={githubToken}
-        initialModuleConfigs={moduleConfigs}
       />
 
       <TaskDetailsModal
@@ -945,10 +874,6 @@ export default function App() {
              processTask(updatedTask);
           }
         }}
-        apiProvider={apiProvider}
-        openaiUrl={openaiUrl}
-        openaiKey={openaiKey}
-        openaiModel={openaiModel}
       />
 
       {taskToDelete && (

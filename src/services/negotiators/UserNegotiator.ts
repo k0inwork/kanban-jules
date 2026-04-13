@@ -109,11 +109,12 @@ export class UserNegotiator {
   }
 
   private static async validateReply(reply: string, format: string, llmCall: (prompt: string) => Promise<string>): Promise<boolean> {
-    const prompt = `Does the following user reply match the expected format?
-    Reply: "${reply}"
-    Format: "${format}"
+    const validationRecord = await db.moduleKnowledge.get('system:negotiator:validation');
+    const validationInstruction = validationRecord?.content || `Does the following user reply match the expected format? Return only "true" or "false".`;
     
-    Return only "true" or "false".`;
+    const prompt = `${validationInstruction}
+    Reply: "${reply}"
+    Format: "${format}"`;
     
     const result = await llmCall(prompt);
     return result.trim().toLowerCase() === 'true';

@@ -76,13 +76,14 @@ Output ONLY valid JSON matching this schema:
 export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, step: TaskStep, errorContext: string, moduleKnowledge: Record<string, string> = {}): string {
   const enabledModules = modules.filter(m => m.enabled !== false);
   const executorId = step.executor || 'executor-local';
-  const executor = enabledModules.find(m => m.id === executorId);
   
-  const apiSection = Object.entries(executor?.sandboxBindings || {}).map(([alias, toolName]) => {
-    const module = enabledModules.find(m => m.tools.some(t => t.name === toolName));
-    const tool = module?.tools.find(t => t.name === toolName);
-    return `- ${alias}: ${tool?.description || ''}`;
-  }).join('\n');
+  // Collect all tools from all enabled modules
+  const apiSection = enabledModules.flatMap(m => 
+    Object.entries(m.sandboxBindings || {}).map(([alias, toolName]) => {
+      const tool = m.tools.find(t => t.name === toolName);
+      return `- ${alias}: ${tool?.description || toolName}`;
+    })
+  ).join('\n');
 
   const commonTools = [
     "- askUser(prompt): Asks the user for input or clarification. Pauses execution until they reply.",
@@ -92,7 +93,14 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
   ].join('\n');
 
   const knowledge = moduleKnowledge[executorId] ? `\nMODULE KNOWLEDGE BASE:\n${moduleKnowledge[executorId]}\n` : '';
-  const constitution = moduleKnowledge['system:programmer'] || PROGRAMMER_CONSTITUTION;
+  let constitution = moduleKnowledge['system:programmer'] || PROGRAMMER_CONSTITUTION;
+
+  if (errorContext) {
+    const retryConstitution = moduleKnowledge['system:programmer:retry'] || '';
+    if (retryConstitution) {
+      constitution = `${constitution}\n\nRETRY CONTEXT:\n${retryConstitution}`;
+    }
+  }
 
   return `
 ${constitution}

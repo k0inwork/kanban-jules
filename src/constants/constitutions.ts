@@ -14,6 +14,22 @@ export const CONSTITUTION_TEMPLATES = {
 3. Propose follow-up tasks for implementation after research or design.
 4. Ensure all tasks have clear descriptions.`,
 
+  gowaforth: `# Project Constitution: Gowaforth
+
+## Project Scope
+The project is a Go-to-Forth transpiler and multitasking environment (WaForth via F-on-F Threading).
+We do NOT need to build a Forth VM from scratch; we use an existing one (WaForth) for examples and execution.
+
+## Project Stages & Artifacts
+- **Stage 1: Foundation & Test Harness**: Browser-based Wasm Loader, Web Worker Infrastructure, Headless Test Suite
+- **Stage 2: Minimal Transpiler**: Go-to-Forth Transpiler, Wasm Library Integration
+- **Stage 3: Ecosystem Expansion**: GitHub-based Builder, Performance Optimization, Advanced Tooling
+
+## Artifact-Driven Workflow Rules
+1. **The Spec Gate**: Before implementing any feature, a Specification Artifact must exist (e.g., \`spec_wasm_loader.md\`). Use \`listArtifacts\` to check.
+2. **The Test Gate**: If a Spec exists but no implementation/test exists, propose an implementation task that includes writing tests.
+3. **The Architecture Gate**: For major changes, an Architecture Artifact must exist.`,
+
   research: `# Project Constitution: Research & Discovery
 
 ## Project Stages & Artifacts

@@ -6,45 +6,32 @@ import { cn } from '../lib/utils';
 import { registry } from '../core/registry';
 import { HostConfig, ModuleManifest } from '../core/types';
 
+import { useSettings } from '../contexts/SettingsContext';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (config: HostConfig) => void;
-  initialEndpoint: string;
-  initialRepoUrl: string;
-  initialBranch: string;
-  initialSourceName: string;
-  initialSourceId: string;
-  initialApiProvider: string;
-  initialGeminiModel: string;
-  initialOpenaiUrl: string;
-  initialOpenaiKey: string;
-  initialOpenaiModel: string;
-  initialGeminiApiKey: string;
-  initialGithubToken: string;
-  initialModuleConfigs: Record<string, any>;
 }
 
 export default function SettingsModal({ 
-  isOpen, onClose, onSave, 
-  initialEndpoint, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-  initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel,
-  initialGeminiApiKey, initialGithubToken, initialModuleConfigs
+  isOpen, onClose
 }: SettingsModalProps) {
-  const [endpoint, setEndpoint] = useState(initialEndpoint);
-  const [repoUrl, setRepoUrl] = useState(initialRepoUrl);
-  const [branch, setBranch] = useState(initialBranch);
-  const [sourceName, setSourceName] = useState(initialSourceName);
-  const [sourceId, setSourceId] = useState(initialSourceId);
+  const { settings: initialSettings, saveSettings } = useSettings();
   
-  const [apiProvider, setApiProvider] = useState(initialApiProvider);
-  const [geminiModel, setGeminiModel] = useState(initialGeminiModel);
-  const [openaiUrl, setOpenaiUrl] = useState(initialOpenaiUrl);
-  const [openaiKey, setOpenaiKey] = useState(initialOpenaiKey);
-  const [openaiModel, setOpenaiModel] = useState(initialOpenaiModel);
-  const [geminiApiKey, setGeminiApiKey] = useState(initialGeminiApiKey);
-  const [githubToken, setGithubToken] = useState(initialGithubToken);
-  const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialModuleConfigs);
+  const [endpoint, setEndpoint] = useState(initialSettings.julesEndpoint);
+  const [repoUrl, setRepoUrl] = useState(initialSettings.repoUrl);
+  const [branch, setBranch] = useState(initialSettings.repoBranch);
+  const [sourceName, setSourceName] = useState(initialSettings.julesSourceName);
+  const [sourceId, setSourceId] = useState(initialSettings.julesSourceId);
+  
+  const [apiProvider, setApiProvider] = useState(initialSettings.apiProvider);
+  const [geminiModel, setGeminiModel] = useState(initialSettings.geminiModel);
+  const [openaiUrl, setOpenaiUrl] = useState(initialSettings.openaiUrl);
+  const [openaiKey, setOpenaiKey] = useState(initialSettings.openaiKey);
+  const [openaiModel, setOpenaiModel] = useState(initialSettings.openaiModel);
+  const [geminiApiKey, setGeminiApiKey] = useState(initialSettings.geminiApiKey);
+  const [githubToken, setGithubToken] = useState(initialSettings.githubToken);
+  const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialSettings.moduleConfigs);
   
   const [activeTab, setActiveTab] = useState<'general' | 'modules'>('general');
   const [sources, setSources] = useState<Source[]>([]);
@@ -55,25 +42,21 @@ export default function SettingsModal({
 
   useEffect(() => {
     if (isOpen) {
-      setEndpoint(initialEndpoint);
-      setRepoUrl(initialRepoUrl);
-      setBranch(initialBranch);
-      setSourceName(initialSourceName);
-      setSourceId(initialSourceId);
-      setApiProvider(initialApiProvider);
-      setGeminiModel(initialGeminiModel);
-      setOpenaiUrl(initialOpenaiUrl);
-      setOpenaiKey(initialOpenaiKey);
-      setOpenaiModel(initialOpenaiModel);
-      setGeminiApiKey(initialGeminiApiKey);
-      setGithubToken(initialGithubToken);
-      setModuleConfigs(initialModuleConfigs);
+      setEndpoint(initialSettings.julesEndpoint);
+      setRepoUrl(initialSettings.repoUrl);
+      setBranch(initialSettings.repoBranch);
+      setSourceName(initialSettings.julesSourceName);
+      setSourceId(initialSettings.julesSourceId);
+      setApiProvider(initialSettings.apiProvider);
+      setGeminiModel(initialSettings.geminiModel);
+      setOpenaiUrl(initialSettings.openaiUrl);
+      setOpenaiKey(initialSettings.openaiKey);
+      setOpenaiModel(initialSettings.openaiModel);
+      setGeminiApiKey(initialSettings.geminiApiKey);
+      setGithubToken(initialSettings.githubToken);
+      setModuleConfigs(initialSettings.moduleConfigs);
     }
-  }, [
-    isOpen, initialEndpoint, initialRepoUrl, initialBranch, initialSourceName, initialSourceId,
-    initialApiProvider, initialGeminiModel, initialOpenaiUrl, initialOpenaiKey, initialOpenaiModel,
-    initialGeminiApiKey, initialGithubToken, initialModuleConfigs
-  ]);
+  }, [isOpen, initialSettings]);
 
   useEffect(() => {
     if (isOpen && julesApiKey) {
@@ -110,7 +93,7 @@ export default function SettingsModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
+    saveSettings({
       julesEndpoint: endpoint,
       repoUrl,
       repoBranch: branch,

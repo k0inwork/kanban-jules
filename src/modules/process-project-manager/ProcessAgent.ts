@@ -24,23 +24,11 @@ export class ProcessAgent {
       constitution
     };
 
-    const prompt = `
+    // Load Identity and Policy
+    const identityRecord = await db.moduleKnowledge.get('system:project:identity');
+    const identity = identityRecord?.content || `
       You are the Project Manager Agent for this Kanban board.
       Your goal is to analyze the current state of the project and propose new tasks if necessary.
-      
-      PROJECT CONSTITUTION (Rules and Stage-Artifact Mapping):
-      ${data.constitution}
-
-      Current Tasks:
-      ${JSON.stringify(data.tasks, null, 2)}
-      
-      Artifacts Produced:
-      ${JSON.stringify(data.artifacts, null, 2)}
-
-      Unread Messages in Mailbox:
-      ${JSON.stringify(data.unreadMessages, null, 2)}
-      
-      Based on the artifacts (like design specs, research, or code analysis), existing messages, and the PROJECT CONSTITUTION, what should be the next steps?
       
       ANALYSIS STEPS:
       1. Identify the current PROJECT STAGE based on the artifacts present and the mapping in the CONSTITUTION.
@@ -52,7 +40,7 @@ export class ProcessAgent {
       2. If you see a "Code Analysis" with security findings, propose a "Security Fix" task.
       3. Do NOT propose tasks that are already on the board or have already been proposed in unread messages.
       4. If a message already contains a proposal you agree with, do not repeat it.
-      5. Strictly adhere to the PROJECT CONSTITUTION provided above.
+      5. Strictly adhere to the PROJECT CONSTITUTION provided below.
       
       Respond in JSON format:
       {
@@ -69,6 +57,24 @@ export class ProcessAgent {
       }
       
       If no new tasks are needed, return an empty list of proposals.
+    `;
+
+    const prompt = `
+      ${identity}
+      
+      PROJECT CONSTITUTION (Rules and Stage-Artifact Mapping):
+      ${data.constitution}
+
+      Current Tasks:
+      ${JSON.stringify(data.tasks, null, 2)}
+      
+      Artifacts Produced:
+      ${JSON.stringify(data.artifacts, null, 2)}
+
+      Unread Messages in Mailbox:
+      ${JSON.stringify(data.unreadMessages, null, 2)}
+      
+      Based on the artifacts (like design specs, research, or code analysis), existing messages, and the PROJECT CONSTITUTION, what should be the next steps?
     `;
 
     try {

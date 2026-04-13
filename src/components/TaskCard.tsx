@@ -1,8 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Task, WorkflowStatus, AgentState } from '../types';
 import { cn } from '../lib/utils';
-import { Bot, Clock, AlertCircle, CheckCircle2, Play, Trash2, Zap, User, Loader2, BrainCircuit, Terminal } from 'lucide-react';
+import { 
+  Bot, Clock, AlertCircle, CheckCircle2, Play, Trash2, Zap, User, 
+  Loader2, BrainCircuit, Terminal, Globe, Code2, UserCircle, 
+  Database, Shield, Settings, Cpu, MessageSquare 
+} from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { ModuleIcon } from './ModuleIcon';
 
 interface TaskCardProps {
   key?: string | number;
@@ -267,11 +272,16 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
             <span className="text-[9px] font-mono text-neutral-500">Showing last {sortedLogs.length} lines</span>
           </div>
           <div className="p-3 overflow-y-auto font-mono text-[10px] leading-relaxed text-neutral-300 custom-scrollbar flex flex-col min-h-0 pointer-events-auto">
-            {sortedLogs.length > 0 ? (
-              sortedLogs.map((log, i) => (
-                <div key={i} className="whitespace-pre-wrap break-words opacity-90 mb-1 border-l-2 border-transparent hover:border-neutral-700 pl-2 transition-colors">
-                  <span className="text-neutral-500 mr-2">[{log.time}]</span>
-                  <span className={cn("font-semibold mr-2", getModuleColor(log.module))}>[{log.module.replace('executor-', '').replace('channel-', '')}]</span>
+            {task.structuredLogs && task.structuredLogs.length > 0 ? (
+              task.structuredLogs.slice(-50).map((log, i) => (
+                <div key={i} className="whitespace-pre-wrap break-words opacity-90 mb-1 border-l-2 border-transparent hover:border-neutral-700 pl-2 transition-colors flex items-start">
+                  <span className="text-neutral-500 mr-2 shrink-0">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+                  <span className={cn("font-semibold mr-2 shrink-0 flex items-center", getModuleColor(log.module))}>
+                    [
+                    <span className="mx-1"><ModuleIcon moduleId={log.module} className="w-2.5 h-2.5" /></span>
+                    {log.module.replace('executor-', '').replace('channel-', '')}
+                    ]
+                  </span>
                   <span className="text-neutral-300">{log.text}</span>
                 </div>
               ))

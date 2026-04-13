@@ -1,12 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Task } from '../types';
-import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save, Download, Play, BrainCircuit } from 'lucide-react';
+import { X, Terminal, Paperclip, Trash2, Eye, Brain, Edit2, Save, Download, Play, BrainCircuit, HelpCircle, MessageSquare, Cpu, Globe, Bot, UserCircle, Zap, Shield, Database, Settings, Info, Code2 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { TaskFs } from '../services/TaskFs';
 import { Artifact, db } from '../services/db';
 import ArtifactTree from './ArtifactTree';
 import { cn } from '../lib/utils';
 import { GoogleGenAI } from '@google/genai';
+import { HELP_CONTENT } from '../core/constitution';
+import { registry } from '../core/registry';
+import { ModuleIcon } from './ModuleIcon';
+
+import { useSettings } from '../contexts/SettingsContext';
+
+const COMMON_TOOLS = [
+  { name: 'askUser(prompt)', description: 'Asks the user for input or clarification. Pauses execution.' },
+  { name: 'sendUser(message)', description: 'Sends a message to the user without waiting for a reply.' },
+  { name: 'analyze(data, options?)', description: 'Analyzes data using an LLM and adds summary to context.' },
+  { name: 'addToContext(key, value)', description: 'Directly adds a key-value pair to the AgentContext.' }
+];
 
 interface TaskDetailsModalProps {
   task: Task | null;
@@ -16,21 +28,18 @@ interface TaskDetailsModalProps {
   onUpdateTask?: (task: Task) => void;
   onSendMessage?: (taskId: string, message: string) => void;
   onAnalyzeArtifact?: (artifactId: number) => void;
-  apiProvider?: string;
-  openaiUrl?: string;
-  openaiKey?: string;
-  openaiModel?: string;
 }
 
 export default function TaskDetailsModal({ 
-  task, onClose, tasks, onDeleteTask, onUpdateTask, onSendMessage, onAnalyzeArtifact,
-  apiProvider = 'gemini', openaiUrl = '', openaiKey = '', openaiModel = ''
+  task, onClose, tasks, onDeleteTask, onUpdateTask, onSendMessage, onAnalyzeArtifact
 }: TaskDetailsModalProps) {
+  const { settings } = useSettings();
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('protocol');
   const [userMessage, setUserMessage] = useState('');
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   const selectedArtifact = useLiveQuery(() => 
     selectedArtifactId ? db.taskArtifacts.get(selectedArtifactId) : Promise.resolve(null)
@@ -58,6 +67,21 @@ export default function TaskDetailsModal({
   }, [task?.moduleLogs]);
 
   if (!task) return null;
+
+  const LogLine = ({ log }: { log: any }) => {
+    return (
+      <div className="flex items-start py-0.5 border-b border-white/5 last:border-0 leading-relaxed text-[11px] font-mono">
+        <span className="text-neutral-500 mr-2 shrink-0">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+        <span className="inline-flex items-center space-x-1 text-blue-400 font-bold px-0.5 mr-2 shrink-0">
+          <span>[</span>
+          <span className="shrink-0"><ModuleIcon moduleId={log.module} className="w-3 h-3" /></span>
+          <span className="ml-1">{log.module.replace('executor-', '').replace('channel-', '')}</span>
+          <span>]</span>
+        </span>
+        <span className="text-neutral-300 break-all">{log.text}</span>
+      </div>
+    );
+  };
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -284,17 +308,7 @@ export default function TaskDetailsModal({
                       </div>
                     </div>
 
-                    {task.analysis && (
-                      <div className="bg-blue-400/5 border border-blue-400/20 rounded-md p-3">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <Brain className="w-3.5 h-3.5 text-blue-400" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">AI Analysis</span>
-                        </div>
-                        <p className="text-xs text-neutral-300 leading-relaxed italic">
-                          {task.analysis}
-                        </p>
-                      </div>
-                    )}
+                    {/* Removed AI Analysis as requested */}
                   </div>
                 )}
               </div>
@@ -304,29 +318,32 @@ export default function TaskDetailsModal({
           {/* Right Panel: Terminal Logs & Chat */}
           <div className="w-full md:w-2/3 flex flex-col bg-[#0d1117]">
             <div className="flex items-center justify-between px-4 py-2 border-b border-neutral-800 bg-[#161b22]">
-              <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-4">
+              <button 
+                onClick={() => setActiveTab('protocol')}
+                className={cn("flex items-center space-x-1.5 text-xs font-mono uppercase transition-colors", activeTab === 'protocol' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+              >
+                <Terminal className="w-3 h-3" />
+                <span>Protocol</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('chat')}
+                className={cn("flex items-center space-x-1.5 text-xs font-mono uppercase transition-colors", activeTab === 'chat' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+              >
+                <MessageSquare className="w-3 h-3" />
+                <span>Chat</span>
+              </button>
+              {Object.keys(task.moduleLogs || {}).map(moduleName => (
                 <button 
-                  onClick={() => setActiveTab('protocol')}
-                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'protocol' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
+                  key={moduleName}
+                  onClick={() => setActiveTab(moduleName)}
+                  className={cn("flex items-center space-x-1.5 text-xs font-mono uppercase transition-colors", activeTab === moduleName ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
                 >
-                  Protocol
+                  <ModuleIcon moduleId={moduleName} className="w-3 h-3" />
+                  <span>{moduleName.replace('executor-', '').replace('channel-', '')}</span>
                 </button>
-                <button 
-                  onClick={() => setActiveTab('chat')}
-                  className={cn("text-xs font-mono uppercase transition-colors", activeTab === 'chat' ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
-                >
-                  Chat
-                </button>
-                {Object.keys(task.moduleLogs || {}).map(moduleName => (
-                  <button 
-                    key={moduleName}
-                    onClick={() => setActiveTab(moduleName)}
-                    className={cn("text-xs font-mono uppercase transition-colors", activeTab === moduleName ? "text-white" : "text-neutral-500 hover:text-neutral-300")}
-                  >
-                    {moduleName.replace('executor-', '').replace('channel-', '')}
-                  </button>
-                ))}
-              </div>
+              ))}
+            </div>
             </div>
             <div className="flex-1 p-4 overflow-y-auto font-mono text-sm text-neutral-300 custom-scrollbar">
               {activeTab === 'protocol' ? (
@@ -340,12 +357,13 @@ export default function TaskDetailsModal({
                             <span className="text-sm font-semibold text-white">{step.title}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className={cn(
-                              "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border",
+                            <div className={cn(
+                              "flex items-center gap-1.5 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border",
                               step.executor === 'executor-jules' ? "bg-purple-900/30 text-purple-400 border-purple-800/50" : "bg-blue-900/30 text-blue-400 border-blue-800/50"
                             )}>
-                              {step.executor === 'executor-jules' ? '→ Jules' : step.executor}
-                            </span>
+                              <ModuleIcon moduleId={step.executor || 'executor-local'} className="w-3 h-3" />
+                              <span>{step.executor === 'executor-jules' ? 'Jules' : step.executor?.replace('executor-', '') || 'local'}</span>
+                            </div>
                             <span className={cn(
                               "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border",
                               step.status === 'completed' ? "bg-green-900/30 text-green-400 border-green-800/50" : 
@@ -366,12 +384,34 @@ export default function TaskDetailsModal({
                   )}
                 </div>
               ) : activeTab === 'chat' ? (
-                <div className="whitespace-pre-wrap break-words leading-relaxed font-sans">
-                  {task.chat || <div className="text-neutral-600 italic">No chat messages yet.</div>}
+                <div className="space-y-1 font-mono text-xs text-neutral-400">
+                  <div className="flex items-center space-x-2 mb-4 pb-2 border-b border-neutral-800">
+                    <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">Agent Chat</span>
+                  </div>
+                  {task.chat ? (
+                    task.chat.split(/\r?\n/).map((line, i) => (
+                      <LogLine key={i} log={{ timestamp: task.createdAt, module: 'user', text: line }} />
+                    ))
+                  ) : (
+                    <div className="text-neutral-600 italic">No chat messages yet.</div>
+                  )}
                 </div>
               ) : (
-                <div className="whitespace-pre-wrap break-words leading-relaxed font-mono text-xs text-neutral-400">
-                  {task.moduleLogs?.[activeTab] || <div className="text-neutral-600 italic">No logs for {activeTab} yet.</div>}
+                <div className="space-y-1 font-mono text-xs text-neutral-400">
+                  <div className="flex items-center space-x-2 mb-4 pb-2 border-b border-neutral-800">
+                    <ModuleIcon moduleId={activeTab} className="w-3 h-3" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">{activeTab.replace('executor-', '').replace('channel-', '')} Logs</span>
+                  </div>
+                  {task.structuredLogs ? (
+                    task.structuredLogs
+                      .filter(log => log.module === activeTab)
+                      .map((log, i) => (
+                        <LogLine key={i} log={log} />
+                      ))
+                  ) : (
+                    <div className="text-neutral-600 italic">No logs for {activeTab} yet.</div>
+                  )}
                 </div>
               )}
               <div ref={logsEndRef} />

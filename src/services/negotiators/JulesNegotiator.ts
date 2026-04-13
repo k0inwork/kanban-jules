@@ -58,7 +58,8 @@ export class JulesNegotiator {
     };
 
     // 2. Send prompt
-    const systemInstruction = `SYSTEM INSTRUCTION: You are an automated agent. You MUST output your final results, answers, or requested data directly in a chat message when you are finished. Do NOT just save it to a file and go idle. If you create or push to a git branch, you MUST explicitly state the exact branch name in your final message so the orchestrator can use it for CI/CD. The orchestrator is waiting for your chat message to proceed.`;
+    const identityRecord = await db.moduleKnowledge.get('system:jules:identity');
+    const systemInstruction = identityRecord?.content || `SYSTEM INSTRUCTION: You are an automated agent. You MUST output your final results, answers, or requested data directly in a chat message when you are finished. Do NOT just save it to a file and go idle. If you create or push to a git branch, you MUST explicitly state the exact branch name in your final message so the orchestrator can use it for CI/CD. The orchestrator is waiting for your chat message to proceed.`;
     appendJnaLog(`Sending prompt to Jules:\n${prompt}`);
     
     let sendAttempts = 0;
@@ -134,13 +135,14 @@ export class JulesNegotiator {
               appendJnaLog(`[Jules Progress] ${progressMsg}`);
               
               // Analyze progress update against success criteria
+              const verifyRecord = await db.moduleKnowledge.get('system:jules:verify');
+              const verifyInstruction = verifyRecord?.content || `Verify if the following output meets the success criteria. Return only "true" or "false".`;
               const verifyPrompt = `The user asked for: "${prompt}"
               The success criteria is: "${successCriteria}"
               
               Jules just reported this progress: "${progressMsg}"
               
-              Does this progress update contain the final answer or result that meets the success criteria?
-              Return only "true" or "false".`;
+              ${verifyInstruction}`;
               
               try {
                 const verifyResult = await safeLlmCall(verifyPrompt);
@@ -229,6 +231,8 @@ export class JulesNegotiator {
             return `[Activity] ${a.name}`;
           }).join('\n');
 
+          const monitorRecord = await db.moduleKnowledge.get('system:jules:monitor');
+          const monitorPrompt = monitorRecord?.content || `Analyze the situation and determine the state. Return a JSON object with status, result, action_prompt, and reasoning.`;
           const analysisPrompt = `You are monitoring an automated agent (Jules).
 The user originally asked for: "${prompt}"
 The success criteria is: "${successCriteria}"
@@ -236,14 +240,7 @@ The success criteria is: "${successCriteria}"
 Here is the recent activity transcript from Jules:
 ${transcript}
 
-Jules is currently paused and awaiting user feedback. Analyze the situation and determine the state.
-Return a JSON object with this exact structure:
-{
-  "status": "has_result" | "needs_action" | "working",
-  "result": "If status is has_result, put the final answer or summary here. Otherwise null.",
-  "action_prompt": "If status is needs_action, put the exact message to send to Jules to get the final answer (e.g., 'Please read the contents of the file you just saved and output it here'). Otherwise null.",
-  "reasoning": "Brief explanation of your choice"
-}`;
+Jules is currently paused and awaiting user feedback. ${monitorPrompt}`;
 
           try {
             const analysisStr = await safeLlmCall(analysisPrompt, true);
@@ -298,11 +295,12 @@ Return a JSON object with this exact structure:
 
       // 4. Verify with LLM
       appendJnaLog(`Verifying response against success criteria: ${successCriteria}`);
-      const verifyPrompt = `Verify if the following output meets the success criteria.
-      Output: "${julesResponse}"
+      const verifyRecord = await db.moduleKnowledge.get('system:jules:verify');
+      const verifyInstruction = verifyRecord?.content || `Verify if the following output meets the success criteria. Return only "true" or "false".`;
+      const verifyPrompt = `Output: "${julesResponse}"
       Criteria: "${successCriteria}"
       
-      Return only "true" or "false".`;
+      ${verifyInstruction}`;
       
       const verifyResult = await safeLlmCall(verifyPrompt);
       const isSuccess = verifyResult.trim().toLowerCase() === 'true';

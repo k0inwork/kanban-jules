@@ -17,6 +17,13 @@ export interface TaskProtocol {
   steps: TaskStep[];
 }
 
+export interface LogEntry {
+  timestamp: number;
+  module: string;
+  text: string;
+  type?: 'info' | 'error' | 'warning' | 'chat';
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -36,6 +43,7 @@ export interface Task {
   retryCount?: number;
   retryCounts?: Record<string, number>;
   moduleLogs?: Record<string, string>;
+  structuredLogs?: LogEntry[];
   analysis?: string;
   architectModel?: string;
 }

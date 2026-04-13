@@ -267,11 +267,11 @@ export class Orchestrator {
     const step = task.protocol.steps.find(s => s.id === stepId);
     if (!step) throw new Error("Step not found");
 
-    const executorId = step.executor || 'executor-local';
-    const module = registry.get(executorId);
-    const permissions = module?.permissions || [];
-    const sandboxBindings = {
-      ...module?.sandboxBindings,
+    const modules = registry.getEnabled();
+    const permissions = modules.flatMap(m => m.permissions || []);
+    
+    // Collect all sandbox bindings from all enabled modules
+    const sandboxBindings: Record<string, string> = {
       'analyze': 'host.analyze',
       'addToContext': 'host.addToContext',
       'askUser': 'channel-user-negotiator.askUser',
@@ -279,6 +279,12 @@ export class Orchestrator {
       '__agentContextGet': 'host.agentContextGet',
       '__agentContextSet': 'host.agentContextSet'
     };
+
+    for (const m of modules) {
+      if (m.sandboxBindings) {
+        Object.assign(sandboxBindings, m.sandboxBindings);
+      }
+    }
 
     this.context.accumulatedAnalysis = [];
     const sandbox = new Sandbox();

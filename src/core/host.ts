@@ -40,13 +40,29 @@ export class ModuleHost {
     });
 
     eventBus.on('module:log', async ({ taskId, moduleId, message }) => {
-      const timestamp = new Date().toLocaleTimeString();
-      const logEntry = `> [${timestamp}] ${message}\n`;
+      const now = Date.now();
+      const timestampStr = new Date(now).toLocaleTimeString();
+      const rawLogEntry = `> [${timestampStr}] ${message}\n`;
+      
       const task = await db.tasks.get(taskId);
       if (task) {
         const moduleLogs = task.moduleLogs || {};
-        moduleLogs[moduleId] = (moduleLogs[moduleId] || '') + logEntry;
-        await db.tasks.update(taskId, { moduleLogs });
+        moduleLogs[moduleId] = (moduleLogs[moduleId] || '') + rawLogEntry;
+        
+        const structuredLogs = task.structuredLogs || [];
+        structuredLogs.push({
+          timestamp: now,
+          module: moduleId,
+          text: message
+        });
+        
+        // Keep only last 1000 logs to prevent DB bloat
+        const trimmedLogs = structuredLogs.slice(-1000);
+        
+        await db.tasks.update(taskId, { 
+          moduleLogs, 
+          structuredLogs: trimmedLogs 
+        });
       }
     });
 
