@@ -68,7 +68,7 @@ func main() {
 	if debug9p.IsUndefined() {
 		debug9p = js.ValueOf(false)
 	}
-	run9p := virtio9p.Setup(root.Namespace(), inst, debug9p.Bool())
+	run9p := virtio9p.Setup(wrapNS(root.Namespace()), inst, debug9p.Bool())
 
 	// ---- Root bindings + Port API ----
 	rootBindings := []struct {
