@@ -7,7 +7,7 @@ echo ':wasm:M::\x00\x61\x73\x6d::/bin/wexec:' > /proc/sys/fs/binfmt_misc/registe
 source /etc/profile
 ifconfig lo up
 ifconfig eth0 up
-udhcpc -i eth0 -s /bin/post-dhcp
+udhcpc -i eth0
 
 # Run the step command passed from the host
 exec /bin/sh -c "$EXECUTOR_CMD"
