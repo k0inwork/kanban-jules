@@ -26,9 +26,11 @@ export default function SettingsModal({
   
   const [apiProvider, setApiProvider] = useState(initialSettings.apiProvider);
   const [geminiModel, setGeminiModel] = useState(initialSettings.geminiModel);
+  const [openaiName, setOpenaiName] = useState(initialSettings.openaiName);
   const [openaiUrl, setOpenaiUrl] = useState(initialSettings.openaiUrl);
   const [openaiKey, setOpenaiKey] = useState(initialSettings.openaiKey);
   const [openaiModel, setOpenaiModel] = useState(initialSettings.openaiModel);
+  const [openaiProviders, setOpenaiProviders] = useState<any[]>(initialSettings.openaiProviders || []);
   const [geminiApiKey, setGeminiApiKey] = useState(initialSettings.geminiApiKey);
   const [githubToken, setGithubToken] = useState(initialSettings.githubToken);
   const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialSettings.moduleConfigs);
@@ -49,9 +51,11 @@ export default function SettingsModal({
       setSourceId(initialSettings.julesSourceId);
       setApiProvider(initialSettings.apiProvider);
       setGeminiModel(initialSettings.geminiModel);
+      setOpenaiName(initialSettings.openaiName);
       setOpenaiUrl(initialSettings.openaiUrl);
       setOpenaiKey(initialSettings.openaiKey);
       setOpenaiModel(initialSettings.openaiModel);
+      setOpenaiProviders(initialSettings.openaiProviders || []);
       setGeminiApiKey(initialSettings.geminiApiKey);
       setGithubToken(initialSettings.githubToken);
       setModuleConfigs(initialSettings.moduleConfigs);
@@ -91,6 +95,23 @@ export default function SettingsModal({
 
   if (!isOpen) return null;
 
+  const hasChanges = 
+    endpoint !== initialSettings.julesEndpoint ||
+    repoUrl !== initialSettings.repoUrl ||
+    branch !== initialSettings.repoBranch ||
+    sourceName !== initialSettings.julesSourceName ||
+    sourceId !== initialSettings.julesSourceId ||
+    apiProvider !== initialSettings.apiProvider ||
+    geminiModel !== initialSettings.geminiModel ||
+    openaiName !== initialSettings.openaiName ||
+    openaiUrl !== initialSettings.openaiUrl ||
+    openaiKey !== initialSettings.openaiKey ||
+    openaiModel !== initialSettings.openaiModel ||
+    geminiApiKey !== initialSettings.geminiApiKey ||
+    githubToken !== initialSettings.githubToken ||
+    JSON.stringify(openaiProviders) !== JSON.stringify(initialSettings.openaiProviders || []) ||
+    JSON.stringify(moduleConfigs) !== JSON.stringify(initialSettings.moduleConfigs);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     saveSettings({
@@ -101,14 +122,15 @@ export default function SettingsModal({
       julesSourceId: sourceId,
       apiProvider,
       geminiModel,
+      openaiName,
       openaiUrl,
       openaiKey,
       openaiModel,
+      openaiProviders,
       geminiApiKey,
       githubToken,
       moduleConfigs
     } as any);
-    onClose();
   };
 
   const selectedSource = sources.find(s => 
@@ -154,31 +176,20 @@ export default function SettingsModal({
               
               <div>
                 <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">API Provider</label>
-                <div className="flex space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setApiProvider('gemini')}
-                    className={cn(
-                      "flex-1 py-2 text-xs font-medium rounded-md border transition-all",
-                      apiProvider === 'gemini' 
-                        ? "bg-blue-600 border-blue-500 text-white" 
-                        : "bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700"
-                    )}
+                <div className="flex flex-col space-y-2">
+                  <select
+                    value={apiProvider}
+                    onChange={(e) => setApiProvider(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                   >
-                    Gemini
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setApiProvider('openai')}
-                    className={cn(
-                      "flex-1 py-2 text-xs font-medium rounded-md border transition-all",
-                      apiProvider === 'openai' 
-                        ? "bg-blue-600 border-blue-500 text-white" 
-                        : "bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700"
-                    )}
-                  >
-                    OpenAI Compatible
-                  </button>
+                    <option value="gemini">Gemini</option>
+                    <optgroup label="OpenAI Compatible">
+                      {openaiProviders.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                      <option value="openai-legacy">{openaiName || 'Legacy OpenAI'}</option>
+                    </optgroup>
+                  </select>
                 </div>
               </div>
 
@@ -207,8 +218,18 @@ export default function SettingsModal({
                     </select>
                   </div>
                 </div>
-              ) : (
+              ) : apiProvider === 'openai-legacy' ? (
                 <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Provider Name</label>
+                    <input
+                      type="text"
+                      value={openaiName}
+                      onChange={(e) => setOpenaiName(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                      placeholder="e.g. My OpenAI"
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Base URL</label>
                     <input
@@ -240,7 +261,101 @@ export default function SettingsModal({
                     />
                   </div>
                 </div>
+              ) : (
+                <div className="space-y-3">
+                  {(() => {
+                    const provider = openaiProviders.find(p => p.id === apiProvider);
+                    if (!provider) return <div className="text-xs text-red-400">Provider not found</div>;
+                    return (
+                      <>
+                        <div>
+                          <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Provider Name</label>
+                          <input
+                            type="text"
+                            value={provider.name}
+                            onChange={(e) => {
+                              const newProviders = openaiProviders.map(p => p.id === provider.id ? { ...p, name: e.target.value } : p);
+                              setOpenaiProviders(newProviders);
+                            }}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Base URL</label>
+                          <input
+                            type="text"
+                            value={provider.baseUrl}
+                            onChange={(e) => {
+                              const newProviders = openaiProviders.map(p => p.id === provider.id ? { ...p, baseUrl: e.target.value } : p);
+                              setOpenaiProviders(newProviders);
+                            }}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">API Key</label>
+                          <input
+                            type="password"
+                            value={provider.apiKey}
+                            onChange={(e) => {
+                              const newProviders = openaiProviders.map(p => p.id === provider.id ? { ...p, apiKey: e.target.value } : p);
+                              setOpenaiProviders(newProviders);
+                            }}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-mono text-neutral-400 mb-1 uppercase tracking-wider">Model Name</label>
+                          <input
+                            type="text"
+                            value={provider.model}
+                            onChange={(e) => {
+                              const newProviders = openaiProviders.map(p => p.id === provider.id ? { ...p, model: e.target.value } : p);
+                              setOpenaiProviders(newProviders);
+                            }}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                          />
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newProviders = openaiProviders.filter(p => p.id !== provider.id);
+                              setOpenaiProviders(newProviders);
+                              setApiProvider('gemini');
+                            }}
+                            className="text-[10px] text-red-400 hover:text-red-300 underline"
+                          >
+                            Remove Provider
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               )}
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = `provider-${Date.now()}`;
+                    const newProvider = {
+                      id,
+                      name: `Custom Provider ${openaiProviders.length + 1}`,
+                      baseUrl: 'https://api.openai.com/v1',
+                      apiKey: '',
+                      model: 'gpt-4o'
+                    };
+                    setOpenaiProviders([...openaiProviders, newProvider]);
+                    setApiProvider(id);
+                  }}
+                  className="w-full py-2 border border-dashed border-neutral-700 rounded-md text-xs text-neutral-500 hover:text-neutral-300 hover:border-neutral-500 transition-all flex items-center justify-center"
+                >
+                  <Plus className="w-3 h-3 mr-2" />
+                  Add OpenAI Compatible Provider
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -344,10 +459,16 @@ export default function SettingsModal({
               </button>
               <button
                 type="submit"
-                className="flex items-center px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 transition-colors"
+                disabled={!hasChanges}
+                className={cn(
+                  "flex items-center px-4 py-2 text-sm font-medium rounded-md transition-all duration-200",
+                  hasChanges 
+                    ? "bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20" 
+                    : "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700"
+                )}
               >
                 <Save className="w-4 h-4 mr-2" />
-                Save Settings
+                {hasChanges ? "Save Changes" : "No Changes"}
               </button>
             </div>
           </form>

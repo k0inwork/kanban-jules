@@ -60,12 +60,22 @@ export interface RequestContext {
   moduleConfig: any;
 }
 
+export interface OpenAIProvider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
 export interface HostConfig {
   apiProvider: string;
   geminiModel: string;
+  openaiName: string;
   openaiUrl: string;
   openaiKey: string;
   openaiModel: string;
+  openaiProviders?: OpenAIProvider[];
   geminiApiKey: string;
   githubToken: string;
   repoUrl: string;
@@ -85,4 +95,5 @@ export interface OrchestratorConfig {
   apiProvider?: string;
   geminiModel?: string;
   openaiModel?: string;
+  openaiProviders?: OpenAIProvider[];
 }

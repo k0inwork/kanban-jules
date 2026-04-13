@@ -115,12 +115,7 @@ export default function App() {
       // Use LLM to extract tasks from the message content
       tasksToCreate = await parseTasksFromMessage(
         message.content,
-        settings.apiProvider,
-        settings.geminiModel,
-        settings.openaiUrl,
-        settings.openaiKey,
-        settings.openaiModel,
-        settings.geminiApiKey
+        host.llmCall.bind(host)
       );
     }
 
@@ -171,7 +166,11 @@ export default function App() {
       repoBranch: settings.repoBranch,
       githubToken: settings.githubToken,
       moduleConfigs: settings.moduleConfigs,
-      llmCall: host.llmCall.bind(host)
+      llmCall: host.llmCall.bind(host),
+      apiProvider: settings.apiProvider,
+      geminiModel: settings.geminiModel,
+      openaiModel: settings.openaiModel,
+      openaiProviders: settings.openaiProviders
     };
     host.init(config);
     orchestrator.init(orchestratorConfig);
@@ -536,11 +535,7 @@ export default function App() {
 
   const handleTestXmlTool = async () => {
     console.log("Starting XML Tool Debug Test...");
-    let ai: GoogleGenAI | undefined;
-    if (settings.apiProvider === 'gemini') {
-      ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    }
-
+    
     const prompt = `
       You are a local agent executing a task on a repository.
       Task Description: list repo files
@@ -555,34 +550,7 @@ export default function App() {
     `;
 
     try {
-      let responseText = '';
-      if (settings.apiProvider === 'gemini' && ai) {
-        const response = await ai.models.generateContent({
-          model: settings.geminiModel,
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        });
-        responseText = response.text || '';
-      } else {
-        const response = await fetch(`${settings.openaiUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${settings.openaiKey}`
-          },
-          body: JSON.stringify({
-            model: settings.openaiModel,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1
-          })
-        });
-        if (response.ok) {
-          const data = await response.json();
-          responseText = data.choices[0].message.content || '';
-        } else {
-          const error = await response.text();
-          throw new Error(`OpenAI API error: ${error}`);
-        }
-      }
+      const responseText = await host.llmCall(prompt);
 
       console.log("XML DEBUG RESULT:", responseText);
       
@@ -782,12 +750,7 @@ export default function App() {
                 onOpenMail={handleOpenMail}
                 onSendMessageToTask={handleSendMessageToTask}
                 autonomyMode={autonomyMode as any}
-                apiProvider={settings.apiProvider}
-                geminiModel={settings.geminiModel}
-                geminiApiKey={settings.geminiApiKey}
-                openaiUrl={settings.openaiUrl}
-                openaiKey={settings.openaiKey}
-                openaiModel={settings.openaiModel}
+                llmCall={host.llmCall.bind(host)}
               />
             )}
           </div>
@@ -822,12 +785,7 @@ export default function App() {
               onDeclineProposal={handleDeclineProposal}
               onReplyToMail={handleReplyToMail}
               autonomyMode={autonomyMode as any}
-              apiProvider={settings.apiProvider}
-              geminiModel={settings.geminiModel}
-              openaiUrl={settings.openaiUrl}
-              openaiKey={settings.openaiKey}
-              openaiModel={settings.openaiModel}
-              geminiApiKey={settings.geminiApiKey}
+              llmCall={host.llmCall.bind(host)}
             />
           ) : (
             <KanbanBoard 

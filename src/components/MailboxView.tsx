@@ -11,18 +11,12 @@ interface MailboxViewProps {
   onOpenMail?: (message: AgentMessage) => void;
   onSendMessageToTask?: (taskId: string, message: string) => void;
   autonomyMode: 'manual' | 'assisted' | 'full';
-  apiProvider?: string;
-  geminiModel?: string;
-  openaiUrl?: string;
-  openaiKey?: string;
-  openaiModel?: string;
-  geminiApiKey?: string;
+  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
 }
 
 export default function MailboxView({ 
   onAcceptProposal, onOpenMail, onSendMessageToTask, autonomyMode,
-  apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview', 
-  openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = ''
+  llmCall
 }: MailboxViewProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
@@ -78,12 +72,7 @@ export default function MailboxView({
     try {
       const extractedTasks = await parseTasksFromMessage(
         msg.content,
-        apiProvider,
-        geminiModel,
-        openaiUrl,
-        openaiKey,
-        openaiModel,
-        geminiApiKey
+        llmCall
       );
 
       if (extractedTasks.length === 0) {

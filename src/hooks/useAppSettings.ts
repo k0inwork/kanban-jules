@@ -17,9 +17,14 @@ export function useAppSettings() {
   // LLM Settings
   const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('apiProvider') || 'gemini');
   const [geminiModel, setGeminiModel] = useState(() => localStorage.getItem('geminiModel') || 'gemini-3-flash-preview');
+  const [openaiName, setOpenaiName] = useState(() => localStorage.getItem('openaiName') || 'Legacy OpenAI');
   const [openaiUrl, setOpenaiUrl] = useState(() => localStorage.getItem('openaiUrl') || 'https://api.openai.com/v1');
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('openaiKey') || '');
   const [openaiModel, setOpenaiModel] = useState(() => localStorage.getItem('openaiModel') || 'gpt-4o');
+  const [openaiProviders, setOpenaiProviders] = useState<any[]>(() => {
+    const saved = localStorage.getItem('openaiProviders');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(() => {
     const saved = localStorage.getItem('moduleConfigs');
     return saved ? JSON.parse(saved) : {};
@@ -35,9 +40,11 @@ export function useAppSettings() {
     setGeminiApiKey(config.geminiApiKey);
     setGeminiModel(config.geminiModel);
     setGithubToken(config.githubToken);
+    setOpenaiName(config.openaiName);
     setOpenaiUrl(config.openaiUrl);
     setOpenaiKey(config.openaiKey);
     setOpenaiModel(config.openaiModel);
+    setOpenaiProviders(config.openaiProviders || []);
     setModuleConfigs(config.moduleConfigs);
 
     localStorage.setItem('julesEndpoint', config.julesEndpoint);
@@ -49,9 +56,11 @@ export function useAppSettings() {
     localStorage.setItem('geminiApiKey', config.geminiApiKey);
     localStorage.setItem('geminiModel', config.geminiModel);
     localStorage.setItem('githubToken', config.githubToken);
+    localStorage.setItem('openaiName', config.openaiName);
     localStorage.setItem('openaiUrl', config.openaiUrl);
     localStorage.setItem('openaiKey', config.openaiKey);
     localStorage.setItem('openaiModel', config.openaiModel);
+    localStorage.setItem('openaiProviders', JSON.stringify(config.openaiProviders || []));
     localStorage.setItem('moduleConfigs', JSON.stringify(config.moduleConfigs));
   };
 
@@ -70,9 +79,11 @@ export function useAppSettings() {
     geminiModel,
     githubToken,
     apiProvider,
+    openaiName,
     openaiUrl,
     openaiKey,
     openaiModel,
+    openaiProviders,
     moduleConfigs
   };
 
@@ -91,9 +102,11 @@ export function useAppSettings() {
       githubToken,
       apiProvider,
       geminiModel,
+      openaiName,
       openaiUrl,
       openaiKey,
       openaiModel,
+      openaiProviders,
       moduleConfigs
     }
   };

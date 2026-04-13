@@ -5,12 +5,7 @@ import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION } from './constitution'
 
 export const parseTasksFromMessage = async (
   messageContent: string,
-  apiProvider: string,
-  geminiModel: string,
-  openaiUrl: string,
-  openaiKey: string,
-  openaiModel: string,
-  geminiApiKey: string
+  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>
 ): Promise<{ title: string; description: string }[]> => {
   const prompt = `You are a Task Architect. Analyze the following message and extract one or more concrete software tasks.
 A task should be a specific, actionable piece of work.
@@ -31,37 +26,9 @@ Output ONLY valid JSON matching this schema:
 }`;
 
   try {
-    if (apiProvider === 'gemini') {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey || process.env.GEMINI_API_KEY || '' });
-      const response = await ai.models.generateContent({
-        model: geminiModel,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
-      const data = JSON.parse(response.text || '{"tasks": []}');
-      return data.tasks || [];
-    } else {
-      const response = await fetch(`${openaiUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiKey}`
-        },
-        body: JSON.stringify({
-          model: openaiModel,
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' },
-          temperature: 0.1
-        })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const parsed = JSON.parse(data.choices[0].message.content || '{"tasks": []}');
-        return parsed.tasks || [];
-      }
-    }
+    const responseText = await llmCall(prompt, true);
+    const data = JSON.parse(responseText || '{"tasks": []}');
+    return data.tasks || [];
   } catch (e) {
     console.error("Failed to parse tasks from message:", e);
   }

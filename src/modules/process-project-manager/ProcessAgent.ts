@@ -1,5 +1,6 @@
 import { db } from '../../services/db';
 import { RequestContext } from '../../core/types';
+import { CONSTITUTION_TEMPLATES } from '../../constants/constitutions';
 
 export class ProcessAgent {
   async runReview(context: RequestContext): Promise<void> {
@@ -7,15 +8,22 @@ export class ProcessAgent {
     
     // 1. Get all tasks, artifacts, and unread messages
     const tasks = await db.tasks.toArray();
-    const repoName = context.repoUrl.split('/').pop() || context.repoUrl;
+    const repoName = context.repoUrl; // Use full repoUrl as repoName to match ArtifactTool
     let artifacts = await db.taskArtifacts.where({ repoName, branchName: context.repoBranch }).toArray();
+    console.log(`[ProcessAgent] Found ${artifacts.length} total artifacts for ${repoName} on ${context.repoBranch}`);
     artifacts = artifacts.filter(a => typeof a.name !== 'string' || !a.name.startsWith('_'));
+    console.log(`[ProcessAgent] Found ${artifacts.length} public artifacts after filtering.`);
     const unreadMessages = await db.messages.where('status').equals('unread').toArray();
     
     // Load Constitution
     const configId = `${context.repoUrl}:${context.repoBranch}`;
     const config = await db.projectConfigs.get(configId);
-    const constitution = config?.constitution || 'No specific project rules defined.';
+    let constitution = config?.constitution;
+    
+    if (!constitution) {
+      const defaultConstitution = await db.moduleKnowledge.get('system:project:constitution');
+      constitution = defaultConstitution?.content || CONSTITUTION_TEMPLATES.default;
+    }
 
     const data = {
       tasks: tasks.map(t => ({ title: t.title, workflowStatus: t.workflowStatus, agentState: t.agentState, description: t.description })),
@@ -75,23 +83,37 @@ export class ProcessAgent {
       ${JSON.stringify(data.unreadMessages, null, 2)}
       
       Based on the artifacts (like design specs, research, or code analysis), existing messages, and the PROJECT CONSTITUTION, what should be the next steps?
+      
+      Be proactive. If the project is in early stages, suggest foundational tasks even if not explicitly required by the current artifacts.
+      
+      IMPORTANT: You MUST respond with a valid JSON object containing a "proposals" array.
     `;
 
     try {
+      console.log('[ProcessAgent] Sending prompt to LLM...');
+      console.log('[ProcessAgent] Full Prompt:', prompt);
       const responseText = await context.llmCall(prompt, true);
+      console.log('[ProcessAgent] LLM Response received:', responseText);
       const result = JSON.parse(responseText || '{}');
       
       if (result.proposals && result.proposals.length > 0) {
+        console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);
         for (const prop of result.proposals) {
+          if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {
+            console.warn('[ProcessAgent] Skipping empty proposal:', prop);
+            continue;
+          }
           await db.messages.add({
             sender: 'process-agent',
             type: prop.type,
-            content: prop.content,
+            content: prop.content || 'No explanation provided.',
             proposedTask: prop.proposedTask,
             status: 'unread',
             timestamp: Date.now()
           });
         }
+      } else {
+        console.log('[ProcessAgent] No proposals found.');
       }
     } catch (error) {
       console.error('[ProcessAgent] Review failed:', error);

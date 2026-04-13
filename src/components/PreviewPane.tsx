@@ -11,18 +11,12 @@ interface PreviewPaneProps {
   onDeclineProposal?: (messageId: number) => void;
   onReplyToMail?: (message: AgentMessage, replyText: string) => void;
   autonomyMode?: 'manual' | 'assisted' | 'full';
-  apiProvider?: string;
-  geminiModel?: string;
-  openaiUrl?: string;
-  openaiKey?: string;
-  openaiModel?: string;
-  geminiApiKey?: string;
+  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
 }
 
 export default function PreviewPane({ 
   activeTab, onAcceptProposal, onDeclineProposal, onReplyToMail, autonomyMode,
-  apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview',
-  openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = ''
+  llmCall
 }: PreviewPaneProps) {
   const [replyText, setReplyText] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
@@ -44,12 +38,7 @@ export default function PreviewPane({
       try {
         const extractedTasks = await parseTasksFromMessage(
           msg.content,
-          apiProvider,
-          geminiModel,
-          openaiUrl,
-          openaiKey,
-          openaiModel,
-          geminiApiKey
+          llmCall
         );
 
         if (extractedTasks.length === 0) {
