@@ -270,7 +270,7 @@ func resolveSymlinkTarget(symlinkDir, target string) string {
 var _ fs.FS = (*FS)(nil)
 var _ fs.StatContextFS = (*FS)(nil)
 var _ fs.ReadDirFS = (*FS)(nil)
-// var _ fs.OpenFileFS = (*FS)(nil) // disabled to test fs.OpenFile fallback
+var _ fs.OpenFileFS = (*FS)(nil)
 var _ fs.RemoveFS = (*FS)(nil)
 var _ fs.RenameFS = (*FS)(nil)
 var _ fs.MkdirFS = (*FS)(nil)
@@ -562,7 +562,7 @@ func (fsys *FS) readDirLocked(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
-func (fsys *FS) OpenFile_DISABLED(name string, flag int, perm fs.FileMode) (fs.File, error) {
+func (fsys *FS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: "openfile", Path: name, Err: fs.ErrNotExist}
 	}
