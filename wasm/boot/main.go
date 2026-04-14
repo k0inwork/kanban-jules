@@ -127,8 +127,9 @@ func main() {
 
 	noIdbfs := js.Global().Get("localStorage").Call("getItem", "NOIDBFS").String() == "true"
 	if noIdbfs {
-		log.Println("NOIDBFS: binding envBase directly (no overlay)")
-		root.Namespace().Bind(envBase, ".", "#env")
+		log.Println("NOIDBFS: using memfs overlay instead of idbfs")
+		envScratch := memfs.New()
+		root.Namespace().Bind(&cowfs.FS{Base: envBase, Overlay: envScratch}, ".", "#env")
 	} else {
 		envScratch := idbfs.New("wanix-env")
 		if err := envScratch.Init(); err != nil {
