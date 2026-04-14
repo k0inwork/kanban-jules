@@ -125,7 +125,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	noIdbfs := js.Global().Get("NOIDBFS").Truthy()
+	noIdbfs := js.Global().Get("localStorage").Call("getItem", "NOIDBFS").String() == "true"
 	if noIdbfs {
 		log.Println("NOIDBFS: binding envBase directly (no overlay)")
 		root.Namespace().Bind(envBase, ".", "#env")
