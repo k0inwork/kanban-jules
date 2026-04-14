@@ -205,8 +205,22 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
     globalThis._yuanRun = async function(message) {
       if (!globalThis._yuanAgent) throw new Error('Agent not initialized');
-      var result = await globalThis._yuanAgent.run(message);
-      return result.summary || result.reason || 'completed';
+      try {
+        var result = await globalThis._yuanAgent.run(message);
+        return (result && (result.summary || result.reason)) || 'completed';
+      } catch(err) {
+        return 'error: ' + (err.message || String(err));
+      }
+    };
+
+    // Callback-based runner for sync execute() bridge
+    globalThis._yuanRunWithCallback = function(message, resolve, reject) {
+      if (!globalThis._yuanAgent) { reject(new Error('Agent not initialized')); return; }
+      globalThis._yuanAgent.run(message).then(function(result) {
+        resolve((result && (result.summary || result.reason)) || 'completed');
+      }).catch(function(err) {
+        resolve('error: ' + (err.message || String(err)));
+      });
     };
 
     console.log('[yuan-runner] agent runner loaded');
@@ -255,6 +269,8 @@ export async function initYuanAgent(): Promise<void> {
 
 /**
  * Send a message to the YUAN agent and get a response.
+ * Uses a callback bridge because container.execute() is synchronous
+ * but the agent's run() is async (calls LLM via boardVM.llmfs).
  */
 export async function sendToYuanAgent(message: string): Promise<string> {
   if (!container || !agentReady) {
@@ -263,12 +279,21 @@ export async function sendToYuanAgent(message: string): Promise<string> {
 
   setYuanStatus('running');
   try {
-    // Escape the message for JS string embedding
-    const escapedMsg = message.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
-    const result = container.execute(`globalThis._yuanRun('${escapedMsg}')`);
-    const exported = result?.exports;
+    // Use callback bridge: pass resolve/reject into almostnode's sync execute
+    // so the async agent.run() can call back when done
+    const result = await new Promise<string>((resolve, reject) => {
+      // Expose the resolve/reject on globalThis so the runner can call them
+      (globalThis as any).__yuanResolve = resolve;
+      (globalThis as any).__yuanReject = reject;
+
+      const escapedMsg = message.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+      container!.execute(
+        `globalThis._yuanRunWithCallback('${escapedMsg}', globalThis.__yuanResolve, globalThis.__yuanReject)`
+      );
+    });
+
     setYuanStatus('idle');
-    return typeof exported === 'string' ? exported : JSON.stringify(exported);
+    return result;
   } catch (err: any) {
     setYuanStatus('error');
     throw err;

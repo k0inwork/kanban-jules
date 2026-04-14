@@ -49,6 +49,87 @@ const TOOL_MAP: Record<string, string> = {
 
 let _llmCall: ((prompt: string, jsonMode?: boolean) => Promise<string>) | null = null;
 
+// --- Mock LLM response when no provider is configured ---
+
+function mockLLMResponse(jsonPayload: string): string {
+  let userMessage = '';
+  let tools: any[] = [];
+  try {
+    const req = JSON.parse(jsonPayload);
+    const messages = req.messages || [];
+    const lastMsg = messages[messages.length - 1];
+    userMessage = typeof lastMsg?.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg?.content || '');
+    tools = req.tools || [];
+  } catch {
+    userMessage = jsonPayload;
+  }
+
+  // If tools are available, generate a mock tool call for common requests
+  if (tools.length > 0) {
+    const lowerMsg = userMessage.toLowerCase();
+    // Try to match a relevant tool
+    if (lowerMsg.includes('list') && lowerMsg.includes('task')) {
+      const listTool = tools.find((t: any) => t.function?.name === 'list_tasks');
+      if (listTool) {
+        return JSON.stringify({
+          id: `mock-${Date.now()}`,
+          object: 'chat.completion',
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: `call_mock_${Date.now()}`,
+                type: 'function',
+                function: { name: 'list_tasks', arguments: '{}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        });
+      }
+    }
+    if ((lowerMsg.includes('read') || lowerMsg.includes('get')) && lowerMsg.includes('file')) {
+      const readTool = tools.find((t: any) => t.function?.name === 'readFile' || t.function?.name === 'git_get_file');
+      if (readTool) {
+        return JSON.stringify({
+          id: `mock-${Date.now()}`,
+          object: 'chat.completion',
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: `call_mock_${Date.now()}`,
+                type: 'function',
+                function: { name: readTool.function.name, arguments: JSON.stringify({ path: '/' }) },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        });
+      }
+    }
+  }
+
+  // Default: return a text response acknowledging the message
+  const mockReply = `[MOCK LLM] No LLM provider configured. Received: "${userMessage.substring(0, 200)}". Configure an API key in Settings (gear icon) to get real responses. Available tools: ${tools.map((t: any) => t.function?.name).filter(Boolean).join(', ') || 'none'}.`;
+  return JSON.stringify({
+    id: `mock-${Date.now()}`,
+    object: 'chat.completion',
+    choices: [{
+      index: 0,
+      message: { role: 'assistant', content: mockReply },
+      finish_reason: 'stop',
+    }],
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  });
+}
+
 export function setBoardVMLLMCall(fn: (prompt: string, jsonMode?: boolean) => Promise<string>) {
   _llmCall = fn;
 }
@@ -98,7 +179,11 @@ export const boardVM = {
   // LLM tunnel
   llmfs: {
     async sendRequest(jsonPayload: string): Promise<string> {
-      if (!_llmCall) return JSON.stringify({ error: 'LLM not configured' });
+      // If no LLM provider configured, return mock response
+      if (!_llmCall) {
+        console.log('[boardVM.llmfs] No LLM configured — returning mock response');
+        return mockLLMResponse(jsonPayload);
+      }
       try {
         const req = JSON.parse(jsonPayload);
         // Extract the prompt from OpenAI Chat Completions format
@@ -115,16 +200,20 @@ export const boardVM = {
           usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
         });
       } catch (err: any) {
-        return JSON.stringify({ error: err.message });
+        // If LLM call fails (e.g. missing API key), fall back to mock response
+        console.log('[boardVM.llmfs] LLM call failed, falling back to mock:', err.message);
+        return mockLLMResponse(jsonPayload);
       }
     },
 
     async sendPrompt(prompt: string): Promise<string> {
-      if (!_llmCall) return 'error: LLM not configured';
+      if (!_llmCall) {
+        return `[MOCK LLM] No provider configured. Prompt: "${prompt.substring(0, 200)}". Configure an API key in Settings.`;
+      }
       try {
         return await _llmCall(prompt, false);
       } catch (err: any) {
-        return 'error: ' + err.message;
+        return `[MOCK LLM] LLM call failed (${err.message}). Prompt: "${prompt.substring(0, 200)}". Configure an API key in Settings.`;
       }
     },
   },
