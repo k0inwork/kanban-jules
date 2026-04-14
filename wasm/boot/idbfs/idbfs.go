@@ -305,9 +305,10 @@ func (fsys *FS) OpenContext(ctx context.Context, name string) (fs.File, error) {
 
 	if rec != nil {
 		if rec.symlinkTarget != "" {
-			// Return symlink record itself — do NOT follow.
-			// The 9p/cowfs layer handles Readlink and symlink resolution.
-			log.Printf("[idbfs] OpenContext: SYMLINK %q -> %q (returning symlink record)", name, rec.symlinkTarget)
+			// Symlinks have no data. Return ErrNotExist so cowfs falls back
+			// to base, which handles symlink resolution correctly.
+			log.Printf("[idbfs] OpenContext: SYMLINK %q -> %q (returning ErrNotExist for cowfs fallback)", name, rec.symlinkTarget)
+			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 		}
 		if rec.isDir {
 			return fsys.openDir(name)
@@ -545,6 +546,9 @@ func (fsys *FS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, erro
 			return nil, &fs.PathError{Op: "openfile", Path: name, Err: err}
 		}
 		if rec != nil {
+			if rec.symlinkTarget != "" {
+				return nil, &fs.PathError{Op: "openfile", Path: name, Err: fs.ErrNotExist}
+			}
 			if rec.isDir {
 				return fsys.openDir(name)
 			}
