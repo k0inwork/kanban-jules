@@ -13,7 +13,7 @@
  */
 
 import { createContainer as almostnodeCreateContainer } from 'almostnode';
-import { setYuanHandlers, setYuanStatus } from './boardVM';
+import { boardVM, setYuanHandlers, setYuanStatus } from './boardVM';
 
 // Shim source files (imported as raw text for VFS injection)
 import openaiShimSource from './openai-shim.js?raw';
@@ -286,9 +286,9 @@ export async function sendToYuanAgent(message: string): Promise<string> {
       (globalThis as any).__yuanResolve = resolve;
       (globalThis as any).__yuanReject = reject;
 
-      const escapedMsg = message.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+      const escapedMsg = JSON.stringify(message);
       container!.execute(
-        `globalThis._yuanRunWithCallback('${escapedMsg}', globalThis.__yuanResolve, globalThis.__yuanReject)`
+        `globalThis._yuanRunWithCallback(${escapedMsg}, globalThis.__yuanResolve, globalThis.__yuanReject)`
       );
     });
 
@@ -306,7 +306,7 @@ export async function sendToYuanAgent(message: string): Promise<string> {
 export function getYuanStatus(): string {
   if (!container) return 'not initialized';
   if (!agentReady) return 'not initialized';
-  return 'idle'; // actual status tracked by setYuanStatus
+  return boardVM.yuan.status();
 }
 
 /**

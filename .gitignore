@@ -6,7 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
-<<<<<<< HEAD
 *.pem
 *.key
 wasm/system/.build/

@@ -204,8 +204,9 @@ func (ch *Channel) watchInFile() {
 			message := strings.TrimSpace(string(data))
 			log.Printf("[channel] received message: %s", truncate(message, 80))
 
-			// Clear the in file
+			// Clear the in file and reset lastSize so same-length messages are detected
 			_ = os.WriteFile(inPath, []byte{}, 0644)
+			lastSize = 0
 
 			// Process the message
 			ch.updateStatus("running")
@@ -253,11 +254,13 @@ func (ch *Channel) watchLLMReqFile() {
 
 			reqJSON := strings.TrimSpace(string(data))
 			_ = os.WriteFile(reqPath, []byte{}, 0644)
+			lastSize = 0
 
 			go func(req string) {
 				response, err := ch.sendLLMRequest(req)
 				if err != nil {
-					_ = os.WriteFile(resPath, []byte(`{"error":"`+err.Error()+`"}`+"\n"), 0644)
+					errResp, _ := json.Marshal(map[string]string{"error": err.Error()})
+					_ = os.WriteFile(resPath, append(errResp, '\n'), 0644)
 					return
 				}
 				_ = os.WriteFile(resPath, []byte(response+"\n"), 0644)
