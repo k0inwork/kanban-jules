@@ -49,6 +49,9 @@ type Pane struct {
 	mu       sync.Mutex
 	activity bool
 	exited   bool
+
+	// Line buffer for local echo editing (shell has no TTY)
+	lineBuf []byte
 }
 
 // Mux is the terminal multiplexer.
@@ -74,8 +77,7 @@ func main() {
 
 	saved, err := setRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "session-mux: set raw: %v\n", err)
-		os.Exit(1)
+		saved = nil
 	}
 
 	m := &Mux{
@@ -89,7 +91,6 @@ func main() {
 
 	// Pane 0: local shell
 	if err := m.newLocalShell(); err != nil {
-		fmt.Fprintf(os.Stderr, "session-mux: spawn shell: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -99,6 +100,7 @@ func main() {
 	// Clear screen and start
 	os.Stdout.Write([]byte("\x1b[2J\x1b[H"))
 	go m.renderLoop()
+	m.triggerRender() // initial render so screen isn't blank
 
 	// Handle signals
 	sigCh := make(chan os.Signal, 1)
@@ -159,11 +161,12 @@ func (m *Mux) newLocalShell() error {
 	h := m.rows - 1
 	emu := vt.NewSafeEmulator(m.cols, h)
 
-	cmd := exec.Command("/bin/sh")
+	cmd := exec.Command("/bin/sh", "-i")
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm",
 		fmt.Sprintf("COLUMNS=%d", m.cols),
 		fmt.Sprintf("LINES=%d", h),
+		"PS1=/ # ",
 	)
 
 	sin, err := cmd.StdinPipe()
@@ -266,11 +269,12 @@ func (m *Mux) spawnYuanShell() {
 	m.panes = append(m.panes, p)
 
 	// Fork/exec shell with mux-mediated I/O
-	cmd := exec.Command("/bin/sh")
+	cmd := exec.Command("/bin/sh", "-i")
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm",
 		fmt.Sprintf("COLUMNS=%d", m.cols),
 		fmt.Sprintf("LINES=%d", h),
+		"PS1=/ # ",
 	)
 
 	sin, _ := cmd.StdinPipe()
@@ -367,11 +371,12 @@ func (m *Mux) spawnYuanShell() {
 func (m *Mux) spawnWatchShell(id int, emu *vt.SafeEmulator) {
 	// Fallback: spawn a local shell without 9p pipes
 	name := fmt.Sprintf("shell-%d", id-1)
-	cmd := exec.Command("/bin/sh")
+	cmd := exec.Command("/bin/sh", "-i")
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm",
 		fmt.Sprintf("COLUMNS=%d", m.cols),
 		fmt.Sprintf("LINES=%d", m.rows-1),
+		"PS1=/ # ",
 	)
 	sin, _ := cmd.StdinPipe()
 	sout, _ := cmd.StdoutPipe()
@@ -450,7 +455,9 @@ func (m *Mux) feedOutput(p *Pane, r io.Reader) {
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
-			p.emu.Write(buf[:n])
+			// Translate bare \n to \r\n for VT emulator
+			clean := bytes.ReplaceAll(buf[:n], []byte("\n"), []byte("\r\n"))
+			p.emu.Write(clean)
 			p.mu.Lock()
 			p.activity = true
 			p.mu.Unlock()
@@ -532,9 +539,33 @@ func (m *Mux) handleKey(b byte) {
 		return
 	}
 
-	// Local shell / Yuan shell: forward raw bytes
+	// Local shell / Yuan shell: line editing + local echo
+	// (shell has no TTY so we handle line editing ourselves)
 	if p.sin != nil {
-		p.sin.Write([]byte{b})
+		switch {
+		case b == 0x0d || b == 0x0a: // Enter
+			p.sin.Write(p.lineBuf)
+			p.sin.Write([]byte{'\n'})
+			p.emu.Write([]byte("\r\n"))
+			p.lineBuf = p.lineBuf[:0]
+		case b == 0x7f || b == 0x08: // Backspace
+			if len(p.lineBuf) > 0 {
+				p.lineBuf = p.lineBuf[:len(p.lineBuf)-1]
+				p.emu.Write([]byte("\b \b"))
+			}
+		case b == 0x15: // Ctrl+U: clear line
+			for range p.lineBuf {
+				p.emu.Write([]byte("\b \b"))
+			}
+			p.lineBuf = p.lineBuf[:0]
+		case b >= 0x20 && b < 0x7f: // Printable
+			p.lineBuf = append(p.lineBuf, b)
+			p.emu.Write([]byte{b})
+		default:
+			// Forward other control chars directly
+			p.sin.Write([]byte{b})
+		}
+		m.triggerRender()
 	}
 }
 

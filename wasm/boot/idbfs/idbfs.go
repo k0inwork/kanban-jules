@@ -22,6 +22,14 @@ import (
 	"tractor.dev/wanix/fs/pstat"
 )
 
+var debug = false
+
+func idbLog(format string, args ...any) {
+	if debug {
+		log.Printf(format, args...)
+	}
+}
+
 // awaitIDB awaits an IDBRequest using onsuccess/onerror callbacks with a channel,
 // bypassing the need for .then() or Promise wrapping. Go-held references to the
 // callbacks prevent GC from collecting them before the request resolves.
@@ -85,17 +93,17 @@ func (fsys *FS) Init() error {
 	defer fsys.mu.Unlock()
 
 	if !fsys.db.IsUndefined() {
-		log.Println("[idbfs] Init: already initialized")
+		idbLog("[idbfs] Init: already initialized")
 		return nil
 	}
 
 	idb := js.Global().Get("indexedDB")
 	if idb.IsUndefined() {
-		log.Println("[idbfs] Init: ERROR indexedDB not available")
+		idbLog("[idbfs] Init: ERROR indexedDB not available")
 		return errors.New("indexedDB not available")
 	}
 
-	log.Printf("[idbfs] Init: opening database %q\n", fsys.dbName)
+	idbLog("[idbfs]Init: opening database %q\n", fsys.dbName)
 	req := idb.Call("open", fsys.dbName, 1)
 
 	// Keep Go references to prevent GC from releasing callbacks
@@ -103,13 +111,13 @@ func (fsys *FS) Init() error {
 	upgradeFn := js.FuncOf(func(this js.Value, args []js.Value) any {
 		event := args[0]
 		db := event.Get("target").Get("result")
-		log.Println("[idbfs] onupgradeneeded fired, creating object store", fsys.store)
+		idbLog("[idbfs] onupgradeneeded fired, creating object store %s", fsys.store)
 		storeNames := db.Get("objectStoreNames")
 		if !storeNames.Call("contains", fsys.store).Bool() {
 			db.Call("createObjectStore", fsys.store, map[string]any{"keyPath": "path"})
-			log.Println("[idbfs] object store created")
+			idbLog("[idbfs] object store created")
 		} else {
-			log.Println("[idbfs] object store already exists")
+			idbLog("[idbfs] object store already exists")
 		}
 		return nil
 	})
@@ -118,7 +126,7 @@ func (fsys *FS) Init() error {
 
 	blockFn := js.FuncOf(func(this js.Value, args []js.Value) any {
 		ev := args[0]
-		log.Printf("[idbfs] onblocked fired: %v\n", ev.Get("target").Get("error"))
+		idbLog("[idbfs]onblocked fired: %v\n", ev.Get("target").Get("error"))
 		return nil
 	})
 	defer blockFn.Release()
@@ -126,16 +134,16 @@ func (fsys *FS) Init() error {
 
 	result, err := awaitIDB(req)
 	if err != nil {
-		log.Printf("[idbfs] Init: open failed: %v\n", err)
+		idbLog("[idbfs]Init: open failed: %v\n", err)
 		return err
 	}
 
 	if result.IsUndefined() {
-		log.Println("[idbfs] Init: ERROR result is undefined")
+		idbLog("[idbfs] Init: ERROR result is undefined")
 		return errors.New("idbfs: open returned undefined")
 	}
 
-	log.Printf("[idbfs] Init: database opened, objectStoreNames=%v\n", result.Get("objectStoreNames"))
+	idbLog("[idbfs]Init: database opened, objectStoreNames=%v\n", result.Get("objectStoreNames"))
 	fsys.db = result
 	return nil
 }
@@ -182,7 +190,7 @@ func (fsys *FS) putRecord(r *record) error {
 	store, cleanup, err := fsys.dbTx("readwrite")
 	defer cleanup()
 	if err != nil {
-		log.Printf("[idbfs] putRecord %q: dbTx error: %v\n", r.path, err)
+		idbLog("[idbfs]putRecord %q: dbTx error: %v\n", r.path, err)
 		return err
 	}
 
@@ -198,9 +206,9 @@ func (fsys *FS) putRecord(r *record) error {
 
 	_, err = awaitIDB(store.Call("put", obj))
 	if err != nil {
-		log.Printf("[idbfs] putRecord %q: put error: %v\n", r.path, err)
+		idbLog("[idbfs]putRecord %q: put error: %v\n", r.path, err)
 	} else {
-		log.Printf("[idbfs] putRecord %q: OK (%d bytes, isDir=%v)\n", r.path, len(r.data), r.isDir)
+		idbLog("[idbfs]putRecord %q: OK (%d bytes, isDir=%v)\n", r.path, len(r.data), r.isDir)
 	}
 	return err
 }
@@ -307,7 +315,7 @@ func (fsys *FS) OpenContext(ctx context.Context, name string) (fs.File, error) {
 			// Follow symlink within idbfs. If target is here, open it.
 			// If not, return ErrNotExist so cowfs falls back to base.
 			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
-			log.Printf("[idbfs] OpenContext: SYMLINK %q -> %q", name, target)
+			idbLog("[idbfs]OpenContext: SYMLINK %q -> %q", name, target)
 			return fsys.openFollow(target, 0)
 		}
 		if rec.isDir {
@@ -349,7 +357,7 @@ func (fsys *FS) openFollow(name string, depth int) (fs.File, error) {
 	if rec != nil {
 		if rec.symlinkTarget != "" {
 			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
-			log.Printf("[idbfs] openFollow: %q -> %q (depth=%d)", name, target, depth)
+			idbLog("[idbfs]openFollow: %q -> %q (depth=%d)", name, target, depth)
 			return fsys.openFollow(target, depth+1)
 		}
 		if rec.isDir {
@@ -363,7 +371,7 @@ func (fsys *FS) openFollow(name string, depth int) (fs.File, error) {
 	}
 
 	// Not in overlay — return ErrNotExist so cowfs falls back to base
-	log.Printf("[idbfs] openFollow: NOT FOUND %q (depth=%d)", name, depth)
+	idbLog("[idbfs]openFollow: NOT FOUND %q (depth=%d)", name, depth)
 	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 }
 
@@ -394,14 +402,14 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 		// Follow symlinks unless NoFollow is set
 		if rec.symlinkTarget != "" && fs.FollowSymlinks(ctx) {
 			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
-			log.Printf("[idbfs] StatContext: FOLLOW %q -> %q", name, target)
+			idbLog("[idbfs]StatContext: FOLLOW %q -> %q", name, target)
 			return fsys.statFollow(target, 0)
 		}
 		return recordToInfo(rec), nil
 	}
 
 	if fs.FollowSymlinks(ctx) {
-		log.Printf("[idbfs] StatContext: NOT FOUND %q (follow=true)", name)
+		idbLog("[idbfs]StatContext: NOT FOUND %q (follow=true)", name)
 	}
 
 	// Check implicit directory
@@ -423,7 +431,7 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 // statFollow follows symlink chains. Caller must hold fsys.mu.
 func (fsys *FS) statFollow(name string, depth int) (fs.FileInfo, error) {
 	if depth > 10 {
-		log.Printf("[idbfs] statFollow: TOO MANY SYMLINKS %q depth=%d", name, depth)
+		idbLog("[idbfs]statFollow: TOO MANY SYMLINKS %q depth=%d", name, depth)
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: errors.New("too many symlinks")}
 	}
 
@@ -434,16 +442,16 @@ func (fsys *FS) statFollow(name string, depth int) (fs.FileInfo, error) {
 
 	rec, err := fsys.getRecord(name)
 	if err != nil {
-		log.Printf("[idbfs] statFollow: getRecord ERROR %q: %v", name, err)
+		idbLog("[idbfs]statFollow: getRecord ERROR %q: %v", name, err)
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
 	}
 	if rec != nil {
 		if rec.symlinkTarget != "" {
 			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
-			log.Printf("[idbfs] statFollow: FOLLOW %q -> %q (depth=%d)", name, target, depth)
+			idbLog("[idbfs]statFollow: FOLLOW %q -> %q (depth=%d)", name, target, depth)
 			return fsys.statFollow(target, depth+1)
 		}
-		log.Printf("[idbfs] statFollow: FOUND %q (%d bytes, isDir=%v)", name, len(rec.data), rec.isDir)
+		idbLog("[idbfs]statFollow: FOUND %q (%d bytes, isDir=%v)", name, len(rec.data), rec.isDir)
 		return recordToInfo(rec), nil
 	}
 
@@ -459,7 +467,7 @@ func (fsys *FS) statFollow(name string, depth int) (fs.FileInfo, error) {
 		}
 	}
 
-	log.Printf("[idbfs] statFollow: NOT FOUND %q (target not in overlay)", name)
+	idbLog("[idbfs]statFollow: NOT FOUND %q (target not in overlay)", name)
 	return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
 }
 
@@ -946,18 +954,18 @@ func (fsys *FS) Readlink(name string) (string, error) {
 	name = path.Clean(name)
 	rec, err := fsys.getRecord(name)
 	if err != nil {
-		log.Printf("[idbfs] Readlink: ERROR %q: %v", name, err)
+		idbLog("[idbfs]Readlink: ERROR %q: %v", name, err)
 		return "", &fs.PathError{Op: "readlink", Path: name, Err: err}
 	}
 	if rec == nil {
-		log.Printf("[idbfs] Readlink: NOT FOUND %q", name)
+		idbLog("[idbfs]Readlink: NOT FOUND %q", name)
 		return "", &fs.PathError{Op: "readlink", Path: name, Err: fs.ErrNotExist}
 	}
 	if rec.symlinkTarget == "" {
-		log.Printf("[idbfs] Readlink: NOT SYMLINK %q", name)
+		idbLog("[idbfs]Readlink: NOT SYMLINK %q", name)
 		return "", &fs.PathError{Op: "readlink", Path: name, Err: errors.New("not a symlink")}
 	}
-	log.Printf("[idbfs] Readlink: %q -> %q", name, rec.symlinkTarget)
+	idbLog("[idbfs]Readlink: %q -> %q", name, rec.symlinkTarget)
 	return rec.symlinkTarget, nil
 }
 
