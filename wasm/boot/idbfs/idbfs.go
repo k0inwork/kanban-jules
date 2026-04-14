@@ -21,6 +21,7 @@ import (
 
 	"tractor.dev/wanix/fs"
 	"tractor.dev/wanix/fs/fskit"
+	"tractor.dev/wanix/fs/pstat"
 )
 
 // awaitIDB awaits an IDBRequest using onsuccess/onerror callbacks with a channel,
@@ -1143,7 +1144,11 @@ func (fi *idbFileInfo) ModTime() time.Time {
 	return fi.mtime
 }
 func (fi *idbFileInfo) IsDir() bool  { return fi.mode&fs.ModeDir != 0 }
-func (fi *idbFileInfo) Sys() any     { return nil }
+func (fi *idbFileInfo) Sys() any {
+	return &pstat.Stat{
+		Nlink: 1,
+	}
+}
 
 func recordToInfo(r *record) fs.FileInfo {
 	mode := fs.FileMode(r.mode)
