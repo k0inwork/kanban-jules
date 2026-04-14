@@ -105,7 +105,12 @@ export class TerminalService {
 
   resize(cols: number, rows: number) {
     console.log(`[TerminalService] resize requested: ${cols}x${rows}`);
-    // Optional: could send 'stty cols X rows Y' to the VM if at a shell prompt
+    if (this.serialReady) {
+      // Send stty command to update the VM's TTY line settings
+      // We use \f (form feed) or clear to try to minimize prompt interference,
+      // but simply sending the command is often sufficient.
+      this.send(`stty cols ${cols} rows ${rows}\n`);
+    }
   }
 
   getLogs() {
