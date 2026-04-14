@@ -52,6 +52,7 @@ tractor.dev/wanix/task
 tractor.dev/wanix/vfs
 tractor.dev/wanix/vfs/pipe
 tractor.dev/wanix/vfs/ramfs
+tractor.dev/wanix/vfs/session
 tractor.dev/wanix/vm
 tractor.dev/wanix/vm/v86
 tractor.dev/wanix/vm/v86/virtio9p

@@ -19,4 +19,4 @@ export TERM=xterm
 export COLUMNS=$(stty size 2>/dev/null | awk '{print $2}')
 export LINES=$(stty size 2>/dev/null | awk '{print $1}')
 
-exec setsid sh -c 'exec sh </dev/ttyS0 >/dev/ttyS0 2>&1'
+exec setsid /bin/session-mux </dev/ttyS0 >/dev/ttyS0 2>&1

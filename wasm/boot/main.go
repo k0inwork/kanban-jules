@@ -23,6 +23,7 @@ import (
 	"tractor.dev/wanix/fs/tarfs"
 	"tractor.dev/wanix/vfs/pipe"
 	"tractor.dev/wanix/vfs/ramfs"
+	"tractor.dev/wanix/vfs/session"
 	"tractor.dev/wanix/vm"
 	"tractor.dev/wanix/vm/v86/virtio9p"
 	"tractor.dev/wanix/web"
@@ -58,6 +59,8 @@ func main() {
 	k.AddModule("#commands", &pipe.Allocator{})
 	k.AddModule("#|", &pipe.Allocator{})
 	k.AddModule("#ramfs", &ramfs.Allocator{})
+	sessionAlloc := session.NewAllocator()
+	k.AddModule("#sessions", sessionAlloc)
 
 	root, err := k.NewRoot()
 	if err != nil {
@@ -206,6 +209,7 @@ func main() {
 		{"#console/data1", fmt.Sprintf("vm/%s/ttyS0", vmID)},
 		{"#ramfs", fmt.Sprintf("vm/%s/fsys/#ramfs", vmID)},
 		{"#pipe", fmt.Sprintf("vm/%s/fsys/#pipe", vmID)},
+		{"#sessions", fmt.Sprintf("vm/%s/fsys/#sessions", vmID)},
 		{"#|", fmt.Sprintf("vm/%s/fsys/#|", vmID)},
 		{".", fmt.Sprintf("vm/%s/fsys", vmID)},
 		{"#llm", fmt.Sprintf("vm/%s/fsys/#llm", vmID)},
