@@ -338,7 +338,7 @@ func truncate(s string, maxLen int) string {
 
 func main() {
 	dir := flag.String("dir", ".yuan", "directory for FS channels")
-	port := flag.String("port", "5173", "Fleet dev server port")
+	port := flag.String("port", "3000", "Fleet dev server port")
 	host := flag.String("host", "localhost", "Fleet dev server host")
 	interactive := flag.Bool("i", false, "run in interactive mode (REPL)")
 	flag.Parse()

@@ -6,7 +6,7 @@ import './index.css';
 
 // Wire up the YUAN agent bridge (boardVM + almostnode bootstrap)
 import { installBoardVM } from './bridge';
-import { initYuanAgent, sendToYuanAgent, getYuanStatus, registerYuanWithBoardVM } from './bridge';
+import { initYuanAgent, sendToYuanAgent, getYuanStatus, registerYuanWithBoardVM, startYuanRelay } from './bridge';
 
 // Install boardVM on globalThis so wasm/boot and shims can access it
 installBoardVM();
@@ -18,6 +18,13 @@ registerYuanWithBoardVM();
   send: sendToYuanAgent,
   status: getYuanStatus,
 };
+
+// Start the yuan relay so CLI tools can reach yuanAgent via HTTP → WS bridge
+startYuanRelay({
+  init: initYuanAgent,
+  send: sendToYuanAgent,
+  status: getYuanStatus,
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

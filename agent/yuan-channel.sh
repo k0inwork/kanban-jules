@@ -19,7 +19,7 @@ set -euo pipefail
 
 YUAN_DIR="${YUAN_DIR:-.yuan}"
 YUAN_HOST="${YUAN_HOST:-localhost}"
-YUAN_PORT="${YUAN_PORT:-5173}"
+YUAN_PORT="${YUAN_PORT:-3000}"
 YUAN_URL="http://${YUAN_HOST}:${YUAN_PORT}"
 
 # Colors

@@ -31,6 +31,12 @@ overlay_files() {
 		echo "==> Overlaying wasm/agent/agent.wasm"
 		cp -v "wasm/agent/agent.wasm" "$BUILD_DIR/rootfs/bin/"
 	fi
+	# Also overlay yuan-chat.386 Go binary if it exists
+	if [ -f "agent/yuan-chat.386" ]; then
+		echo "==> Overlaying agent/yuan-chat.386 as yuan-chat-go"
+		cp -v "agent/yuan-chat.386" "$BUILD_DIR/rootfs/bin/yuan-chat-go"
+		chmod +x "$BUILD_DIR/rootfs/bin/yuan-chat-go"
+	fi
 }
 
 repack() {

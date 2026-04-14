@@ -9,3 +9,4 @@
 
 export { boardVM, installBoardVM, setBoardVMLLMCall, setBoardVMHostConfig } from './boardVM';
 export { initYuanAgent, sendToYuanAgent, getYuanStatus, registerYuanWithBoardVM } from './agent-bootstrap';
+export { startYuanRelay } from './yuan-relay';
