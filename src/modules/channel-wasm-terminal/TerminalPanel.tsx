@@ -72,6 +72,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
   const runtimeRef = useRef<any>(null);
   const xtermRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
+  const initedRef = useRef(false); // guard against React StrictMode double-mount
   const [cmdInput, setCmdInput] = useState('');
   const [serialReady, setSerialReady] = useState(false);
 
@@ -102,6 +103,8 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
 
   const initTerminal = useCallback(async () => {
     if (!terminalRef.current) return;
+    if (initedRef.current) return; // prevent double-init in StrictMode
+    initedRef.current = true;
 
     // Dynamic imports for xterm.js
     const { Terminal } = await import('@xterm/xterm');
