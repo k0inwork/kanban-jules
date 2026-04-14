@@ -33,7 +33,11 @@ CORE RULES:
 1.  **Valid JavaScript**: Write ONLY valid JS. No markdown, no backticks around the code.
 2.  **Async Context**: The code runs in an async function. Use await for all API calls.
 3.  **Sandbox Limits**: You run in a Web Worker (Sval). You DO NOT have access to Node.js built-ins (fs, path, child_process). You MUST use the provided async APIs.
-4.  **Defensive Programming**:
+4.  **Top-Level Execution**:
+    - Write code directly at the top level.
+    - If you MUST use a \`main()\` function, you **MUST** await it at the end (e.g., \`await main();\`).
+    - Failure to await your logic will cause the task to "finish" prematurely before your API calls complete.
+5.  **Defensive Programming**:
     - ALWAYS check if variables retrieved from AgentContext are defined before using them (e.g., if (!AgentContext.data) { ... }).
     - Use optional chaining (?.) when accessing deep properties.
     - Provide clear error messages using askUser() if expected data is missing.

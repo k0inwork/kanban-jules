@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { eventBus } from '../../core/event-bus';
+import { TaskStateMachine } from '../../core/TaskStateMachine';
 
 export class UserNegotiator {
   static async negotiate(
@@ -58,10 +59,7 @@ export class UserNegotiator {
 
     // 2. Update task state to WAITING_FOR_USER
     appendUnaLog(`Updating task state to WAITING_FOR_USER`);
-    await db.tasks.update(taskId, {
-      workflowStatus: 'IN_PROGRESS',
-      agentState: 'WAITING_FOR_USER'
-    });
+    await TaskStateMachine.dispatch(taskId, { type: 'REQUIRE_USER_INPUT' });
 
     // 3. Wait for reply via event bus
     appendUnaLog(`Waiting for user reply...`);

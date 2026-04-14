@@ -1,5 +1,6 @@
 import git from 'isomorphic-git';
-import http from 'isomorphic-git/http/web/index.js';
+// @ts-ignore
+import http from 'isomorphic-git/http/web';
 import FS from '@isomorphic-git/lightning-fs';
 
 const fs = new FS('test-repo');

@@ -3,6 +3,7 @@ export type SystemEvent =
   | { type: 'module:log', data: { taskId: string, moduleId: string, message: string } }
   | { type: 'task:manual-trigger', data: { taskId: string } }
   | { type: 'user:reply', data: { taskId: string, content: string } }
+  | { type: 'task:state_changed', data: { taskId: string, previousState: any, newState: any, event: string } }
   | { type: 'module:request', data: { requestId: string, taskId: string, toolName: string, args: any[] } }
   | { type: 'module:response', data: { requestId: string, result: any, error?: string } };
 

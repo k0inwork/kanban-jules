@@ -1,5 +1,6 @@
 import { db } from './db';
 import git from 'isomorphic-git';
+// @ts-ignore
 import http from 'isomorphic-git/http/web';
 import FS from '@isomorphic-git/lightning-fs';
 

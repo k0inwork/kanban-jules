@@ -21,6 +21,7 @@ import { orchestrator } from './core/orchestrator';
 import { host } from './core/host';
 import { eventBus } from './core/event-bus';
 import { TaskFs } from './services/TaskFs';
+import { TaskStateMachine } from './core/TaskStateMachine';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
 import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
@@ -188,14 +189,13 @@ export default function App() {
     }
   }, [latestProposal, autonomyMode]);
 
-  // Agent Loop
+  // Recovery Mechanism (Run once on mount)
   useEffect(() => {
-    // Recovery Mechanism: On mount, find any tasks stuck in EXECUTING and reset them to IDLE
     const recoverStuckTasks = async () => {
       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();
       for (const task of stuckTasks) {
         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);
-        await db.tasks.update(task.id, { agentState: 'IDLE' });
+        await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE
         eventBus.emit('module:log', { 
           taskId: task.id, 
           moduleId: 'orchestrator', 
@@ -204,24 +204,22 @@ export default function App() {
       }
     };
     recoverStuckTasks();
+  }, []);
 
-    const interval = setInterval(async () => {
-      // 1. Task Orchestration
-      if (autonomyMode !== 'manual') {
-        console.log(`[Agent Loop] Checking tasks. Total tasks: ${tasks.length}`);
-        const taskToProcess = tasks.find(t => {
-          const isEligible = (t.workflowStatus === 'TODO' || t.workflowStatus === 'IN_PROGRESS') && 
-            t.agentState === 'IDLE';
-          return isEligible;
-        });
-        if (taskToProcess) {
-          console.log(`[Agent Loop] Processing task: ${taskToProcess.title}`);
-          processTask(taskToProcess);
-        }
-      }
-    }, 5000);
+  // Agent Loop
+  useEffect(() => {
+    if (autonomyMode === 'manual') return;
 
-    return () => clearInterval(interval);
+    const taskToProcess = tasks.find(t => {
+      const isEligible = (t.workflowStatus === 'TODO' || t.workflowStatus === 'IN_PROGRESS') && 
+        t.agentState === 'IDLE';
+      return isEligible;
+    });
+
+    if (taskToProcess && !processingRef.current.has(taskToProcess.id)) {
+      console.log(`[Agent Loop] Processing task: ${taskToProcess.title}`);
+      processTask(taskToProcess);
+    }
   }, [tasks, autonomyMode]);
 
   const appendActionLogToTask = async (taskId: string, msg: string) => {
@@ -304,10 +302,18 @@ export default function App() {
     
     eventBus.emit('module:log', { taskId, moduleId: 'orchestrator', message: `Workflow status changed from ${oldStatus} to ${newStatus}` });
 
-    await db.tasks.update(taskId, { 
-      workflowStatus: newStatus,
-      agentState: newAgentState
-    });
+    if (newStatus === 'IN_PROGRESS') {
+      await TaskStateMachine.dispatch(taskId, { type: 'START' });
+    } else if (newStatus === 'DONE') {
+      await TaskStateMachine.dispatch(taskId, { type: 'COMPLETE' });
+    } else if (newStatus === 'TODO') {
+      await TaskStateMachine.dispatch(taskId, { type: 'STOP' });
+    } else {
+      await db.tasks.update(taskId, { 
+        workflowStatus: newStatus,
+        agentState: newAgentState
+      });
+    }
 
     if (newStatus === 'IN_PROGRESS' && task.workflowStatus !== 'IN_PROGRESS') {
       processTask(updatedTask);
@@ -432,10 +438,7 @@ export default function App() {
       // Update task state back to IDLE so the orchestrator can pick it up again if it was paused
       eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: `Replied to message: ${replyText.substring(0, 50)}...` });
 
-      await db.tasks.update(task.id, { 
-        workflowStatus: 'IN_PROGRESS',
-        agentState: processingRef.current.has(task.id) ? 'EXECUTING' : 'IDLE'
-      });
+      await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' });
       
       // Mark original message as archived
       if (message.id) {
@@ -474,11 +477,8 @@ export default function App() {
 
     eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: `Sent message: ${message.substring(0, 50)}...` });
 
-    await db.tasks.update(task.id, {
-      workflowStatus: 'IN_PROGRESS',
-      agentState: 'EXECUTING',
-      chat: updatedTask.chat
-    });
+    await db.tasks.update(task.id, { chat: updatedTask.chat });
+    await TaskStateMachine.dispatch(task.id, { type: 'START' });
 
     if (task.agentId === 'jules-agent') {
       const session = await db.julesSessions.where('taskId').equals(task.id).first();
@@ -819,17 +819,19 @@ export default function App() {
         tasks={tasks}
         onDeleteTask={handleDeleteTask}
         onSendMessage={handleSendMessageToTask}
-        onUpdateTask={(updatedTask) => {
-          db.tasks.update(updatedTask.id, {
+        onUpdateTask={async (updatedTask) => {
+          await db.tasks.update(updatedTask.id, {
             title: updatedTask.title,
             description: updatedTask.description,
-            chat: updatedTask.chat,
-            workflowStatus: updatedTask.workflowStatus,
-            agentState: updatedTask.agentState
+            chat: updatedTask.chat
           });
-          setSelectedTask(updatedTask);
+          
           if (updatedTask.workflowStatus === 'IN_PROGRESS' && updatedTask.agentState === 'IDLE') {
+             await TaskStateMachine.dispatch(updatedTask.id, { type: 'USER_REPLIED' });
+             setSelectedTask(updatedTask);
              processTask(updatedTask);
+          } else {
+             setSelectedTask(updatedTask);
           }
         }}
       />

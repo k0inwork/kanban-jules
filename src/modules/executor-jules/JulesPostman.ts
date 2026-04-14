@@ -4,11 +4,14 @@ import { julesApi } from '../../lib/julesApi';
 import { JulesSessionManager } from './JulesSessionManager';
 import { eventBus } from '../../core/event-bus';
 import { HostConfig } from '../../core/types';
+import { TaskStateMachine } from '../../core/TaskStateMachine';
 
 export class JulesPostman {
   private static instance: JulesPostman | null = null;
   private interval: any;
   private config: HostConfig;
+  private activeTasks: Set<string> = new Set();
+  private isPolling = false;
 
   static init(config: HostConfig) {
     if (this.instance) this.instance.stop();
@@ -28,11 +31,45 @@ export class JulesPostman {
   }
 
   start() {
-    if (this.interval) return;
-    this.interval = setInterval(() => this.poll(), 5000);
+    this.checkInitialTasks();
+    eventBus.on('task:state_changed', this.handleStateChange);
   }
 
   stop() {
+    eventBus.off('task:state_changed', this.handleStateChange);
+    this.activeTasks.clear();
+    this.stopPolling();
+  }
+
+  private handleStateChange = (data: any) => {
+    if (data.newState.agentState === 'WAITING_FOR_EXECUTOR') {
+      this.activeTasks.add(data.taskId);
+      this.ensurePolling();
+    } else {
+      this.activeTasks.delete(data.taskId);
+      if (this.activeTasks.size === 0) {
+        this.stopPolling();
+      }
+    }
+  }
+
+  private async checkInitialTasks() {
+    const tasks = await db.tasks.where('agentState').equals('WAITING_FOR_EXECUTOR').toArray();
+    for (const task of tasks) {
+      this.activeTasks.add(task.id);
+    }
+    if (this.activeTasks.size > 0) {
+      this.ensurePolling();
+    }
+  }
+
+  private ensurePolling() {
+    if (!this.interval) {
+      this.interval = setInterval(() => this.poll(), 5000);
+    }
+  }
+
+  private stopPolling() {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
@@ -40,13 +77,21 @@ export class JulesPostman {
   }
 
   private async poll() {
-    if (!this.config) return;
-    const julesConfig = this.config.moduleConfigs['executor-jules'] || {};
-    const julesApiKey = julesConfig.julesApiKey;
-    if (!julesApiKey) return;
+    if (this.isPolling) return;
+    this.isPolling = true;
+    try {
+      if (!this.config) return;
+      const julesConfig = this.config.moduleConfigs['executor-jules'] || {};
+      const julesApiKey = julesConfig.julesApiKey;
+      if (!julesApiKey) return;
 
-    const tasks = await db.tasks.where('agentState').equals('WAITING_FOR_EXECUTOR').toArray();
-    for (const task of tasks) {
+      for (const taskId of this.activeTasks) {
+        const task = await db.tasks.get(taskId);
+        if (!task || task.agentState !== 'WAITING_FOR_EXECUTOR') {
+          this.activeTasks.delete(taskId);
+          if (this.activeTasks.size === 0) this.stopPolling();
+          continue;
+        }
       try {
         const session = await JulesSessionManager.findOrCreateSession(
           julesApiKey, 
@@ -127,7 +172,8 @@ export class JulesPostman {
               const t = await db.tasks.get(task.id);
               if (t) {
                 const updatedChat = (t.chat || '') + chatMsg;
-                await db.tasks.update(t.id, { chat: updatedChat, agentState: 'IDLE' });
+                await db.tasks.update(t.id, { chat: updatedChat });
+                await TaskStateMachine.dispatch(t.id, { type: 'EXECUTOR_REPLIED' });
               }
             }
           }
@@ -151,15 +197,18 @@ export class JulesPostman {
           eventBus.emit('module:log', { taskId: task.id, moduleId: 'postman', message: `Session ${currentSession.state}.` });
           const t = await db.tasks.get(task.id);
           if (t) {
-            await db.tasks.update(t.id, { agentState: 'EXECUTING' });
+            await TaskStateMachine.dispatch(t.id, { type: 'EXECUTOR_REPLIED' });
           }
         }
-      } catch (e: any) {
-        console.error(`[Postman] Error polling session for task ${task.id}:`, e);
-        if (e.status === 404 || e.message?.includes('not found')) {
-          await db.julesSessions.where('taskId').equals(task.id).delete();
+        } catch (e: any) {
+          console.error(`[Postman] Error polling session for task ${task.id}:`, e);
+          if (e.status === 404 || e.message?.includes('not found')) {
+            await db.julesSessions.where('taskId').equals(task.id).delete();
+          }
         }
       }
+    } finally {
+      this.isPolling = false;
     }
   }
 }

@@ -10,6 +10,7 @@ import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { agentContext } from '../services/AgentContext';
 import { Sandbox, injectBindings } from './sandbox';
+import { TaskStateMachine } from './TaskStateMachine';
 
 export class Orchestrator {
   private config: OrchestratorConfig | null = null;
@@ -253,10 +254,7 @@ export class Orchestrator {
     }
     
     await this.logToChat(taskId, `Failed to complete step after ${maxAttempts} attempts. Pausing task.`);
-    await db.tasks.update(taskId, { 
-      workflowStatus: 'IN_PROGRESS',
-      agentState: 'ERROR' 
-    });
+    await TaskStateMachine.dispatch(taskId, { type: 'ERROR' });
   }
 
   private async executeInSandbox(taskId: string, code: string, stepId: number): Promise<void> {
@@ -341,23 +339,18 @@ export class Orchestrator {
     const isResuming = task.workflowStatus === 'IN_PROGRESS';
     const initialLog = isResuming ? '' : '> Initializing Agent Session...\n';
     
-    const updatedTaskData = { 
-      workflowStatus: 'IN_PROGRESS' as WorkflowStatus,
-      agentState: 'EXECUTING' as AgentState,
-      agentId: task.agentId || 'jules-agent'
-    };
-    
     if (initialLog) {
       eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: initialLog.trim() });
     }
     
-    await db.tasks.update(task.id, updatedTaskData);
-    let currentTask = { ...task, ...updatedTaskData };
+    await TaskStateMachine.dispatch(task.id, { type: 'START' });
+    await db.tasks.update(task.id, { agentId: task.agentId || 'jules-agent' });
+    let currentTask = await db.tasks.get(task.id);
 
     try {
       if (!this.config.repoUrl) {
         await appendLog(`> [Error] Execution requires a repository source. Please select a repository.\n`);
-        await db.tasks.update(task.id, { workflowStatus: 'TODO', agentState: 'ERROR', agentId: undefined });
+        await TaskStateMachine.dispatch(task.id, { type: 'FATAL_ERROR', payload: { isSessionMissing: true } });
         return;
       }
 
@@ -423,32 +416,18 @@ export class Orchestrator {
       
       await appendLog(`> [Orchestrator] Step execution complete. Status: ${status}\n`);
       
-      let nextWorkflowStatus: WorkflowStatus = 'DONE';
-      let nextAgentState: AgentState = 'IDLE';
-      
-      if (status === 'PAUSED') {
-        const updatedTask = await db.tasks.get(task.id);
-        nextWorkflowStatus = updatedTask?.workflowStatus || 'IN_PROGRESS';
-        nextAgentState = updatedTask?.agentState || 'WAITING_FOR_USER';
-      } else if (status === 'DONE') {
-        nextWorkflowStatus = 'DONE';
-        nextAgentState = 'IDLE';
+      if (status === 'DONE') {
+        await TaskStateMachine.dispatch(task.id, { type: 'COMPLETE' });
       }
-
-      await db.tasks.update(task.id, { 
-        workflowStatus: nextWorkflowStatus,
-        agentState: nextAgentState,
-        agentId: 'local-agent'
-      });
+      
+      await db.tasks.update(task.id, { agentId: 'local-agent' });
       
       return status;
     } catch (error: any) {
       const isSessionMissing = error.status === 404 || error.message?.includes('not found');
-      const nextWorkflowStatus: WorkflowStatus = isSessionMissing ? 'TODO' : 'IN_REVIEW';
-      const nextAgentState: AgentState = 'ERROR';
       
       await appendLog(`\n\n[FATAL ERROR] ${error.message}`);
-      await db.tasks.update(task.id, { workflowStatus: nextWorkflowStatus, agentState: nextAgentState, agentId: undefined });
+      await TaskStateMachine.dispatch(task.id, { type: 'FATAL_ERROR', payload: { isSessionMissing } });
       throw error;
     }
   }
