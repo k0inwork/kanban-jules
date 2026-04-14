@@ -256,6 +256,15 @@ func (fsys *FS) deleteByPrefix(prefix string) error {
 	return nil
 }
 
+// resolveSymlinkTarget resolves a symlink target relative to the symlink's directory.
+// Returns the resolved path in fs.ValidPath form (no leading /).
+func resolveSymlinkTarget(symlinkDir, target string) string {
+	if path.IsAbs(target) {
+		return path.Clean(target[1:]) // strip leading /
+	}
+	return path.Clean(path.Join(symlinkDir, target))
+}
+
 // Interface checks
 var _ fs.FS = (*FS)(nil)
 var _ fs.StatContextFS = (*FS)(nil)
@@ -283,19 +292,30 @@ func (fsys *FS) OpenContext(ctx context.Context, name string) (fs.File, error) {
 	defer fsys.mu.Unlock()
 
 	name = path.Clean(name)
+	return fsys.openFollow(name, 0)
+}
+
+// openFollow opens a file, following symlinks. Caller must hold fsys.mu.
+func (fsys *FS) openFollow(name string, depth int) (fs.File, error) {
+	if depth > 10 {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: errors.New("too many symlinks")}
+	}
 
 	// Root directory
 	if name == "." {
 		return fsys.openDir(".")
 	}
 
-	// Try to find an exact record
 	rec, err := fsys.getRecord(name)
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
 	}
 
 	if rec != nil {
+		if rec.symlinkTarget != "" {
+			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
+			return fsys.openFollow(target, depth+1)
+		}
 		if rec.isDir {
 			return fsys.openDir(name)
 		}
@@ -346,6 +366,11 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 	}
 
 	if rec != nil {
+		// Follow symlinks unless NoFollow is set
+		if rec.symlinkTarget != "" && fs.FollowSymlinks(ctx) {
+			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
+			return fsys.statFollow(target, 0)
+		}
 		return recordToInfo(rec), nil
 	}
 
@@ -355,6 +380,44 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
 	}
 
+	prefix := name + "/"
+	for _, p := range paths {
+		if strings.HasPrefix(p, prefix) {
+			return fskit.Entry(path.Base(name), fs.ModeDir|0755), nil
+		}
+	}
+
+	return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+}
+
+// statFollow follows symlink chains. Caller must hold fsys.mu.
+func (fsys *FS) statFollow(name string, depth int) (fs.FileInfo, error) {
+	if depth > 10 {
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: errors.New("too many symlinks")}
+	}
+
+	name = path.Clean(name)
+	if name == "." {
+		return fskit.Entry(".", fs.ModeDir|0755), nil
+	}
+
+	rec, err := fsys.getRecord(name)
+	if err != nil {
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
+	}
+	if rec != nil {
+		if rec.symlinkTarget != "" {
+			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
+			return fsys.statFollow(target, depth+1)
+		}
+		return recordToInfo(rec), nil
+	}
+
+	// Check implicit directory
+	paths, err := fsys.getAllPaths()
+	if err != nil {
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
+	}
 	prefix := name + "/"
 	for _, p := range paths {
 		if strings.HasPrefix(p, prefix) {
@@ -474,7 +537,7 @@ func (fsys *FS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, erro
 	isWrite := flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC) != 0
 
 	if !isWrite {
-		return fsys.openForRead(name)
+		return fsys.openFollow(name, 0)
 	}
 
 	// Writing
@@ -868,44 +931,6 @@ func (fsys *FS) openDir(name string) (fs.File, error) {
 		return nil, err
 	}
 	return fskit.DirFile(fskit.Entry(path.Base(name), fs.ModeDir|0755), entries...), nil
-}
-
-// openForRead opens a file for reading.
-func (fsys *FS) openForRead(name string) (fs.File, error) {
-	if name == "." {
-		return fsys.openDir(".")
-	}
-
-	rec, err := fsys.getRecord(name)
-	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
-	}
-
-	if rec != nil {
-		if rec.isDir {
-			return fsys.openDir(name)
-		}
-		f, err := fsys.openFile(rec)
-		if err != nil {
-			return nil, &fs.PathError{Op: "open", Path: name, Err: err}
-		}
-		return f, nil
-	}
-
-	// Check implicit directory
-	paths, err := fsys.getAllPaths()
-	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
-	}
-
-	prefix := name + "/"
-	for _, p := range paths {
-		if strings.HasPrefix(p, prefix) {
-			return fsys.openDir(name)
-		}
-	}
-
-	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 }
 
 // openFile returns a read-only file for a record.
