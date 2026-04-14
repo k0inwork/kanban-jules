@@ -6,12 +6,10 @@
 package idbfs
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -270,7 +268,7 @@ func resolveSymlinkTarget(symlinkDir, target string) string {
 var _ fs.FS = (*FS)(nil)
 var _ fs.StatContextFS = (*FS)(nil)
 var _ fs.ReadDirFS = (*FS)(nil)
-var _ fs.OpenFileFS = (*FS)(nil)
+var _ fs.CreateFS = (*FS)(nil)
 var _ fs.RemoveFS = (*FS)(nil)
 var _ fs.RenameFS = (*FS)(nil)
 var _ fs.MkdirFS = (*FS)(nil)
@@ -562,68 +560,66 @@ func (fsys *FS) readDirLocked(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
-func (fsys *FS) OpenFile(name string, flag int, perm fs.FileMode) (fs.File, error) {
+func (fsys *FS) Create(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "openfile", Path: name, Err: fs.ErrNotExist}
+		return nil, &fs.PathError{Op: "create", Path: name, Err: fs.ErrNotExist}
 	}
 
 	fsys.mu.Lock()
 	defer fsys.mu.Unlock()
 
 	name = path.Clean(name)
-	isWrite := flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC) != 0
 
-	if !isWrite {
-		return fsys.openFollow(name, 0)
-	}
-
-	// Writing
-	rec, err := fsys.getRecord(name)
-	if err != nil {
-		return nil, &fs.PathError{Op: "openfile", Path: name, Err: err}
-	}
-
-	if rec != nil && rec.isDir {
-		return nil, &fs.PathError{Op: "openfile", Path: name, Err: errors.New("is a directory")}
-	}
-
-	if flag&os.O_EXCL != 0 && rec != nil {
-		return nil, &fs.PathError{Op: "openfile", Path: name, Err: fs.ErrExist}
-	}
-
-	var data []byte
-	if rec != nil && flag&os.O_TRUNC == 0 {
-		data = rec.data
-	}
-
-	mode := perm
-	if rec != nil {
-		mode = fs.FileMode(rec.mode)
-	}
-
-	// Persist the record immediately so subsequent Stat calls find it.
-	// Without this, p9 Create calls info() which Stat's via the filesystem
-	// and won't see the unflushed in-memory record.
-	if rec == nil {
-		if err := fsys.putRecord(&record{
-			path:    name,
-			data:    nil,
-			mode:    uint32(mode),
-			modTime: time.Now().UnixMilli(),
-			isDir:   false,
-		}); err != nil {
-			return nil, &fs.PathError{Op: "openfile", Path: name, Err: err}
+	// Check parent directory exists
+	dir := path.Dir(name)
+	if dir != "." {
+		if _, err := fsys.getRecord(dir); err != nil {
+			return nil, &fs.PathError{Op: "create", Path: name, Err: err}
+		}
+		// Check if parent is a directory (explicit record or implicit)
+		rec, _ := fsys.getRecord(dir)
+		if rec != nil && !rec.isDir {
+			return nil, &fs.PathError{Op: "create", Path: name, Err: errors.New("not a directory")}
+		}
+		// If no explicit record, check for implicit dir
+		if rec == nil && dir != "." {
+			found := false
+			paths, err := fsys.getAllPaths()
+			if err != nil {
+				return nil, &fs.PathError{Op: "create", Path: name, Err: err}
+			}
+			prefix := dir + "/"
+			for _, p := range paths {
+				if strings.HasPrefix(p, prefix) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, &fs.PathError{Op: "create", Path: name, Err: fs.ErrNotExist}
+			}
 		}
 	}
 
-	return &writableFile{
+	// Create or truncate the record
+	rec := &record{
+		path:    name,
+		data:    nil,
+		mode:    uint32(0644),
+		modTime: time.Now().UnixMilli(),
+		isDir:   false,
+	}
+	if err := fsys.putRecord(rec); err != nil {
+		return nil, &fs.PathError{Op: "create", Path: name, Err: err}
+	}
+
+	return &idbFile{
 		fsys:   fsys,
 		name:   name,
-		data:   data,
+		data:   nil,
 		offset: 0,
 		dirty:  false,
-		append: flag&os.O_APPEND != 0,
-		mode:   mode,
+		mode:   0644,
 	}, nil
 }
 
@@ -974,28 +970,34 @@ func (fsys *FS) openDir(name string) (fs.File, error) {
 	return fskit.DirFile(fskit.Entry(path.Base(name), fs.ModeDir|0755), entries...), nil
 }
 
-// openFile returns a read-only file for a record.
+// openFile returns a writable file handle for a record.
 func (fsys *FS) openFile(rec *record) (fs.File, error) {
-	node := fskit.RawNode(rec, bytes.NewReader(rec.data))
-	return node.Open(".")
+	return &idbFile{
+		fsys:   fsys,
+		name:   rec.path,
+		data:   rec.data,
+		offset: 0,
+		dirty:  false,
+		mode:   fs.FileMode(rec.mode),
+	}, nil
 }
 
-// writableFile implements fs.File for writing to IndexedDB.
-type writableFile struct {
+// idbFile implements fs.File with read/write support.
+// Writes go to an in-memory buffer; flushed to IndexedDB on Close.
+type idbFile struct {
 	fsys   *FS
 	name   string
 	data   []byte
 	offset int64
 	dirty  bool
-	append bool
 	mode   fs.FileMode
 	closed bool
 	mu     sync.Mutex
 }
 
-var _ fs.File = (*writableFile)(nil)
+var _ fs.File = (*idbFile)(nil)
 
-func (f *writableFile) Stat() (fs.FileInfo, error) {
+func (f *idbFile) Stat() (fs.FileInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return &idbFileInfo{
@@ -1005,9 +1007,12 @@ func (f *writableFile) Stat() (fs.FileInfo, error) {
 	}, nil
 }
 
-func (f *writableFile) Read(p []byte) (int, error) {
+func (f *idbFile) Read(p []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.closed {
+		return 0, fs.ErrClosed
+	}
 	if f.offset >= int64(len(f.data)) {
 		return 0, io.EOF
 	}
@@ -1016,7 +1021,7 @@ func (f *writableFile) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (f *writableFile) Write(p []byte) (int, error) {
+func (f *idbFile) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -1024,27 +1029,25 @@ func (f *writableFile) Write(p []byte) (int, error) {
 		return 0, fs.ErrClosed
 	}
 
-	if f.append {
-		f.data = append(f.data, p...)
-		f.offset = int64(len(f.data))
-	} else {
-		end := f.offset + int64(len(p))
-		if end > int64(len(f.data)) {
-			newData := make([]byte, end)
-			copy(newData, f.data)
-			f.data = newData
-		}
-		copy(f.data[f.offset:], p)
-		f.offset = end
+	end := f.offset + int64(len(p))
+	if end > int64(len(f.data)) {
+		newData := make([]byte, end)
+		copy(newData, f.data)
+		f.data = newData
 	}
+	copy(f.data[f.offset:], p)
+	f.offset = end
 
 	f.dirty = true
 	return len(p), nil
 }
 
-func (f *writableFile) ReadAt(p []byte, off int64) (int, error) {
+func (f *idbFile) ReadAt(p []byte, off int64) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.closed {
+		return 0, fs.ErrClosed
+	}
 	if off >= int64(len(f.data)) {
 		return 0, io.EOF
 	}
@@ -1055,7 +1058,7 @@ func (f *writableFile) ReadAt(p []byte, off int64) (int, error) {
 	return n, nil
 }
 
-func (f *writableFile) WriteAt(p []byte, off int64) (int, error) {
+func (f *idbFile) WriteAt(p []byte, off int64) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -1074,7 +1077,7 @@ func (f *writableFile) WriteAt(p []byte, off int64) (int, error) {
 	return len(p), nil
 }
 
-func (f *writableFile) Seek(offset int64, whence int) (int64, error) {
+func (f *idbFile) Seek(offset int64, whence int) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -1094,7 +1097,7 @@ func (f *writableFile) Seek(offset int64, whence int) (int64, error) {
 	return newOffset, nil
 }
 
-func (f *writableFile) Close() error {
+func (f *idbFile) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -1103,7 +1106,6 @@ func (f *writableFile) Close() error {
 	}
 
 	if f.dirty {
-		log.Printf("[idbfs] writableFile.Close: flushing %q (%d bytes)\n", f.name, len(f.data))
 		rec := &record{
 			path:    f.name,
 			data:    f.data,

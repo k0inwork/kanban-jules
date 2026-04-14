@@ -125,15 +125,22 @@ func main() {
 		log.Fatal(err)
 	}
 
-	envScratch := idbfs.New("wanix-env")
-	if err := envScratch.Init(); err != nil {
-		log.Fatal(err)
+	noIdbfs := js.Global().Get("localStorage").Call("getItem", "NOIDBFS").String() == "true"
+	if noIdbfs {
+		log.Println("NOIDBFS: using memfs overlay instead of idbfs")
+		envScratch := memfs.New()
+		root.Namespace().Bind(&cowfs.FS{Base: envBase, Overlay: envScratch}, ".", "#env")
+	} else {
+		envScratch := idbfs.New("wanix-env")
+		if err := envScratch.Init(); err != nil {
+			log.Fatal(err)
+		}
+		log.Println("about to bind idbfs to #scratch")
+		root.Namespace().Bind(envScratch, ".", "#scratch")
+		log.Println("idbfs bound to #scratch")
+		root.Namespace().Bind(&cowfs.FS{Base: envBase, Overlay: envScratch}, ".", "#env")
+		log.Println("cowfs bound to #env")
 	}
-	log.Println("about to bind idbfs to #scratch")
-	root.Namespace().Bind(envScratch, ".", "#scratch")
-	log.Println("idbfs bound to #scratch")
-	root.Namespace().Bind(&cowfs.FS{Base: envBase, Overlay: envScratch}, ".", "#env")
-	log.Println("cowfs bound to #env")
 	root.Namespace().Bind(fskit.RawNode([]byte(Version+"\n")), ".", "#version")
 	log.Printf("env (cow) loaded in %v\n", time.Since(startTime))
 

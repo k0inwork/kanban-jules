@@ -1,0 +1,70 @@
+# github.com/fxamacker/cbor/v2 v2.9.0
+## explicit; go 1.20
+github.com/fxamacker/cbor/v2
+# github.com/hugelgupf/p9 v0.3.1-0.20240118043522-6f4f11e5296e => github.com/progrium/p9 v0.0.0-20251108235831-1c1dfeb38c1e
+## explicit; go 1.21
+github.com/hugelgupf/p9/fsimpl/templatefs
+github.com/hugelgupf/p9/internal
+github.com/hugelgupf/p9/linux
+github.com/hugelgupf/p9/p9
+github.com/hugelgupf/p9/vecnet
+# github.com/mitchellh/mapstructure v1.5.0
+## explicit; go 1.14
+github.com/mitchellh/mapstructure
+# github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701
+## explicit; go 1.21
+github.com/u-root/uio/ulog
+# github.com/x448/float16 v0.8.4
+## explicit; go 1.11
+github.com/x448/float16
+# golang.org/x/net v0.47.0
+## explicit; go 1.24.0
+golang.org/x/net/websocket
+# golang.org/x/sys v0.40.0 => github.com/progrium/sys-wasm v0.0.0-20240620081741-5ccc4fc17421
+## explicit; go 1.18
+golang.org/x/sys/unix
+golang.org/x/sys/wasm/syscall
+# tractor.dev/toolkit-go v0.0.0-20250103001615-9a6753936c19
+## explicit; go 1.21
+tractor.dev/toolkit-go/duplex/codec
+tractor.dev/toolkit-go/duplex/mux
+tractor.dev/toolkit-go/duplex/mux/frame
+tractor.dev/toolkit-go/duplex/rpc
+tractor.dev/toolkit-go/duplex/talk
+tractor.dev/toolkit-go/engine/cli
+# tractor.dev/wanix v0.0.0-20260206032626-2b310a9cbd1a
+## explicit; go 1.25
+tractor.dev/wanix
+tractor.dev/wanix/cap
+tractor.dev/wanix/fs
+tractor.dev/wanix/fs/cowfs
+tractor.dev/wanix/fs/fskit
+tractor.dev/wanix/fs/memfs
+tractor.dev/wanix/fs/p9kit
+tractor.dev/wanix/fs/pstat
+tractor.dev/wanix/fs/tarfs
+tractor.dev/wanix/internal
+tractor.dev/wanix/internal/httprecorder
+tractor.dev/wanix/internal/shlex
+tractor.dev/wanix/runtime/gojs/worker
+tractor.dev/wanix/runtime/wasi/worker
+tractor.dev/wanix/task
+tractor.dev/wanix/vfs
+tractor.dev/wanix/vfs/pipe
+tractor.dev/wanix/vfs/ramfs
+tractor.dev/wanix/vm
+tractor.dev/wanix/vm/v86
+tractor.dev/wanix/vm/v86/virtio9p
+tractor.dev/wanix/web
+tractor.dev/wanix/web/api
+tractor.dev/wanix/web/caches
+tractor.dev/wanix/web/dl
+tractor.dev/wanix/web/dom
+tractor.dev/wanix/web/dom/xterm
+tractor.dev/wanix/web/fsa
+tractor.dev/wanix/web/jsutil
+tractor.dev/wanix/web/runtime
+tractor.dev/wanix/web/sw
+tractor.dev/wanix/web/worker
+# golang.org/x/sys => github.com/progrium/sys-wasm v0.0.0-20240620081741-5ccc4fc17421
+# github.com/hugelgupf/p9 => github.com/progrium/p9 v0.0.0-20251108235831-1c1dfeb38c1e
