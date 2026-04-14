@@ -284,6 +284,8 @@ export class TerminalService {
           { name: 'list_tasks', description: 'List all kanban board tasks with their status', params: {} },
           { name: 'get_task', description: 'Get full task details', params: { task_id: { type: 'string', required: true } } },
           { name: 'update_task', description: 'Update task fields', params: { task_id: { type: 'string', required: true }, updates: { type: 'object', required: true } } },
+          { name: 'get_task_logs', description: 'Get task execution logs', params: { task_id: { type: 'string', required: true } } },
+          { name: 'get_jules_activities', description: 'Get Jules activities', params: { task_id: { type: 'string', required: true } } },
           { name: 'list_artifacts', description: 'List all artifacts', params: {} },
           { name: 'read_artifact', description: 'Read artifact content', params: { name: { type: 'string', required: true } } },
           { name: 'save_artifact', description: 'Save or create an artifact', params: { name: { type: 'string', required: true }, content: { type: 'string', required: true } } },
@@ -307,6 +309,17 @@ export class TerminalService {
             case 'update_task': {
               await db.tasks.update(params.task_id, params.updates);
               return JSON.stringify({ content: 'Updated', error: '' });
+            }
+            case 'get_task_logs': {
+              const task = await db.tasks.get(params.task_id);
+              if (!task) return JSON.stringify({ content: '', error: 'Not found' });
+              return JSON.stringify({ content: JSON.stringify(task.moduleLogs || {}), error: '' });
+            }
+            case 'get_jules_activities': {
+              const session = await db.julesSessions.where('taskId').equals(params.task_id).first();
+              if (!session) return JSON.stringify({ content: '[]', error: '' });
+              // Mocking activity fetch as it requires julesApiKey
+              return JSON.stringify({ content: '[]', error: 'Jules API key required for full log' });
             }
             case 'list_artifacts': {
               const artifacts = await db.taskArtifacts.toArray();
