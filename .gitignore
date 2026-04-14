@@ -10,3 +10,5 @@ coverage/
 *.pem
 *.key
 wasm/system/.build/
+agent/node_modules/
+agent/yuan-channel.386
