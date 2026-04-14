@@ -298,6 +298,7 @@ func (fsys *FS) OpenContext(ctx context.Context, name string) (fs.File, error) {
 // openFollow opens a file, following symlinks. Caller must hold fsys.mu.
 func (fsys *FS) openFollow(name string, depth int) (fs.File, error) {
 	if depth > 10 {
+		log.Printf("[idbfs] openFollow: TOO MANY SYMLINKS %q depth=%d", name, depth)
 		return nil, &fs.PathError{Op: "open", Path: name, Err: errors.New("too many symlinks")}
 	}
 
@@ -308,17 +309,26 @@ func (fsys *FS) openFollow(name string, depth int) (fs.File, error) {
 
 	rec, err := fsys.getRecord(name)
 	if err != nil {
+		log.Printf("[idbfs] openFollow: getRecord ERROR %q: %v", name, err)
 		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+	}
+
+	if rec == nil {
+		// Not in idbfs — could be in base layer (cowfs handles this)
+		log.Printf("[idbfs] openFollow: NOT FOUND %q (will fall through to base)", name)
 	}
 
 	if rec != nil {
 		if rec.symlinkTarget != "" {
 			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
+			log.Printf("[idbfs] openFollow: SYMLINK %q -> %q (resolved=%q)", name, rec.symlinkTarget, target)
 			return fsys.openFollow(target, depth+1)
 		}
 		if rec.isDir {
+			log.Printf("[idbfs] openFollow: DIR %q", name)
 			return fsys.openDir(name)
 		}
+		log.Printf("[idbfs] openFollow: FILE %q (%d bytes)", name, len(rec.data))
 		f, err := fsys.openFile(rec)
 		if err != nil {
 			return nil, &fs.PathError{Op: "open", Path: name, Err: err}
@@ -369,10 +379,13 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 		// Follow symlinks unless NoFollow is set
 		if rec.symlinkTarget != "" && fs.FollowSymlinks(ctx) {
 			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
+			log.Printf("[idbfs] StatContext: FOLLOW %q -> %q", name, target)
 			return fsys.statFollow(target, 0)
 		}
 		return recordToInfo(rec), nil
 	}
+
+	log.Printf("[idbfs] StatContext: NOT FOUND %q (follow=%v)", name, fs.FollowSymlinks(ctx))
 
 	// Check implicit directory
 	paths, err := fsys.getAllPaths()
@@ -913,14 +926,18 @@ func (fsys *FS) Readlink(name string) (string, error) {
 	name = path.Clean(name)
 	rec, err := fsys.getRecord(name)
 	if err != nil {
+		log.Printf("[idbfs] Readlink: ERROR %q: %v", name, err)
 		return "", &fs.PathError{Op: "readlink", Path: name, Err: err}
 	}
 	if rec == nil {
+		log.Printf("[idbfs] Readlink: NOT FOUND %q", name)
 		return "", &fs.PathError{Op: "readlink", Path: name, Err: fs.ErrNotExist}
 	}
 	if rec.symlinkTarget == "" {
+		log.Printf("[idbfs] Readlink: NOT SYMLINK %q", name)
 		return "", &fs.PathError{Op: "readlink", Path: name, Err: errors.New("not a symlink")}
 	}
+	log.Printf("[idbfs] Readlink: %q -> %q", name, rec.symlinkTarget)
 	return rec.symlinkTarget, nil
 }
 
