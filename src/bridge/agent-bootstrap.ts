@@ -12,6 +12,7 @@
  * and shims replace native packages (openai) with boardVM-backed implementations.
  */
 
+import { createContainer as almostnodeCreateContainer } from 'almostnode';
 import { setYuanHandlers, setYuanStatus } from './boardVM';
 
 // Shim source files (imported as raw text for VFS injection)
@@ -19,19 +20,14 @@ import openaiShimSource from './openai-shim.js?raw';
 import fleetToolsShimSource from './fleet-tools-shim.js?raw';
 
 // --- Types for almostnode container ---
+// Using the real almostnode API: createContainer() returns:
+//   container.vfs        — VirtualFS instance
+//   container.execute()  — Execute JS code
+//   container.npm        — PackageManager instance
+//   container.run()      — Run shell command
+//   container.runFile()  — Run a file from VFS
 
-interface AlmostNodeContainer {
-  vfs: {
-    writeFileSync(path: string, content: string): void;
-    readFileSync(path: string, encoding?: string): string;
-    mkdirSync(path: string, options?: { recursive?: boolean }): void;
-    existsSync(path: string): boolean;
-  };
-  execute(code: string): Promise<any>;
-  npm: {
-    install(packageName: string): Promise<void>;
-  };
-}
+type AlmostNodeContainer = ReturnType<typeof almostnodeCreateContainer>;
 
 // --- Container state ---
 
@@ -40,20 +36,16 @@ let agentReady = false;
 
 // --- Create the almostnode container ---
 
-async function createContainer(): Promise<AlmostNodeContainer> {
-  // almostnode is loaded globally by the app (from wasm/worker or script tag)
-  const almostnode = (globalThis as any).almostnode;
-  if (!almostnode) {
-    throw new Error('almostnode runtime not available on globalThis');
-  }
-
-  const c = await almostnode.createContainer({
-    // Minimal config — VFS + npm support
-    enableNetwork: false,    // all network goes through boardVM shims
-    enableFileSystem: true,
+function createAlmostnodeContainer(): AlmostNodeContainer {
+  const c = almostnodeCreateContainer({
+    cwd: '/workspace',
+    env: { NODE_ENV: 'production' },
+    onConsole: (method: string, args: any[]) => {
+      console.log(`[almostnode:${method}]`, ...args);
+    },
   });
 
-  return c as AlmostNodeContainer;
+  return c;
 }
 
 // --- Install packages into VFS ---
@@ -239,7 +231,7 @@ export async function initYuanAgent(): Promise<void> {
   setYuanStatus('not initialized');
 
   console.log('[yuan-bootstrap] creating almostnode container...');
-  container = await createContainer();
+  container = createAlmostnodeContainer();
 
   console.log('[yuan-bootstrap] installing packages...');
   await installPackages(container);
@@ -251,10 +243,10 @@ export async function initYuanAgent(): Promise<void> {
   createAgentRunner(container);
 
   console.log('[yuan-bootstrap] executing agent runner...');
-  await container.execute('require("/yuan-runner.js")');
+  container.execute('require("/yuan-runner.js")');
 
   // Create the agent instance (uses the openai shim → boardVM.llmfs)
-  await container.execute('globalThis._yuanCreateAgent("shim", "openai", "default")');
+  container.execute('globalThis._yuanCreateAgent("shim", "openai", "default")');
 
   agentReady = true;
   setYuanStatus('idle');
@@ -273,9 +265,10 @@ export async function sendToYuanAgent(message: string): Promise<string> {
   try {
     // Escape the message for JS string embedding
     const escapedMsg = message.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
-    const result = await container.execute(`globalThis._yuanRun('${escapedMsg}')`);
+    const result = container.execute(`globalThis._yuanRun('${escapedMsg}')`);
+    const exported = result?.exports;
     setYuanStatus('idle');
-    return typeof result === 'string' ? result : JSON.stringify(result);
+    return typeof exported === 'string' ? exported : JSON.stringify(exported);
   } catch (err: any) {
     setYuanStatus('error');
     throw err;

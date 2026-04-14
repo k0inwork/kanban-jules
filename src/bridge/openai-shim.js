@@ -40,4 +40,11 @@ function OpenAI(opts) {
   this.chat = new Chat(this);
 }
 
-module.exports = { OpenAI: OpenAI, default: OpenAI };
+// Support both CJS and ESM import patterns:
+//   const { OpenAI } = require('openai')       → named export
+//   const OpenAI = require('openai').default    → ESM default import (what @yuaone/core uses)
+//   const OpenAI = require('openai')            → direct require
+module.exports = OpenAI;
+module.exports.OpenAI = OpenAI;
+module.exports.default = OpenAI;
+module.exports.__esModule = true;
