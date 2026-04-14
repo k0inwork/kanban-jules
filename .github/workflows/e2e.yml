@@ -1,9 +1,9 @@
 name: E2E Tests
 on:
   push:
-    branches: [ main, collective ]
+    branches: [ main, collective, agent, 'jules-*' ]
   pull_request:
-    branches: [ main, collective ]
+    branches: [ main, collective, agent, 'jules-*' ]
 jobs:
   test:
     timeout-minutes: 20
