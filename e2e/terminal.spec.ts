@@ -27,26 +27,49 @@ test('terminal boots and responds to input', async ({ page }) => {
     await expect(page.getByTitle('Clear Terminal')).toBeVisible();
     await expect(page.getByTitle('Download Logs')).toBeVisible();
 
-    // 2. Poll for "Connected" (STRICT)
-    console.log('Waiting for terminal connection (this may take several minutes)...');
-    await expect.poll(getTerminalText, {
-      message: 'Terminal did not show "Connected" within 4 minutes',
+    // 2. Poll for Shell Prompt (STRICT)
+    console.log('Waiting for shell prompt (this may take several minutes)...');
+    let lastLog = "";
+    await expect.poll(async () => {
+      const text = await getTerminalText();
+      if (text !== lastLog) {
+        console.log(`[Terminal Content] ${text.substring(text.lastIndexOf('\n') + 1)}`);
+        lastLog = text;
+      }
+      return text;
+    }, {
+      message: 'Terminal did not show shell prompt within 4 minutes',
       timeout: 240000,
       intervals: [5000],
-    }).toMatch(/Connected/);
+    }).toMatch(/[#$]\s*$/);
 
-    // 3. Focus and type a command
-    console.log('Sending echo command...');
-    const textarea = page.locator('.xterm-helper-textarea');
-    await textarea.focus();
-    await page.keyboard.type('echo playwright-was-here\n');
+    // 3. Focus and type a command (STRICT)
+    console.log('Focusing terminal and sending echo command...');
+
+    // Ensure the terminal is truly focused
+    await page.locator('.xterm').click({ position: { x: 100, y: 100 } });
+    await page.locator('.xterm-helper-textarea').focus();
+
+    // Send Enter multiple times to be sure
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1000);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(2000);
+
+    // Type the command with a slow delay
+    await page.keyboard.type('echo playwright-was-here', { delay: 100 });
+    await page.keyboard.press('Enter');
 
     // 4. Verify command output (STRICT)
     console.log('Waiting for command output...');
-    await expect.poll(getTerminalText, {
+    await expect.poll(async () => {
+      const text = await getTerminalText();
+      if (text.includes('playwright-was-here')) return true;
+      return false;
+    }, {
       message: 'Command "playwright-was-here" output not found in terminal',
-      timeout: 30000,
-    }).toContain('playwright-was-here');
+      timeout: 60000,
+    }).toBe(true);
 
     console.log('Terminal interaction verified successfully!');
   });

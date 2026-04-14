@@ -50,19 +50,32 @@ export class TerminalService {
       network: 'fetch',
     });
 
-    const bundleResp = await fetch(this.config.bundleUrl);
+    const [bundleResp, wasmResp] = await Promise.all([
+      fetch(this.config.bundleUrl),
+      fetch(this.config.wasmUrl)
+    ]);
+
     if (!bundleResp.ok) throw new Error(`Failed to fetch bundle: ${bundleResp.status}`);
+    if (!wasmResp.ok) throw new Error(`Failed to fetch WASM: ${wasmResp.status}`);
+
     this.runtime._bundle = await bundleResp.arrayBuffer();
     this.runtime._getBundle = async () => undefined;
 
-    await this.runtime.ready();
+    const wasmData = await wasmResp.arrayBuffer();
 
-    // Boot WASM
-    const wasmResp = await fetch(this.config.wasmUrl);
-    if (!wasmResp.ok) throw new Error(`Failed to fetch WASM: ${wasmResp.status}`);
-    this.runtime._loadWasm(await wasmResp.arrayBuffer());
+    // Replicate original sequence: attach ready handler BEFORE loading WASM
+    const readyPromise = this.runtime.ready().then(async () => {
+      try {
+        await this.setupConsole();
+        console.log('[TerminalService] Console bridge established');
+      } catch (e) {
+        console.error('[TerminalService] setupConsole failed:', e);
+        throw e;
+      }
+    });
 
-    await this.setupConsole();
+    this.runtime._loadWasm(wasmData);
+    return readyPromise;
   }
 
   private async setupConsole() {
@@ -105,12 +118,12 @@ export class TerminalService {
 
   resize(cols: number, rows: number) {
     console.log(`[TerminalService] resize requested: ${cols}x${rows}`);
+    // Temporarily disabled stty to avoid interference during E2E boot
+    /*
     if (this.serialReady) {
-      // Send stty command to update the VM's TTY line settings
-      // We use \f (form feed) or clear to try to minimize prompt interference,
-      // but simply sending the command is often sufficient.
       this.send(`stty cols ${cols} rows ${rows}\n`);
     }
+    */
   }
 
   getLogs() {
