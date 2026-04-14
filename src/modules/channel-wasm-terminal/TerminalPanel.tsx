@@ -146,6 +146,8 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
       (window as any).boardVM = {
         mode: 'terminal',
         memoryMB: 1024,
+        get termCols() { return term.cols; },
+        get termRows() { return term.rows; },
         gitfs: {
           getFile: (_path: string) => Promise.resolve(undefined),
           listFiles: (_path: string) => Promise.resolve([]),

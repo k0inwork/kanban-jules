@@ -16,7 +16,13 @@ export PATH=$PATH:/board/bin
 
 # Terminal settings for dvtm/ncurses
 export TERM=xterm
-export COLUMNS=$(stty size 2>/dev/null | awk '{print $2}')
-export LINES=$(stty size 2>/dev/null | awk '{print $1}')
+
+# Read terminal size from /etc/term-size if set by boot.wasm, else defaults
+if [ -f /etc/term-size ]; then
+    export COLUMNS=$(awk -F= '/^cols/ {print $2}' /etc/term-size)
+    export LINES=$(awk -F= '/^rows/ {print $2}' /etc/term-size)
+fi
+: ${COLUMNS:=100}
+: ${LINES:=30}
 
 exec setsid /bin/session-mux </dev/ttyS0 >/dev/ttyS0 2>&1

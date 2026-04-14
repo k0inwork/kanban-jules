@@ -234,6 +234,21 @@ func main() {
 		fmt.Sprintf("export BOARD_MODE=%s", mode),
 		"export REPO_PATH=/repo",
 	}
+	// Terminal size from xterm.js (use minimum 80x24)
+	if !cfg.Get("termCols").IsUndefined() {
+		cols := cfg.Get("termCols").Int()
+		if cols < 80 {
+			cols = 80
+		}
+		profile = append(profile, fmt.Sprintf("export COLUMNS=%d", cols))
+	}
+	if !cfg.Get("termRows").IsUndefined() {
+		rows := cfg.Get("termRows").Int()
+		if rows < 24 {
+			rows = 24
+		}
+		profile = append(profile, fmt.Sprintf("export LINES=%d", rows))
+	}
 	profile = append(profile, "")
 	if err := fs.WriteFile(root.Namespace(), "#env/etc/profile.d/board-vm.sh", []byte(strings.Join(profile, "\n")), 0644); err != nil {
 		log.Printf("warning: could not write board-vm.sh profile: %v", err)

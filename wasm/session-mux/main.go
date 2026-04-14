@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -71,8 +72,20 @@ type Mux struct {
 
 func main() {
 	rows, cols := 24, 80
+	// Try ioctl first (works on real terminals)
 	if c, r, err := termSize(int(os.Stdin.Fd())); err == nil && c > 0 && r > 0 {
 		cols, rows = c, r
+	}
+	// Check env vars (set by init-terminal)
+	if s := os.Getenv("COLUMNS"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			cols = v
+		}
+	}
+	if s := os.Getenv("LINES"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			rows = v
+		}
 	}
 
 	saved, err := setRaw(int(os.Stdin.Fd()))
@@ -536,6 +549,14 @@ func (m *Mux) handleKey(b byte) {
 	if p.id == 1 {
 		// Yuan chat: buffer until Enter, send as JSON
 		m.handleYuanInput(p, b)
+		return
+	}
+
+	// Alt screen mode (vi, less, etc): raw passthrough, no line editing
+	if p.emu.IsAltScreen() {
+		if p.sin != nil {
+			p.sin.Write([]byte{b})
+		}
 		return
 	}
 
