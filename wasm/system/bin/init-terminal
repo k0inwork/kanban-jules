@@ -1,6 +1,8 @@
 #!/bin/busybox sh
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
+mkdir -p /dev/pts
+mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t binfmt_misc none /proc/sys/fs/binfmt_misc
 echo ':wasm:M::\x00\x61\x73\x6d::/bin/wexec:' > /proc/sys/fs/binfmt_misc/register
 
@@ -11,5 +13,10 @@ udhcpc -i eth0
 
 # Board tools available in PATH
 export PATH=$PATH:/board/bin
+
+# Terminal settings for dvtm/ncurses
+export TERM=xterm
+export COLUMNS=$(stty size 2>/dev/null | awk '{print $2}')
+export LINES=$(stty size 2>/dev/null | awk '{print $1}')
 
 exec setsid sh -c 'exec sh </dev/ttyS0 >/dev/ttyS0 2>&1'

@@ -1,6 +1,8 @@
 #!/bin/busybox sh
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
+mkdir -p /dev/pts
+mount -t devpts devpts /dev/pts 2>/dev/null
 mount -t binfmt_misc none /proc/sys/fs/binfmt_misc
 echo ':wasm:M::\x00\x61\x73\x6d::/bin/wexec:' > /proc/sys/fs/binfmt_misc/register
 
