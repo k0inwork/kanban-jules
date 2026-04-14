@@ -211,13 +211,10 @@ func (m *Mux) newLocalShell() error {
 }
 
 func (m *Mux) tryYuanChat() {
-	pipeIn, err := os.Open("/sessions/0/in")
+	// Open the "in" end (c1) for full-duplex: Read gets JS msgs, Write sends to JS
+	// JS side opens the "out" end (c2) for full-duplex
+	pipe, err := os.OpenFile("/sessions/0/in", os.O_RDWR, 0)
 	if err != nil {
-		return
-	}
-	pipeOut, err := os.OpenFile("/sessions/0/out", os.O_WRONLY, 0)
-	if err != nil {
-		pipeIn.Close()
 		return
 	}
 
@@ -228,8 +225,8 @@ func (m *Mux) tryYuanChat() {
 		id:      1,
 		name:    "yuan",
 		emu:     emu,
-		pipeIn:  pipeIn,
-		pipeOut: pipeOut,
+		pipeIn:  pipe,
+		pipeOut: pipe,
 	}
 	m.panes = append(m.panes, p)
 
@@ -249,19 +246,11 @@ func (m *Mux) spawnYuanShell() {
 	h := m.rows - 1
 	emu := vt.NewSafeEmulator(m.cols, h)
 
-	// Open 9p pipe files for this session
-	pipeInPath := fmt.Sprintf("/sessions/%d/in", id)
-	pipeOutPath := fmt.Sprintf("/sessions/%d/out", id)
-
-	pipeIn, err := os.Open(pipeInPath)
+	// Open single pipe file bidirectionally (mux side = c1 = "in")
+	pipePath := fmt.Sprintf("/sessions/%d/in", id)
+	pipe, err := os.OpenFile(pipePath, os.O_RDWR, 0)
 	if err != nil {
 		// Pipe not available, spawn local shell instead
-		m.spawnWatchShell(id, emu)
-		return
-	}
-	pipeOut, err := os.OpenFile(pipeOutPath, os.O_WRONLY, 0)
-	if err != nil {
-		pipeIn.Close()
 		m.spawnWatchShell(id, emu)
 		return
 	}
@@ -271,8 +260,8 @@ func (m *Mux) spawnYuanShell() {
 		id:      id,
 		name:    name,
 		emu:     emu,
-		pipeIn:  pipeIn,
-		pipeOut: pipeOut,
+		pipeIn:  pipe,
+		pipeOut: pipe,
 	}
 	m.panes = append(m.panes, p)
 
@@ -306,7 +295,7 @@ func (m *Mux) spawnYuanShell() {
 				msg := YuanMsg{Type: "output", Session: id, Data: string(buf[:n])}
 				if data, err := json.Marshal(msg); err == nil {
 					data = append(data, '\n')
-					pipeOut.Write(data)
+					pipe.Write(data)
 				}
 				m.triggerRender()
 			}
@@ -327,7 +316,7 @@ func (m *Mux) spawnYuanShell() {
 				msg := YuanMsg{Type: "output", Session: id, Data: string(buf[:n])}
 				if data, err := json.Marshal(msg); err == nil {
 					data = append(data, '\n')
-					pipeOut.Write(data)
+					pipe.Write(data)
 				}
 				m.triggerRender()
 			}
@@ -339,7 +328,7 @@ func (m *Mux) spawnYuanShell() {
 
 	// 9p pipe in → shell stdin (Yuan writes commands)
 	go func() {
-		dec := json.NewDecoder(pipeIn)
+		dec := json.NewDecoder(pipe)
 		for {
 			var msg YuanMsg
 			if err := dec.Decode(&msg); err != nil {
@@ -360,7 +349,7 @@ func (m *Mux) spawnYuanShell() {
 		msg := YuanMsg{Type: "exited", Session: id, Code: cmd.ProcessState.ExitCode()}
 		if data, err := json.Marshal(msg); err == nil {
 			data = append(data, '\n')
-			pipeOut.Write(data)
+			pipe.Write(data)
 		}
 		m.triggerRender()
 	}()

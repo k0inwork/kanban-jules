@@ -413,6 +413,20 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
         },
       };
 
+      // Yuan agent bridge — wired to session pipes for chat with session-mux
+      (window as any).boardVM.yuan = {
+        _status: 'not initialized' as string,
+        init: async () => {
+          console.log('[yuan] init called');
+          (window as any).boardVM.yuan._status = 'idle';
+        },
+        send: async (msg: string): Promise<string> => {
+          console.log('[yuan] send:', msg?.substring(0, 200));
+          return '[yuan bridge: use session pipes]';
+        },
+        status: () => (window as any).boardVM?.yuan?._status || 'not configured',
+      };
+
       // Create Wanix runtime instance (no screen, no helpers)
       const w = new WanixRuntime({
         screen: false,
@@ -482,6 +496,58 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
             });
           };
           setSerialReady(true);
+
+          // --- Session pipe bridge: read mux→JS messages, respond via LLM ---
+          (async () => {
+            try {
+              await w.waitFor('#sessions/0/out', 30000);
+              console.log('[session-bridge] session 0 pipe available');
+
+              const sessReadFd = await w.open('#sessions/0/out');
+              const sessDecoder = new TextDecoder();
+              let sessBuf = '';
+
+              for (;;) {
+                const chunk: Uint8Array | null = await w.read(sessReadFd, 4096);
+                if (chunk === null) break;
+                if (chunk.length > 0) {
+                  sessBuf += sessDecoder.decode(chunk, { stream: true });
+
+                  // Process complete JSON lines
+                  const lines = sessBuf.split('\n');
+                  sessBuf = lines.pop() || ''; // keep incomplete line
+
+                  for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                      const msg = JSON.parse(line);
+                      console.log('[session-bridge] msg:', msg);
+
+                      if (msg.type === 'chat' && msg.text) {
+                        // User chat from mux pane 1 → send to LLM → write response back
+                        (window as any).boardVM.yuan._status = 'running';
+                        try {
+                          const llmfs = (window as any).boardVM?.llmfs;
+                          const response = await llmfs?.sendPrompt?.(msg.text) || '[no LLM configured]';
+                          const reply = JSON.stringify({ type: 'chat', text: response }) + '\n';
+                          await w.appendFile('#sessions/0/in', new TextEncoder().encode(reply));
+                        } catch (e: any) {
+                          console.error('[session-bridge] LLM error:', e);
+                          const errReply = JSON.stringify({ type: 'chat', text: `[error: ${e.message}]` }) + '\n';
+                          await w.appendFile('#sessions/0/in', new TextEncoder().encode(errReply));
+                        }
+                        (window as any).boardVM.yuan._status = 'idle';
+                      }
+                    } catch {
+                      // Not JSON, ignore
+                    }
+                  }
+                }
+              }
+            } catch (e: any) {
+              console.error('[session-bridge] error:', e);
+            }
+          })();
         } catch (serialErr: any) {
           console.error('[TerminalPanel] console setup error:', serialErr);
           term.writeln(`\r\n[console setup error: ${serialErr.message}]\r\n`);

@@ -187,8 +187,10 @@ async function runTerminal(config: TerminalConfig): Promise<void> {
   // xterm.js → VM
   (self as unknown as Worker).onmessage = (e: MessageEvent) => {
     if (e.data?.type === "input" && e.data.data) {
-      // Write to serial/console
-      port.postMessage({ path: "#console/data", data: e.data.data });
+      // Write to serial/console — must send Uint8Array, not string,
+      // because wanix's appendFile RPC asserts arg is []byte
+      const encoded = new TextEncoder().encode(e.data.data);
+      port.postMessage({ path: "#console/data", data: encoded });
     }
   };
 

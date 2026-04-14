@@ -2264,12 +2264,8 @@ extensions = [
     }
   },
   {
-    // Uint8Array
+    // Uint8Array — never tag (tag 64 breaks Go cbor decoding)
     getTag(typedArray) {
-      if (typedArray.constructor === Uint8Array) {
-        if (this.tagUint8Array || hasNodeBuffer && this.tagUint8Array !== false)
-          return 64;
-      }
     },
     encode(typedArray, encode3, makeRoom) {
       writeBuffer(typedArray, makeRoom);

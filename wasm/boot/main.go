@@ -67,6 +67,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Pre-create session 0 pipe pair so session-mux can open it on boot
+	if _, err := sessionAlloc.FS().Create(0); err != nil {
+		log.Printf("warning: could not pre-create session 0: %v", err)
+	} else {
+		log.Println("session 0 pipe pair created")
+	}
+
 	debug9p := inst.Get("config").Get("debug9p")
 	if debug9p.IsUndefined() {
 		debug9p = js.ValueOf(false)
