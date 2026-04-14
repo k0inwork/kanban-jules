@@ -385,7 +385,9 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 		return recordToInfo(rec), nil
 	}
 
-	log.Printf("[idbfs] StatContext: NOT FOUND %q (follow=%v)", name, fs.FollowSymlinks(ctx))
+	if fs.FollowSymlinks(ctx) {
+		log.Printf("[idbfs] StatContext: NOT FOUND %q (follow=true)", name)
+	}
 
 	// Check implicit directory
 	paths, err := fsys.getAllPaths()
@@ -406,6 +408,7 @@ func (fsys *FS) StatContext(ctx context.Context, name string) (fs.FileInfo, erro
 // statFollow follows symlink chains. Caller must hold fsys.mu.
 func (fsys *FS) statFollow(name string, depth int) (fs.FileInfo, error) {
 	if depth > 10 {
+		log.Printf("[idbfs] statFollow: TOO MANY SYMLINKS %q depth=%d", name, depth)
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: errors.New("too many symlinks")}
 	}
 
@@ -416,13 +419,16 @@ func (fsys *FS) statFollow(name string, depth int) (fs.FileInfo, error) {
 
 	rec, err := fsys.getRecord(name)
 	if err != nil {
+		log.Printf("[idbfs] statFollow: getRecord ERROR %q: %v", name, err)
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: err}
 	}
 	if rec != nil {
 		if rec.symlinkTarget != "" {
 			target := resolveSymlinkTarget(path.Dir(name), rec.symlinkTarget)
+			log.Printf("[idbfs] statFollow: FOLLOW %q -> %q (depth=%d)", name, target, depth)
 			return fsys.statFollow(target, depth+1)
 		}
+		log.Printf("[idbfs] statFollow: FOUND %q (%d bytes, isDir=%v)", name, len(rec.data), rec.isDir)
 		return recordToInfo(rec), nil
 	}
 
@@ -438,6 +444,7 @@ func (fsys *FS) statFollow(name string, depth int) (fs.FileInfo, error) {
 		}
 	}
 
+	log.Printf("[idbfs] statFollow: NOT FOUND %q (target not in overlay)", name)
 	return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
 }
 
