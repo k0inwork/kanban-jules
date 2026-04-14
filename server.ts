@@ -138,6 +138,70 @@ async function startServer() {
     }
   });
 
+  // --- YUAN agent bridge: CLI → server → browser WebSocket → yuanAgent ---
+  // Pending requests from CLI that are waiting for the browser to respond
+  const yuanPending = new Map<string, { resolve: (v: string) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  let yuanBrowserWs: import('ws').WebSocket | null = null;
+
+  app.post("/api/yuan/send", async (req, res) => {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: "Missing 'message' field" });
+
+    if (!yuanBrowserWs || yuanBrowserWs.readyState !== 1) {
+      return res.status(503).json({ error: "Browser not connected. Open the app in a browser first and run yuanAgent.init()" });
+    }
+
+    const id = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      const response = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          yuanPending.delete(id);
+          reject(new Error("Timeout waiting for browser response (120s)"));
+        }, 120000);
+        yuanPending.set(id, { resolve, reject, timer });
+        yuanBrowserWs!.send(JSON.stringify({ type: "yuan:send", id, message }));
+      });
+      res.json({ response });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/yuan/status", (req, res) => {
+    if (!yuanBrowserWs || yuanBrowserWs.readyState !== 1) {
+      return res.json({ status: "browser not connected" });
+    }
+    // Ask browser for status via a special request
+    const id = `status-${Date.now()}`;
+    const timer = setTimeout(() => {
+      yuanPending.delete(id);
+      res.json({ status: "timeout" });
+    }, 5000);
+    yuanPending.set(id, {
+      resolve: (v) => { clearTimeout(timer); res.json({ status: v }); },
+      reject: (e) => { clearTimeout(timer); res.json({ status: "error", error: e.message }); },
+      timer,
+    });
+    yuanBrowserWs.send(JSON.stringify({ type: "yuan:status", id }));
+  });
+
+  app.post("/api/yuan/init", (req, res) => {
+    if (!yuanBrowserWs || yuanBrowserWs.readyState !== 1) {
+      return res.status(503).json({ error: "Browser not connected" });
+    }
+    const id = `init-${Date.now()}`;
+    const timer = setTimeout(() => {
+      yuanPending.delete(id);
+      res.status(504).json({ error: "Timeout waiting for init (120s)" });
+    }, 120000);
+    yuanPending.set(id, {
+      resolve: (v) => { clearTimeout(timer); res.json({ result: v }); },
+      reject: (e) => { clearTimeout(timer); res.status(500).json({ error: e.message }); },
+      timer,
+    });
+    yuanBrowserWs.send(JSON.stringify({ type: "yuan:init", id }));
+  });
+
   // Create HTTP server manually so we control WebSocket upgrades
   const httpServer = createHttpServer(app);
 
@@ -159,8 +223,45 @@ async function startServer() {
   // WISP relay: bridge v86 VM TCP connections over WebSocket
   const wispWss = new WebSocketServer({ noServer: true });
 
+  // Yuan relay WebSocket: browser connects here to receive CLI requests
+  const yuanWss = new WebSocketServer({ noServer: true });
+  yuanWss.on("connection", (ws) => {
+    console.log("[yuan-relay] browser connected");
+    yuanBrowserWs = ws;
+
+    ws.on("message", (data: Buffer) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        const pending = yuanPending.get(msg.id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        yuanPending.delete(msg.id);
+        if (msg.error) {
+          pending.reject(new Error(msg.error));
+        } else {
+          pending.resolve(msg.response || msg.status || "ok");
+        }
+      } catch (e) {
+        console.error("[yuan-relay] bad message:", e);
+      }
+    });
+
+    ws.on("close", () => {
+      console.log("[yuan-relay] browser disconnected");
+      if (yuanBrowserWs === ws) yuanBrowserWs = null;
+    });
+  });
+
   httpServer.on("upgrade", (req, socket, head) => {
     const url = req.url || "";
+
+    if (url.startsWith("/yuan-relay")) {
+      yuanWss.handleUpgrade(req, socket, head, (ws) => {
+        yuanWss.emit("connection", ws, req);
+      });
+      return;
+    }
+
     if (!url.startsWith("/wisp")) return;
 
     wispWss.handleUpgrade(req, socket, head, (ws) => {

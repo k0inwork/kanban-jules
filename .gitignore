@@ -6,7 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
-<<<<<<< HEAD
 *.pem
 *.key
 wasm/system/.build/
+agent/node_modules/
+agent/yuan-channel.386

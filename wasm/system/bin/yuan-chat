@@ -1,0 +1,105 @@
+#!/bin/busybox sh
+# yuan-chat — interactive chat with YUAN agent via /#yuan filesystem.
+#
+# Runs inside v86 VM (Wanix). Communicates with yuaone (running in
+# almostnode in the browser) through the YuanFS 9p mount:
+#
+#   /#yuan/in     — write message here
+#   /#yuan/out    — read triggers agent.run(), returns response
+#   /#yuan/status — read to check agent status
+#
+# Usage:
+#   yuan-chat                    # interactive REPL
+#   yuan-chat "fix the bug"     # one-shot message
+#   yuan-chat -s                # show status
+#   yuan-chat -h                # help
+
+YUAN_DIR="/#yuan"
+
+# Check if YuanFS is mounted
+check_mount() {
+  if [ ! -d "$YUAN_DIR" ]; then
+    echo "ERROR: $YUAN_DIR not mounted. YuanFS not available."
+    echo "Make sure boardVM.yuan is configured in the browser."
+    exit 1
+  fi
+}
+
+# Show agent status
+show_status() {
+  if [ -f "$YUAN_DIR/status" ]; then
+    echo "Status: $(cat $YUAN_DIR/status)"
+  else
+    echo "Status: unknown (cannot read $YUAN_DIR/status)"
+  fi
+}
+
+# Send a message and get response
+send_message() {
+  msg="$1"
+  echo ">>> $msg"
+
+  # Write message to /#yuan/in
+  echo "$msg" > "$YUAN_DIR/in"
+
+  # Read /#yuan/out — this blocks until the agent responds
+  # (YuanFS.OpenContext triggers callSend when lastMsg is set)
+  echo "--- waiting for response ---"
+  response=$(cat "$YUAN_DIR/out")
+  echo "$response"
+}
+
+# Interactive REPL
+interactive() {
+  echo "YUAN Agent Chat (v86)"
+  echo "====================="
+  echo "Type a message, press Enter. Commands: /status /quit /help"
+  echo ""
+
+  while true; do
+    printf "yuan> "
+    read line
+    [ -z "$line" ] && continue
+
+    case "$line" in
+      /quit|/exit)
+        echo "Bye."
+        break
+        ;;
+      /status)
+        show_status
+        ;;
+      /help)
+        echo "Commands: /status /quit /help"
+        echo "Anything else is sent to the YUAN agent."
+        ;;
+      *)
+        send_message "$line"
+        ;;
+    esac
+    echo ""
+  done
+}
+
+# --- Main ---
+check_mount
+
+case "${1:-}" in
+  -s|--status)
+    show_status
+    ;;
+  -h|--help)
+    echo "Usage: yuan-chat [message | -s | -h]"
+    echo ""
+    echo "  (no args)    Interactive chat"
+    echo "  \"message\"    Send one message"
+    echo "  -s, --status Show agent status"
+    echo "  -h, --help   Show this help"
+    ;;
+  "")
+    interactive
+    ;;
+  *)
+    send_message "$*"
+    ;;
+esac
