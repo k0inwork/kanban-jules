@@ -64,11 +64,12 @@ type FS struct {
 
 // record represents a file stored in IndexedDB.
 type record struct {
-	path    string
-	data    []byte
-	mode    uint32
-	modTime int64
-	isDir   bool
+	path          string
+	data          []byte
+	mode          uint32
+	modTime       int64
+	isDir         bool
+	symlinkTarget string
 }
 
 // New opens (or creates) an IndexedDB database and returns a filesystem.
@@ -164,13 +165,17 @@ func (fsys *FS) getRecord(p string) (*record, error) {
 		return nil, nil
 	}
 
-	return &record{
+	rec := &record{
 		path:    result.Get("path").String(),
 		isDir:   result.Get("isDir").Bool(),
 		mode:    uint32(result.Get("mode").Int()),
 		modTime: int64(result.Get("modTime").Int()),
 		data:    jsValueToBytes(result.Get("data")),
-	}, nil
+	}
+	if t := result.Get("symlinkTarget"); !t.IsUndefined() && !t.IsNull() {
+		rec.symlinkTarget = t.String()
+	}
+	return rec, nil
 }
 
 // putRecord writes a record to the store.
@@ -188,6 +193,9 @@ func (fsys *FS) putRecord(r *record) error {
 	obj.Set("mode", r.mode)
 	obj.Set("modTime", r.modTime)
 	obj.Set("data", bytesToJSValue(r.data))
+	if r.symlinkTarget != "" {
+		obj.Set("symlinkTarget", r.symlinkTarget)
+	}
 
 	_, err = awaitIDB(store.Call("put", obj))
 	if err != nil {
@@ -259,6 +267,8 @@ var _ fs.MkdirFS = (*FS)(nil)
 var _ fs.MkdirAllFS = (*FS)(nil)
 var _ fs.RemoveAllFS = (*FS)(nil)
 var _ fs.TruncateFS = (*FS)(nil)
+var _ fs.SymlinkFS  = (*FS)(nil)
+var _ fs.ReadlinkFS = (*FS)(nil)
 
 func (fsys *FS) Open(name string) (fs.File, error) {
 	return fsys.OpenContext(context.Background(), name)
@@ -800,6 +810,57 @@ func (fsys *FS) Truncate(name string, size int64) error {
 	return fsys.putRecord(rec)
 }
 
+func (fsys *FS) Symlink(oldname, newname string) error {
+	if !fs.ValidPath(newname) {
+		return &fs.PathError{Op: "symlink", Path: newname, Err: fs.ErrNotExist}
+	}
+
+	fsys.mu.Lock()
+	defer fsys.mu.Unlock()
+
+	newname = path.Clean(newname)
+	if newname == "." {
+		return &fs.PathError{Op: "symlink", Path: newname, Err: fs.ErrInvalid}
+	}
+
+	rec, err := fsys.getRecord(newname)
+	if err != nil {
+		return &fs.PathError{Op: "symlink", Path: newname, Err: err}
+	}
+	if rec != nil {
+		return &fs.PathError{Op: "symlink", Path: newname, Err: fs.ErrExist}
+	}
+
+	return fsys.putRecord(&record{
+		path:          newname,
+		mode:          uint32(0777),
+		modTime:       time.Now().UnixMilli(),
+		symlinkTarget: oldname,
+	})
+}
+
+func (fsys *FS) Readlink(name string) (string, error) {
+	if !fs.ValidPath(name) {
+		return "", &fs.PathError{Op: "readlink", Path: name, Err: fs.ErrNotExist}
+	}
+
+	fsys.mu.Lock()
+	defer fsys.mu.Unlock()
+
+	name = path.Clean(name)
+	rec, err := fsys.getRecord(name)
+	if err != nil {
+		return "", &fs.PathError{Op: "readlink", Path: name, Err: err}
+	}
+	if rec == nil {
+		return "", &fs.PathError{Op: "readlink", Path: name, Err: fs.ErrNotExist}
+	}
+	if rec.symlinkTarget == "" {
+		return "", &fs.PathError{Op: "readlink", Path: name, Err: errors.New("not a symlink")}
+	}
+	return rec.symlinkTarget, nil
+}
+
 // openDir opens a directory and returns a dirFile.
 func (fsys *FS) openDir(name string) (fs.File, error) {
 	entries, err := fsys.readDirLocked(name)
@@ -1023,6 +1084,9 @@ func recordToInfo(r *record) fs.FileInfo {
 	mode := fs.FileMode(r.mode)
 	if r.isDir {
 		mode |= fs.ModeDir
+	}
+	if r.symlinkTarget != "" {
+		mode |= fs.ModeSymlink
 	}
 	return &idbFileInfo{
 		name:  path.Base(r.path),

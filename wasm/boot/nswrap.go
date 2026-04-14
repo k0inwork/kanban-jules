@@ -112,10 +112,12 @@ func (w *nsWrapper) RemoveAll(name string) error {
 
 func (w *nsWrapper) Rename(oldname, newname string) error {
 	ctx := fs.ContextFor(w.NS)
+
 	oldfsys, oldrname, err := fs.ResolveTo[fs.RenameFS](w.NS, ctx, oldname)
 	if err != nil {
 		return err
 	}
+
 	// Use "create" op context for destination so namespace resolution
 	// can find the binding even when the target file doesn't exist yet.
 	// NS ResolveFS only allows "create"/"mkdir"/"symlink" ops for new-file lookup.
@@ -125,6 +127,7 @@ func (w *nsWrapper) Rename(oldname, newname string) error {
 		return err
 	}
 	newFullName := path.Join(newrdir, path.Base(newname))
+
 	if fs.Equal(oldfsys, newfsys) {
 		return oldfsys.Rename(oldrname, newFullName)
 	}
