@@ -11,3 +11,5 @@ coverage/
 wasm/system/.build/
 agent/node_modules/
 agent/yuan-channel.386
+playwright-report/
+test-results/
