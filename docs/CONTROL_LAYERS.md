@@ -526,7 +526,264 @@ L4 Executor ──────────────────────�
 
 ---
 
-## 8. Design Principles
+## 8. The Living Knowledge Base (Project KB)
+
+### 8.1 Constitution as Seed, Not Scripture
+
+The constitution is the **seed** -- the initial set of rules the user provides. But as the system works, it accumulates knowledge that far exceeds the original constitution:
+
+- Project structure (directories, modules, dependencies)
+- Architectural decisions (why X was chosen over Y)
+- Rationale (why a task was structured this way)
+- Error history (what went wrong, what the fix was, recurrence count)
+- Wrong paths (approaches that were tried and failed -- and why)
+- Executor behavior profiles (empirical success rates)
+- Codebase patterns (naming conventions, test patterns, import styles)
+- User preferences (inferred from corrections and overrides)
+
+This accumulated knowledge is the **Project Knowledge Base (PKB)**. The constitution is just the first entry. Everything the system learns goes into the PKB. The PKB is the single source of truth about the project.
+
+### 8.2 PKB Structure
+
+```
+Project Knowledge Base
+├── Constitution (seed)                    -- user-written rules
+├── Architecture                           -- discovered structure
+│   ├── directory_map                      -- key dirs and their roles
+│   ├── tech_stack                         -- languages, frameworks, versions
+│   ├── module_graph                       -- how components connect
+│   └── patterns                           -- naming, testing, import conventions
+├── Decisions                              -- accumulated over time
+│   ├── decision_log[]                     -- what was decided and why
+│   ├── rejected_approaches[]              -- what was tried and failed
+│   └── rationale_map                      -- links decisions to reasoning
+├── Experience                             -- learned from execution
+│   ├── executor_profiles{}                -- per-executor success/failure data
+│   ├── task_patterns{}                    -- common task shapes and outcomes
+│   ├── error_log[]                        -- synthesized error entries
+│   └── wrong_paths[]                      -- approaches that failed + why
+├── Context                                -- current state
+│   ├── board_state                        -- tasks by status, stuck, blocked
+│   ├── recent_activity[]                  -- what happened recently
+│   └── stage                              -- where in the project lifecycle
+└── User Model                             -- inferred from interactions
+    ├── preferences                        -- coding style, review thoroughness
+    ├── corrections[]                      -- where user overrode the system
+    └── communication_style                -- terse vs verbose, technical level
+```
+
+### 8.3 Layer Projections (KB Browser per Layer)
+
+The key insight: **every layer sees the same knowledge base, but at a different zoom level**. Each layer gets a projection -- a view that shows the right amount of detail for its decision scope.
+
+```
+                    PKB (full knowledge base)
+                           |
+          +----------------+----------------+
+          |                |                |
+     L0 STRATEGIC     L1 TACTICAL      L2 OPERATIONAL
+     (Yuan)           (Planner)        (Task/Step)
+     
+     Sees:            Sees:            Sees:
+     - Full arch.     - Stage map      - Relevant files
+     - All decisions  - Task deps      - Module knowledge
+     - All errors     - Gap analysis   - Error context
+     - User model     - Stage errors   - Executor tips
+     - Exec profiles  - Exec routing   - Step history
+     - Constitution   - Constitution   - Constitution
+                        (rules only)     (rules for
+                                          this executor)
+```
+
+#### L0 Projection: Strategic View (Yuan)
+
+Yuan sees the broadest, most abstract view. It's answering: "What's the state of the project? What should we work on? What's going wrong?"
+
+```
+PKB.project(L0) → {
+  constitution: full text,
+  architecture: {
+    summary: "React 19 + TypeScript monorepo with Go/WASM backend",
+    key_modules: ["orchestrator", "bridge", "wasm-boot", ...],
+    tech_decisions: ["Dexie for persistence", "sval for sandbox", ...]
+  },
+  decisions: last 10 entries (compact: what + why, no code),
+  wrong_paths: all (these inform future strategy),
+  executor_profiles: full profiles with rates and patterns,
+  error_log: last 20 entries (synthesized, not raw),
+  board_state: { by_status, stuck, failed, recent_activity },
+  user_model: full (preferences, corrections, style),
+  stage: current stage + what's needed for next stage
+}
+```
+
+**Size budget**: ~2000 tokens. Yuan sees the big picture, not file contents.
+
+#### L1 Projection: Tactical View (Process Planner)
+
+The planner sees what's needed to create and sequence tasks. It's answering: "What tasks should exist? In what order? What's missing?"
+
+```
+PKB.project(L1) → {
+  constitution: rules section only (not rationale/history),
+  architecture: {
+    directory_map: full,
+    module_graph: key connections only
+  },
+  stage: {
+    current: "integration",
+    required_artifacts: ["testing spec", "deployment config", ...],
+    existing_artifacts: ["design spec", "code analysis", ...],
+    gaps: ["testing spec missing", "no CI pipeline"]
+  },
+  task_patterns: relevant patterns for current stage,
+  executor_routing: { task_type → recommended_executor },
+  recent_errors: last 5 (for this stage only),
+  dependencies: existing task graph
+}
+```
+
+**Size budget**: ~1500 tokens. Enough to plan, not enough to drown in detail.
+
+#### L2 Projection: Operational View (Task/Step)
+
+A task sees only what's relevant to its specific work. It's answering: "How do I complete this step? What tools do I have? What should I watch out for?"
+
+```
+PKB.project(L2, { taskId, stepId, executor }) → {
+  constitution: programmer rules for this executor only,
+  module_knowledge: tips for this executor (e.g., "Jules: keep changes <500 LOC"),
+  relevant_files: files mentioned in task description or previous steps,
+  error_context: errors from previous attempts of THIS step,
+  wrong_paths: approaches that failed for THIS task,
+  agent_context: accumulated KV state from previous steps,
+  executor_profile: just this executor's tips (not stats)
+}
+```
+
+**Size budget**: ~1000 tokens. Tight, focused, actionable. No project strategy, no board state -- just what's needed to write code for this step.
+
+### 8.4 How the PKB Grows
+
+The PKB starts sparse (just the constitution seed) and densifies through three mechanisms:
+
+**1. Active Discovery (scanning)**
+- Yuan scans the repo structure on first run → populates `architecture`
+- Process Planner maps artifacts to stages → populates `stage`
+- `knowledge-local-analyzer` scans for patterns → populates `architecture.patterns`
+
+**2. Passive Collection (execution side effects)**
+- Every completed task → updates `experience.executor_profiles`
+- Every failed step → adds to `experience.error_log`
+- Every retry with different approach → adds to `decisions.rejected_approaches`
+- Every user correction → adds to `user_model.corrections`
+
+**3. Dreaming (consolidation)**
+- Micro-dream: raw error → synthesized error entry
+- Session-dream: multiple errors → pattern recognition → `experience.task_patterns` update
+- Deep-dream: full consolidation → `architecture` update, constitution amendment proposals
+
+### 8.5 PKB Implementation
+
+The PKB isn't a new database. It's a **read/write layer over existing Dexie tables** with a projection function:
+
+```typescript
+class ProjectKB {
+  // Read: project a view for a specific layer
+  async project(layer: 'L0' | 'L1' | 'L2', context?: {
+    taskId?: string;
+    stepId?: number;
+    executor?: string;
+  }): Promise<KBProjection> {
+    const constitution = await this.getConstitution();
+    const experience = await this.getExperience();
+    
+    switch (layer) {
+      case 'L0': return this.strategicView(constitution, experience);
+      case 'L1': return this.tacticalView(constitution, experience);
+      case 'L2': return this.operationalView(constitution, experience, context);
+    }
+  }
+  
+  // Write: record a learning
+  async record(entry: KBEntry): Promise<void> {
+    switch (entry.type) {
+      case 'decision':    await this.addDecision(entry);    break;
+      case 'error':       await this.addError(entry);       break;
+      case 'wrong_path':  await this.addWrongPath(entry);   break;
+      case 'discovery':   await this.addDiscovery(entry);   break;
+      case 'correction':  await this.addCorrection(entry);  break;
+    }
+  }
+  
+  // Consolidate: compress raw entries into patterns
+  async consolidate(level: 'micro' | 'session' | 'deep', llmCall): Promise<void> {
+    // ... dreaming logic from section 5
+  }
+}
+```
+
+**Storage mapping:**
+
+| PKB section | Dexie table | Field |
+|-------------|-------------|-------|
+| Constitution | `projectConfigs` | `constitution` |
+| Architecture | `moduleKnowledge` | id: `pkb:architecture` |
+| Decisions | `moduleKnowledge` | id: `pkb:decisions` |
+| Experience | `moduleKnowledge` | id: `pkb:experience` |
+| Wrong paths | `moduleKnowledge` | id: `pkb:wrong_paths` |
+| User model | `moduleKnowledge` | id: `pkb:user_model` |
+| Board state | `tasks` table | (computed on read, not stored) |
+| AgentContext | `tasks` | `agentContext` field per task |
+
+### 8.6 Projection Examples
+
+**Yuan asks PKB**: "What's going on?"
+```
+PKB.project('L0') → 
+  "Project: kanban-jules (collective branch). React 19 + Go/WASM.
+   Stage: integration. 12 tasks total (3 TODO, 2 active, 1 review, 6 done).
+   Stuck: task-abc (EXECUTING 15 min, no logs). Failed: task-xyz (Jules timeout).
+   Executor-jules: 85% success, fails on monorepo configs.
+   Recent decision: broke 'refactor auth' into 3 smaller tasks after Jules timeout.
+   User prefers: concise updates, auto-approve low-risk tasks."
+```
+
+**Process Planner asks PKB**: "What tasks should exist for the testing stage?"
+```
+PKB.project('L1') →
+  "Current stage: integration. Next stage: testing.
+   Required for testing: testing-spec artifact, CI pipeline, unit test scaffold.
+   Existing: design-spec (done), code-analysis (done), implementation (in progress).
+   Gaps: no testing-spec, no CI config.
+   Recommendation: create 'Write testing spec' task (executor-local), 
+   then 'Set up CI pipeline' task (executor-github)."
+```
+
+**Task step asks PKB**: "What do I need to know to write tests for auth module?"
+```
+PKB.project('L2', { taskId: 'task-123', stepId: 2, executor: 'executor-jules' }) →
+  "Programmer rules: valid JS only, use await, respect sandbox.
+   Jules tips: keep changes <500 LOC, include file paths in prompt.
+   Relevant files: src/services/auth.ts, src/services/auth.test.ts (doesn't exist yet).
+   Previous step result: auth module has 3 exports (login, logout, refresh).
+   Error from attempt 1: 'Cannot find auth.test.ts' -- need to create it first.
+   Wrong path: tried to import jest directly (sandbox doesn't support it)."
+```
+
+### 8.7 Why This Matters
+
+Without the PKB, each layer operates in isolation:
+- Yuan doesn't know what the project looks like
+- The Process Planner doesn't know which approaches failed before
+- Tasks don't know about patterns learned from previous tasks
+- Steps repeat mistakes that were already solved
+
+With the PKB, every layer gets context-appropriate knowledge. The system gets smarter over time. Wrong paths are never repeated. Executor routing improves. Constitution evolves based on observation. The seed grows into a tree.
+
+---
+
+## 9. Design Principles
 
 1. **Each layer summarizes upward.** Never pass raw data to a higher layer. L4 returns files; L3 summarizes into step results; L2 summarizes into task outcomes; L1 into stage progress; L0 into project understanding.
 
@@ -538,4 +795,4 @@ L4 Executor ──────────────────────�
 
 5. **Dreaming compresses, never deletes understanding.** Raw data can be pruned, but synthesized patterns are permanent. The experience store only grows more abstract, never loses learned patterns.
 
-6. **Constitution is the shared contract.** All layers read the constitution. Only L0 proposes changes. Only the user approves them. This prevents the system from silently changing its own rules.
+6. **Constitution is the seed, PKB is the tree.** The constitution is the initial contract. As the system works, the Project Knowledge Base grows around it -- architecture, decisions, errors, wrong paths, user preferences. All layers read the PKB through layer-appropriate projections. The constitution remains the user-approved core; everything else is system-observed knowledge that enriches it.
