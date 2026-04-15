@@ -281,48 +281,137 @@ Lightweight Express server:
 
 ---
 
-## MVP Functionality Expansion
+## MVP Priority: Wire Yuan as the Board Planning Agent
 
-These are the highest-impact features that would expand what the system can actually do for users today.
+Yuan is **not** a coding agent. It is the **brain/supervisor** -- the autonomous decision layer that controls Fleet. Fleet remains the execution layer (Jules codes, GitHub Actions does heavy compute, local executor handles file ops). Yuan sits above all of them and decides what to do, when, and how.
 
-### 1. Enable WASM Executor + Terminal (wire the disabled modules)
+### Current State of Yuan Integration
 
-`executor-wasm` and `channel-wasm-terminal` are built but disabled. Enabling them and wiring the WASM executor into the orchestrator's step dispatch would give the agent a full Linux shell environment in-browser -- no cloud VM needed. This unlocks:
-- Running tests, linters, and build tools locally
-- File manipulation beyond what the sval sandbox can do
-- Interactive terminal sessions for debugging
+**What exists and works:**
 
-**Scope**: Register handlers in `host.ts`, enable in registry, add `executor-wasm` as a valid executor choice in the Architect constitution.
+| Component | Location | Status |
+|-----------|----------|--------|
+| `boardVM` bridge | [`src/bridge/boardVM.ts`](src/bridge/boardVM.ts) | Built -- exposes LLM, tools, tasks, events to almostnode |
+| Tool name mapping | [`boardVM.ts`](src/bridge/boardVM.ts:27) TOOL_MAP | Built -- 20 tools mapped (short name -> Fleet handler) |
+| `@fleet/tools` shim | [`src/bridge/fleet-tools-shim.js`](src/bridge/fleet-tools-shim.js) | Built -- `require('@fleet/tools')` routes to `boardVM.dispatchTool()` |
+| OpenAI shim | [`src/bridge/openai-shim.js`](src/bridge/openai-shim.js) | Built -- `require('openai')` routes to `boardVM.llmfs.sendRequest()` |
+| Agent bootstrap | [`src/bridge/agent-bootstrap.ts`](src/bridge/agent-bootstrap.ts) | Built -- creates almostnode container, installs `@yuaone/core`, injects shims |
+| Agent runner code | [`agent-bootstrap.ts:160-248`](src/bridge/agent-bootstrap.ts:160) | Built -- creates `AgentLoop` with `BYOKClient`, wires tool executor |
+| WASM agent (Go) | [`wasm/agent/main.go`](wasm/agent/main.go) | Built -- Eino ReAct loop using `/#llm/` and `/#tools/` virtual filesystems |
+| Session multiplexer | [`wasm/session-mux/main.go`](wasm/session-mux/main.go) | Built -- up to 10 terminal panes with VT emulation |
+| Boot kernel | [`wasm/boot/main.go`](wasm/boot/main.go) | Built -- Wanix kernel with YuanFS, LLMFS, ToolFS, BoardFS |
 
-### 2. Yuan Agent Integration (boardVM bridge is ready, agent needs activation)
+**What is NOT wired yet:**
 
-The bridge layer (`src/bridge/boardVM.ts`) and the Go-based ReAct agent (`wasm/agent/`) are built but not invoked from the main orchestrator flow. Activating Yuan would give Fleet a second autonomous agent that runs inside the WASM VM with direct tool and LLM access via virtual filesystems.
+1. Yuan's ReAct loop is not invoked from Fleet's main application flow
+2. Yuan's system prompt is generic ("help the user") instead of board-planning-focused
+3. No periodic board monitoring loop (Yuan should wake up, check board state, act)
+4. No integration between Yuan's decisions and Fleet's `TaskStateMachine`
+5. The UI has no panel for Yuan's thinking/reasoning output
 
-**Scope**: Call `boardVM.yuan.init()` from host initialization, expose a `yuan.send(msg)` tool to the orchestrator, handle responses via the existing event bus.
+### Yuan's Intended Role (from AGENT_HARNESS_ANALYSIS.md and FLEET_INTEGRATION_ARCHITECTURE.md)
 
-### 3. Multi-step Task Chaining (protocol steps that spawn sub-tasks)
+Yuan runs a continuous **OBSERVE -> THINK -> PLAN -> ACT** loop:
 
-Currently each task has a flat list of steps. Allowing a step to create child tasks would enable complex workflows: "build feature X" could spawn "write tests", "update docs", "create PR" as separate trackable sub-tasks.
+```
+OBSERVE: Read board state, check user messages, review module logs, scan for anomalies
+THINK:   What needs attention? What's the user trying to do? Are tasks stuck?
+PLAN:    Decompose goals into steps, decide executor per step, classify risk
+ACT:     Create/update tasks, delegate to Jules/GitHub/local, monitor, intervene
+```
 
-**Scope**: Add a `spawnTask` sandbox binding, implement in the orchestrator, add parent/child relationship to the `tasks` table schema.
+Yuan's **4 key responsibilities**:
+1. **Constitution management** -- read, cross-check, detect conflicts, suggest amendments
+2. **Executor profiling** -- track success/failure per executor, adaptive routing
+3. **Task lifecycle control** -- create tasks, generate protocols, monitor progress, intervene on errors
+4. **Board monitoring** -- periodic health checks, stuck-task detection, cross-task dependency tracking
 
-### 4. Task Templates and Presets
+Yuan does **not** replace Fleet's orchestrator. It **controls** it. Fleet still runs tasks step-by-step through its existing pipeline. Yuan decides what tasks to create, what protocols to use, and when to intervene.
 
-Common workflows (bug fix, feature implementation, code review, dependency update) could be captured as reusable protocol templates. Users would pick a template instead of writing a description from scratch.
+### How to Wire Yuan Properly
 
-**Scope**: New `taskTemplates` Dexie table, UI in `NewTaskModal`, template selection bypasses the Architect and directly creates a protocol.
+#### Phase 1: Activate the ReAct Loop (~100 LOC)
 
-### 5. Real-time Collaboration (multi-tab / multi-user awareness)
+The almostnode container and `@yuaone/core` `AgentLoop` are already set up in [`agent-bootstrap.ts`](src/bridge/agent-bootstrap.ts). What's missing:
 
-Dexie supports `BroadcastChannel` for cross-tab sync. Adding awareness of which tasks are being worked on by which agent/user would prevent conflicts when multiple tabs or users are active.
+1. **Call `boardVM.yuan.init()` from host initialization** ([`src/core/host.ts`](src/core/host.ts)) -- trigger container creation + agent setup during `ModuleHost.init()`
+2. **Rewrite the system prompt** from generic to board-planning-focused:
+   - "You are Yuan, the board planning agent for Fleet. Your job is to monitor the task board, create tasks, delegate to executors, and maintain the project constitution."
+   - Include the constitution text, executor profiles, and current board state in the prompt
+3. **Wire `boardVM.yuan.send(msg)` to a UI input** -- let users type messages to Yuan from the Kanban UI (mailbox or a dedicated chat panel)
+4. **Emit Yuan's reasoning to the event bus** -- subscribe to `agent:thinking`, `agent:tool_call`, `agent:error` events and forward them as `module:log` events so the UI can display Yuan's thought process
 
-**Scope**: Use Dexie's `Dexie.on('changes')` or a `BroadcastChannel` to sync task locks across tabs. Add a simple presence indicator to `TaskCard`.
+#### Phase 2: Board Monitoring Loop (~80 LOC)
 
-### 6. Artifact Diff and Commit Flow
+Yuan should run periodically, not just on user message. This is the "autonomous supervisor" behavior:
 
-The agent generates artifacts but there is no built-in way to review diffs or commit them to the repo. Adding a diff viewer and a "commit to branch" action would close the loop from task completion to code delivery.
+1. **Add a monitoring interval** -- every N seconds, call `boardVM.yuan.send()` with a board-state summary (tasks by status, stuck tasks, recent errors)
+2. **Use the Decision Engine** -- YUAN's `DecisionEngine` (deterministic, no LLM needed) classifies intent and complexity to decide routing: local for small ops, Jules for coding, GitHub Actions for CI/CD
+3. **Integrate with `TaskStateMachine`** -- Yuan should be able to dispatch events (`START`, `PAUSE`, `STOP`) on tasks it monitors, using `boardVM.tasks.update()` + event bus
 
-**Scope**: Add a diff component (compare artifact content with current repo file via `GitFs`), add a `commitArtifact` tool that uses `isomorphic-git` to commit and push.
+#### Phase 3: Constitution-Aware Planning (~60 LOC)
+
+The constitution system exists ([`CONSTITUTION.md`](CONSTITUTION.md), [`src/core/constitution.ts`](src/core/constitution.ts), `projectConfigs` table) but Yuan doesn't read it yet:
+
+1. **Load constitution into Yuan's context** before each planning cycle
+2. **Track executor profiles** -- after each task completes/fails, update success rates per executor in `agentContext`
+3. **Cross-check executor claims vs. observed reality** -- flag mismatches (e.g., constitution says Jules handles all TypeScript but observed 40% failure on monorepos)
+
+#### Phase 4: Multi-step Task Orchestration (~80 LOC)
+
+Yuan should be able to decompose user requests into multi-task workflows:
+
+1. **Create sub-tasks on the board** via `boardVM.tasks.create()`
+2. **Generate protocols** using the existing `architect-codegen` module via `boardVM.dispatchTool('generateProtocol', ...)`
+3. **Track cross-task dependencies** -- Yuan knows task A must finish before task B starts
+4. **Control sessions** (future) -- Yuan may manage terminal sessions via session-mux for small fixes
+
+### Build Priority Order
+
+| # | Component | LOC est. | What |
+|---|-----------|----------|------|
+| 1 | Activate ReAct loop (init + system prompt) | ~50 | Call `yuan.init()` from host, board-planning system prompt |
+| 2 | Wire user input to Yuan | ~30 | UI sends messages to `yuan.send()`, responses displayed |
+| 3 | Emit reasoning to event bus | ~20 | Forward `agent:thinking`/`tool_call` to `module:log` |
+| 4 | Board monitoring loop | ~40 | Periodic board-state check, stuck-task detection |
+| 5 | Decision Engine integration | ~40 | Deterministic executor routing (no LLM needed) |
+| 6 | Constitution reader | ~30 | Load constitution into Yuan's context before planning |
+| 7 | Executor profiler | ~30 | Track success/failure rates per executor |
+| 8 | Multi-task decomposition | ~40 | Create sub-tasks, track dependencies |
+| | | **~280** | |
+
+### Architecture After Wiring
+
+```
+User
+  |
+  v
+React UI (dashboard -- shows board state, lets user talk to Yuan)
+  |
+  v
+boardVM (bridge on window.globalThis)
+  |
+  v
+almostnode (Yuan's home -- in browser)
+  |  OBSERVE -> THINK -> PLAN -> ACT loop
+  |  every tool call exits via @fleet/tools shim
+  |  shim calls boardVM.dispatchTool(name, args)
+  |  boardVM routes to Fleet's ModuleRegistry
+  |
+  +-- readFile, writeFile, listFiles  -> knowledge-repo-browser
+  +-- askUser                         -> channel-user-negotiator
+  +-- saveArtifact, listArtifacts     -> knowledge-artifacts
+  +-- askJules                        -> executor-jules (Jules codes)
+  +-- runWorkflow, getRunStatus       -> executor-github (CI/CD)
+  +-- scan                            -> knowledge-local-analyzer
+  +-- analyze, addToContext           -> host tools
+  +-- bash                            -> executor-wasm (future, small fixes)
+  |
+  +-- boardVM.tasks.*                 -> direct Dexie task CRUD
+  +-- boardVM.on/emit                 -> event bus (monitor module activity)
+```
+
+Yuan is the brain. Fleet is the hands. Jules codes. GitHub builds. Yuan plans and controls.
 
 ---
 
