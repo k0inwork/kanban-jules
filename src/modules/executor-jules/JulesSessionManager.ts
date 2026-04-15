@@ -11,7 +11,7 @@ export class JulesSessionManager {
     const reuseSessions = false;
 
     // 1. Check local DB for an existing session for this task
-    let session = await db.julesSessions.where('taskId').equals(task.id).first();
+    let session: any = await db.julesSessions.where('taskId').equals(task.id).first();
     if (session && reuseSessions) {
       // Verify it still exists on the API
       try {
@@ -28,7 +28,7 @@ export class JulesSessionManager {
         }
       } catch (e: any) {
         if (e.status === 404 || e.message?.includes('not found')) {
-          console.warn(`[JulesSessionManager] Session ${session.name} found in DB but not on API. Deleting local record.`);
+          console.warn(`[JulesSessionManager] Session ${session?.name} found in DB but not on API. Deleting local record.`);
           await db.julesSessions.delete(session.id);
           session = null;
         } else {

@@ -77,8 +77,9 @@ export class GitFs {
     const now = Date.now();
     const cacheKey = `${this.owner}/${this.repo}/${this.branch}`;
     
-    if (GitFs.initPromises[cacheKey] && (now - GitFs.lastInitTimes[cacheKey] < 60000)) { // 1 minute cache
-      return GitFs.initPromises[cacheKey];
+    const isCached = GitFs.initPromises[cacheKey] !== undefined;
+    if (isCached && (now - (GitFs.lastInitTimes[cacheKey] || 0) < 60000)) { // 1 minute cache
+      return GitFs.initPromises[cacheKey] as Promise<void>;
     }
 
     GitFs.initPromises[cacheKey] = (async () => {
