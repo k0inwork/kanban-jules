@@ -281,15 +281,62 @@ Lightweight Express server:
 
 ---
 
-## Areas for Improvement
+## MVP Functionality Expansion
 
-1. **App.tsx complexity** -- at ~875 lines, the main component handles agent loop, UI state, settings, and task processing. Extracting into custom hooks or services would improve maintainability.
-2. **Missing error boundaries** -- no React error boundaries visible; a rendering error in any component could crash the entire app.
-3. **Limited test coverage** -- unit tests exist for registry and sandbox; no integration tests for the orchestrator flow or the WASM bridge.
-4. **Server-side security** -- the `/api/mcp/execute` endpoint's `run_command` action executes arbitrary shell commands with only a timeout guard. Needs authentication and command whitelisting for multi-user scenarios.
-5. **WASM modules disabled by default** -- `executor-wasm` and `channel-wasm-terminal` are disabled; their integration path into the orchestrator's step execution is not fully wired.
-6. **AgentContext singleton** -- the in-memory `Map` is periodically synced to Dexie but could lose data if the tab crashes between writes (mitigated by immediate persistence, but the sync is not atomic).
-7. **Hardcoded module list** -- the registry initializes modules inline rather than discovering them dynamically.
-8. **Type safety at sandbox boundary** -- tool call arguments pass as `any[]`, losing type information.
-9. **No CSP headers** -- all scripts run in the same origin with no Content Security Policy configured.
-10. **Polling-based Jules integration** -- JNA polls every 5 seconds (hardcoded), adding latency vs. a WebSocket approach.
+These are the highest-impact features that would expand what the system can actually do for users today.
+
+### 1. Enable WASM Executor + Terminal (wire the disabled modules)
+
+`executor-wasm` and `channel-wasm-terminal` are built but disabled. Enabling them and wiring the WASM executor into the orchestrator's step dispatch would give the agent a full Linux shell environment in-browser -- no cloud VM needed. This unlocks:
+- Running tests, linters, and build tools locally
+- File manipulation beyond what the sval sandbox can do
+- Interactive terminal sessions for debugging
+
+**Scope**: Register handlers in `host.ts`, enable in registry, add `executor-wasm` as a valid executor choice in the Architect constitution.
+
+### 2. Yuan Agent Integration (boardVM bridge is ready, agent needs activation)
+
+The bridge layer (`src/bridge/boardVM.ts`) and the Go-based ReAct agent (`wasm/agent/`) are built but not invoked from the main orchestrator flow. Activating Yuan would give Fleet a second autonomous agent that runs inside the WASM VM with direct tool and LLM access via virtual filesystems.
+
+**Scope**: Call `boardVM.yuan.init()` from host initialization, expose a `yuan.send(msg)` tool to the orchestrator, handle responses via the existing event bus.
+
+### 3. Multi-step Task Chaining (protocol steps that spawn sub-tasks)
+
+Currently each task has a flat list of steps. Allowing a step to create child tasks would enable complex workflows: "build feature X" could spawn "write tests", "update docs", "create PR" as separate trackable sub-tasks.
+
+**Scope**: Add a `spawnTask` sandbox binding, implement in the orchestrator, add parent/child relationship to the `tasks` table schema.
+
+### 4. Task Templates and Presets
+
+Common workflows (bug fix, feature implementation, code review, dependency update) could be captured as reusable protocol templates. Users would pick a template instead of writing a description from scratch.
+
+**Scope**: New `taskTemplates` Dexie table, UI in `NewTaskModal`, template selection bypasses the Architect and directly creates a protocol.
+
+### 5. Real-time Collaboration (multi-tab / multi-user awareness)
+
+Dexie supports `BroadcastChannel` for cross-tab sync. Adding awareness of which tasks are being worked on by which agent/user would prevent conflicts when multiple tabs or users are active.
+
+**Scope**: Use Dexie's `Dexie.on('changes')` or a `BroadcastChannel` to sync task locks across tabs. Add a simple presence indicator to `TaskCard`.
+
+### 6. Artifact Diff and Commit Flow
+
+The agent generates artifacts but there is no built-in way to review diffs or commit them to the repo. Adding a diff viewer and a "commit to branch" action would close the loop from task completion to code delivery.
+
+**Scope**: Add a diff component (compare artifact content with current repo file via `GitFs`), add a `commitArtifact` tool that uses `isomorphic-git` to commit and push.
+
+---
+
+## Technical Debt (Future Enhancements)
+
+These items improve code quality, security, and maintainability but do not expand user-facing functionality.
+
+1. **App.tsx complexity** -- at ~875 lines, the main component handles agent loop, UI state, settings, and task processing. Extract into custom hooks or services.
+2. **Missing error boundaries** -- no React error boundaries; a rendering error crashes the entire app.
+3. **Limited test coverage** -- unit tests for registry and sandbox only; no integration tests for orchestrator or WASM bridge.
+4. **Server-side security** -- `/api/mcp/execute` runs arbitrary shell commands with only a timeout guard. Needs auth and command whitelisting.
+5. **AgentContext atomicity** -- the in-memory `Map` syncs to Dexie on each write but not atomically; a crash mid-write could leave partial state.
+6. **Hardcoded module list** -- registry initializes modules inline rather than discovering dynamically.
+7. **Type safety at sandbox boundary** -- tool call arguments pass as `any[]`.
+8. **No CSP headers** -- all scripts run in same origin with no Content Security Policy.
+9. **Polling-based Jules integration** -- JNA polls every 5 seconds (hardcoded); could use WebSocket for lower latency.
+10. **Constitution versioning** -- no history or rollback for constitution edits; changes are immediate and permanent.
