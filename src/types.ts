@@ -38,4 +38,5 @@ export interface Task {
   moduleLogs?: Record<string, string>;
   analysis?: string;
   architectModel?: string;
+  project?: string; // 'self' | 'target' (default: 'target')
 }

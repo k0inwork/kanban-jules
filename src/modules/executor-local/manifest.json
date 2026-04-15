@@ -28,7 +28,11 @@
     "saveArtifact": "knowledge-artifacts.saveArtifact",
     "listArtifacts": "knowledge-artifacts.listArtifacts",
     "askUser": "channel-user-negotiator.askUser",
-    "sendUser": "channel-user-negotiator.sendUser"
+    "sendUser": "channel-user-negotiator.sendUser",
+    "KB_record": "knowledge-kb.recordEntry",
+    "KB_queryLog": "knowledge-kb.queryLog",
+    "KB_queryDocs": "knowledge-kb.queryDocs",
+    "KB_saveDoc": "knowledge-kb.saveDocument"
   },
   "permissions": ["storage"],
   "enabled": true

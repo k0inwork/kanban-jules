@@ -10,6 +10,7 @@ import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { agentContext } from '../services/AgentContext';
 import { Sandbox, injectBindings } from './sandbox';
+import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
 
 export class Orchestrator {
   private config: OrchestratorConfig | null = null;
@@ -167,14 +168,10 @@ export class Orchestrator {
       attempt++;
       
       const modules = registry.getEnabled();
-      
-      const knowledgeRecords = await db.moduleKnowledge.toArray();
-      const moduleKnowledge: Record<string, string> = {};
-      for (const record of knowledgeRecords) {
-        moduleKnowledge[record.id] = record.content;
-      }
 
-      const prompt = composeProgrammerPrompt(modules, task, step, errorContext, moduleKnowledge);
+      const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', project: 'target', taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}` });
+
+      const prompt = composeProgrammerPrompt(modules, task, step, errorContext, projectedKnowledge);
       
       try {
         let code: string;

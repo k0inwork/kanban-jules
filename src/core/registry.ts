@@ -22,6 +22,11 @@ import githubExecutorManifest from '../modules/executor-github/manifest.json';
 import localAnalyzerManifest from '../modules/knowledge-local-analyzer/manifest.json';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
 
+import knowledgeKbManifest from '../modules/knowledge-kb/manifest.json';
+import knowledgeProjectorManifest from '../modules/knowledge-projector/manifest.json';
+import processDreamManifest from '../modules/process-dream/manifest.json';
+import processReflectionManifest from '../modules/process-reflection/manifest.json';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -33,6 +38,10 @@ export class ModuleRegistry {
     { ...localExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...githubExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...localAnalyzerManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...knowledgeKbManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...knowledgeProjectorManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...processDreamManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...processReflectionManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { CONSTITUTION_TEMPLATES } from '../constants/constitutions';
-import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION } from '../core/constitution';
-import { Save, RefreshCw, FileText, BookOpen, BrainCircuit, Code2 } from 'lucide-react';
+import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION, OVERSEER_CONSTITUTION } from '../core/constitution';
+import { Save, RefreshCw, BookOpen, BrainCircuit, Code2, Eye } from 'lucide-react';
 import { registry } from '../core/registry';
 import { cn } from '../lib/utils';
 
@@ -35,6 +35,7 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
       // Load Module Knowledge (including system constitutions)
       const knowledgeRecords = await db.moduleKnowledge.toArray();
       const knowledgeMap: Record<string, string> = {
+        'system:overseer': OVERSEER_CONSTITUTION,
         'system:architect': ARCHITECT_CONSTITUTION,
         'system:programmer': PROGRAMMER_CONSTITUTION
       };
@@ -134,6 +135,15 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
           Project
         </button>
         <button
+          onClick={() => setActiveTab('system:overseer')}
+          className={cn(
+            "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+            activeTab === 'system:overseer' ? "border-blue-500 text-blue-400" : "border-transparent text-neutral-400 hover:text-neutral-200"
+          )}
+        >
+          Overseer
+        </button>
+        <button
           onClick={() => setActiveTab('system:architect')}
           className={cn(
             "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
@@ -181,9 +191,9 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
         ) : isSystemTab ? (
           <>
             <div className="flex items-center space-x-2 mb-4">
-              {activeTab === 'system:architect' ? <BrainCircuit className="w-4 h-4 text-purple-400" /> : <Code2 className="w-4 h-4 text-emerald-400" />}
+              {activeTab === 'system:overseer' ? <Eye className="w-4 h-4 text-amber-400" /> : activeTab === 'system:architect' ? <BrainCircuit className="w-4 h-4 text-purple-400" /> : <Code2 className="w-4 h-4 text-emerald-400" />}
               <p className="text-sm text-neutral-400">
-                Define the core {activeTab === 'system:architect' ? 'Architect' : 'Programmer'} rules. These instructions are injected into every agent prompt.
+                Define the core {activeTab === 'system:overseer' ? 'Overseer (L1)' : activeTab === 'system:architect' ? 'Architect (L2)' : 'Programmer (L3)'} rules. These instructions are injected into every agent prompt.
               </p>
             </div>
             <textarea

@@ -14,6 +14,10 @@ import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
 import { GithubHandler } from '../modules/executor-github/GithubHandler';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
+import { KBHandler } from '../modules/knowledge-kb/Handler';
+import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
+import { DreamHandler } from '../modules/process-dream/Handler';
+import { ReflectionHandler } from '../modules/process-reflection/Handler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -176,6 +180,10 @@ export class ModuleHost {
     registry.registerModuleHandlers('architect-codegen', ArchitectTool.handleRequest);
     registry.registerModuleHandlers('process-project-manager', ProcessAgent.handleRequest);
     registry.registerModuleHandlers('knowledge-local-analyzer', LocalAnalyzer.handleRequest.bind(LocalAnalyzer));
+    registry.registerModuleHandlers('knowledge-kb', KBHandler.handleRequest);
+    registry.registerModuleHandlers('knowledge-projector', ProjectorHandler.handleRequest);
+    registry.registerModuleHandlers('process-dream', DreamHandler.handleRequest);
+    registry.registerModuleHandlers('process-reflection', ReflectionHandler.handleRequest);
 
     // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));

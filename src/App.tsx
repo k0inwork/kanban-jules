@@ -27,6 +27,7 @@ import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
 import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User, Terminal } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
+import KBBrowser from './components/KBBrowser';
 import MailboxView from './components/MailboxView';
 import ConstitutionEditor from './components/ConstitutionEditor';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
@@ -466,6 +467,46 @@ export default function App() {
     setIsViewingBoard(false);
   };
 
+  const handleKBDocSelect = (doc: any) => {
+    const tabId = `kb-doc-${doc.id}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+
+    const newTab: Tab = {
+      id: tabId,
+      name: doc.title,
+      content: doc.content,
+      type: 'kb-doc',
+      kbDoc: doc
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
+  const handleKBEntrySelect = (entry: any) => {
+    const tabId = `kb-log-${entry.id}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+
+    const newTab: Tab = {
+      id: tabId,
+      name: `[${entry.category}] ${entry.text.substring(0, 40)}`,
+      content: entry.text,
+      type: 'kb-log',
+      kbEntry: entry
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
   const handleDeclineProposal = async (messageId: number) => {
     await db.messages.delete(messageId);
     handleTabClose(`mail-${messageId}`);
@@ -854,11 +895,20 @@ export default function App() {
                 </CollapsiblePane>
 
                 <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
-                  <GithubWorkflowMonitor 
-                    repoUrl={repoUrl} 
-                    branch={repoBranch || 'main'} 
-                    token={githubToken || import.meta.env.VITE_GITHUB_TOKEN || ''} 
+                  <GithubWorkflowMonitor
+                    repoUrl={repoUrl}
+                    branch={repoBranch || 'main'}
+                    token={githubToken || import.meta.env.VITE_GITHUB_TOKEN || ''}
                   />
+                </CollapsiblePane>
+
+                <CollapsiblePane title="Knowledge Base" defaultExpanded={false}>
+                  <div className="p-1">
+                    <KBBrowser
+                      onDocSelect={handleKBDocSelect}
+                      onEntrySelect={handleKBEntrySelect}
+                    />
+                  </div>
                 </CollapsiblePane>
               </>
             ) : (

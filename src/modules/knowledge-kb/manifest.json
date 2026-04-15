@@ -1,0 +1,95 @@
+{
+  "id": "knowledge-kb",
+  "name": "Knowledge Base",
+  "version": "1.0.0",
+  "type": "knowledge",
+  "description": "Tagged append-only log (Own KB) and document store (Formal KB). Single source of truth for all learned and formal knowledge.",
+  "tools": [
+    {
+      "name": "knowledge-kb.recordEntry",
+      "description": "Append an entry to kb_log.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" },
+          "category": { "type": "string" },
+          "abstraction": { "type": "number" },
+          "layer": { "type": "array", "items": { "type": "string" } },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "source": { "type": "string" },
+          "project": { "type": "string", "default": "target" }
+        },
+        "required": ["text", "category", "abstraction", "layer", "tags", "source"]
+      }
+    },
+    {
+      "name": "knowledge-kb.queryLog",
+      "description": "Query kb_log with filters.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "category": { "type": "string" },
+          "layer": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "source": { "type": "string" },
+          "active": { "type": "boolean" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "knowledge-kb.updateEntries",
+      "description": "Bulk update kb_log entries. Used by dream for deactivation and by reflection for reclassification.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ids": { "type": "array", "items": { "type": "number" } },
+          "changes": { "type": "object" }
+        },
+        "required": ["ids", "changes"]
+      }
+    },
+    {
+      "name": "knowledge-kb.saveDocument",
+      "description": "Save or update a document in kb_docs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "type": { "type": "string" },
+          "content": { "type": "string" },
+          "summary": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "layer": { "type": "array", "items": { "type": "string" } },
+          "source": { "type": "string" },
+          "project": { "type": "string", "default": "target" }
+        },
+        "required": ["title", "type", "content", "summary", "tags", "layer", "source"]
+      }
+    },
+    {
+      "name": "knowledge-kb.queryDocs",
+      "description": "Query kb_docs with filters.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "type": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "layer": { "type": "string" },
+          "active": { "type": "boolean" },
+          "limit": { "type": "number" }
+        }
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "KB.record": "knowledge-kb.recordEntry",
+    "KB.queryLog": "knowledge-kb.queryLog",
+    "KB.saveDoc": "knowledge-kb.saveDocument",
+    "KB.queryDocs": "knowledge-kb.queryDocs"
+  },
+  "permissions": ["storage"],
+  "enabled": true
+}

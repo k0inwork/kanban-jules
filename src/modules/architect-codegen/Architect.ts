@@ -1,18 +1,14 @@
 import { RequestContext } from '../../core/types';
 import { registry } from '../../core/registry';
 import { composeArchitectPrompt } from '../../core/prompt';
-import { db } from '../../services/db';
+import { ProjectorHandler } from '../knowledge-projector/Handler';
 
 export class Architect {
   async generateProtocol(title: string, description: string, context: RequestContext): Promise<any> {
-    const knowledgeRecords = await db.moduleKnowledge.toArray();
-    const moduleKnowledge: Record<string, string> = {};
-    for (const record of knowledgeRecords) {
-      moduleKnowledge[record.id] = record.content;
-    }
+    const projectedKnowledge = await ProjectorHandler.project({ layer: 'L2', project: 'target', taskDescription: `${title} ${description}` });
 
-    const prompt = composeArchitectPrompt(registry.getEnabled(), moduleKnowledge) + `\n\nTask Title: ${title}\nTask Description: ${description}`;
-    
+    const prompt = composeArchitectPrompt(registry.getEnabled(), projectedKnowledge) + `\n\nTask Title: ${title}\nTask Description: ${description}`;
+
     const responseText = await context.llmCall(prompt, true);
     return JSON.parse(responseText || '{}');
   }

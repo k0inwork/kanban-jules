@@ -65,6 +65,35 @@ export interface ModuleKnowledge {
   updatedAt: number;
 }
 
+export interface KBEntry {
+  id?: number;
+  timestamp: number;
+  text: string;
+  category: string; // 'architecture' | 'decision' | 'error' | 'pattern' | 'executor' | 'constitution' | 'observation' | 'dream' | 'correction' | 'external'
+  abstraction: number; // 0=raw, 5=synthesized, 10=strategic
+  layer: string[]; // ['L0'] | ['L1'] | ['L2'] | ['L0','L1'] | ...
+  tags: string[];
+  source: string; // 'execution' | 'dream:micro' | 'dream:session' | 'dream:deep' | 'user' | 'external:*'
+  supersedes?: number[];
+  active: boolean;
+  project: string; // 'self' | 'target' (default: 'target')
+}
+
+export interface KBDoc {
+  id?: number;
+  timestamp: number;
+  title: string;
+  type: string; // 'spec' | 'design' | 'report' | 'reference' | 'constitution' | 'readme' | 'meeting-notes'
+  content: string;
+  summary: string;
+  tags: string[];
+  layer: string[];
+  source: string; // 'upload' | 'artifact' | 'repo-scan' | 'external:*'
+  active: boolean;
+  version: number;
+  project: string; // 'self' | 'target' (default: 'target')
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -74,6 +103,8 @@ export class MyDatabase extends Dexie {
   tasks!: Table<Task>;
   projectConfigs!: Table<ProjectConfig>;
   moduleKnowledge!: Table<ModuleKnowledge>;
+  kbLog!: Table<KBEntry>;
+  kbDocs!: Table<KBDoc>;
 
   constructor() {
     super('AgentKanbanDB');
@@ -159,6 +190,18 @@ export class MyDatabase extends Dexie {
       tasks: 'id, workflowStatus, agentState, createdAt',
       projectConfigs: 'id',
       moduleKnowledge: 'id'
+    });
+    this.version(20).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, type, active, source, project'
     });
   }
 }

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Tab } from './PreviewTabs';
 import Markdown from 'react-markdown';
-import { Plus, X, Zap, Send } from 'lucide-react';
+import { Plus, X, Zap, Send, BookOpen, Activity } from 'lucide-react';
 import { AgentMessage } from '../services/db';
+import { cn } from '../lib/utils';
 import { parseTasksFromMessage } from '../core/prompt';
 
 interface PreviewPaneProps {
@@ -162,6 +163,114 @@ export default function PreviewPane({
             </form>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // KB Document view
+  if (activeTab.type === 'kb-doc' && activeTab.kbDoc) {
+    const doc = activeTab.kbDoc;
+    return (
+      <div className="flex-1 overflow-y-auto bg-[#0d1117] custom-scrollbar p-6">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center gap-2 mb-4">
+            <BookOpen className="w-5 h-5 text-purple-400" />
+            <h2 className="text-lg font-semibold text-neutral-100">{doc.title}</h2>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 uppercase">{doc.type}</span>
+            {doc.project === 'self' && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400">self</span>
+            )}
+          </div>
+          {doc.summary && (
+            <div className="mb-4 p-3 bg-neutral-800/50 rounded-lg border border-neutral-800">
+              <p className="text-sm text-neutral-400 italic">{doc.summary}</p>
+            </div>
+          )}
+          <div className="text-sm text-neutral-300 prose prose-invert max-w-none">
+            <Markdown>{doc.content}</Markdown>
+          </div>
+          <div className="mt-6 pt-4 border-t border-neutral-800 flex flex-wrap gap-2 text-[10px] font-mono text-neutral-500">
+            <span>Source: {doc.source}</span>
+            <span>v{doc.version}</span>
+            <span>Layers: {doc.layer.join(', ')}</span>
+            {doc.tags.map((t, i) => (
+              <span key={i} className="bg-neutral-800 px-1.5 py-0.5 rounded">{t}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // KB Log entry view
+  if (activeTab.type === 'kb-log' && activeTab.kbEntry) {
+    const entry = activeTab.kbEntry;
+    const categoryColors: Record<string, string> = {
+      error: 'bg-red-500/20 text-red-400',
+      pattern: 'bg-purple-500/20 text-purple-400',
+      dream: 'bg-blue-500/20 text-blue-400',
+      decision: 'bg-amber-500/20 text-amber-400',
+      observation: 'bg-cyan-500/20 text-cyan-400',
+      constitution: 'bg-emerald-500/20 text-emerald-400',
+      correction: 'bg-rose-500/20 text-rose-400',
+      architecture: 'bg-indigo-500/20 text-indigo-400',
+      executor: 'bg-orange-500/20 text-orange-400',
+      external: 'bg-lime-500/20 text-lime-400',
+    };
+    return (
+      <div className="flex-1 overflow-y-auto bg-[#0d1117] custom-scrollbar p-6">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="w-5 h-5 text-cyan-400" />
+            <h2 className="text-lg font-semibold text-neutral-100">
+              [{entry.category}]
+            </h2>
+            <span className={cn("text-[10px] font-mono px-2 py-0.5 rounded uppercase", categoryColors[entry.category] || 'bg-neutral-800 text-neutral-400')}>
+              {entry.category}
+            </span>
+            {entry.project === 'self' && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400">self</span>
+            )}
+          </div>
+
+          {/* Abstraction bar */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-[10px] font-mono text-neutral-500">Abstraction</span>
+            <div className="flex-1 h-2 bg-neutral-800 rounded-full overflow-hidden max-w-xs">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  entry.abstraction <= 2 ? "bg-neutral-500" :
+                  entry.abstraction <= 5 ? "bg-blue-500" :
+                  entry.abstraction <= 7 ? "bg-purple-500" : "bg-amber-500"
+                )}
+                style={{ width: `${Math.min(entry.abstraction * 10, 100)}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-mono text-neutral-400">{entry.abstraction}/10</span>
+          </div>
+
+          {/* Content */}
+          <div className="p-4 bg-neutral-800/50 rounded-lg border border-neutral-800 mb-4">
+            <div className="text-sm text-neutral-300 whitespace-pre-wrap leading-relaxed">
+              {entry.text}
+            </div>
+          </div>
+
+          {/* Metadata */}
+          <div className="flex flex-wrap gap-3 text-[10px] font-mono text-neutral-500">
+            <span>Source: {entry.source}</span>
+            <span>Layers: {entry.layer.join(', ')}</span>
+            <span>{new Date(entry.timestamp).toLocaleString()}</span>
+          </div>
+          {entry.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {entry.tags.map((t, i) => (
+                <span key={i} className="text-[9px] font-mono bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded">{t}</span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
