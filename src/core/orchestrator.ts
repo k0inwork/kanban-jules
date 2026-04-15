@@ -382,14 +382,14 @@ export class Orchestrator {
         const architectModel = this.config.apiProvider === 'gemini' ? this.config.geminiModel : this.config.openaiModel;
         await db.tasks.update(task.id, { protocol, architectModel });
         currentTask = { ...currentTask!, protocol, architectModel };
-        await appendLog(`> [Architect] Protocol generated with ${protocol.steps.length} steps.\n`);
+        await appendLog(`> [Architect] Protocol generated with ${protocol?.steps?.length || 0} steps.\n`);
       }
 
       await appendLog(`> [Orchestrator] Initializing Orchestrator...\n`);
       
       let status = 'DONE';
       
-      let pendingStep = currentTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
+      let pendingStep = currentTask?.protocol?.steps?.find(s => s.status === 'pending' || s.status === 'in_progress');
       
       while (pendingStep) {
         if (pendingStep.status === 'pending') {

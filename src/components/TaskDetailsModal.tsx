@@ -41,9 +41,10 @@ export default function TaskDetailsModal({
   const [selectedArtifactId, setSelectedArtifactId] = useState<number | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
-  const selectedArtifact = useLiveQuery(() => 
-    selectedArtifactId ? db.taskArtifacts.get(selectedArtifactId) : Promise.resolve(null)
-  , [selectedArtifactId]);
+  const selectedArtifact = useLiveQuery(async () => {
+    if (!selectedArtifactId) return null;
+    return await db.taskArtifacts.get(selectedArtifactId);
+  }, [selectedArtifactId]);
 
   const availableArtifacts = useLiveQuery(async () => {
     const all = await db.taskArtifacts.toArray();
@@ -294,7 +295,7 @@ export default function TaskDetailsModal({
                   <div className="mt-4 space-y-4">
                     <div className="bg-neutral-950 rounded-md border border-neutral-800 overflow-hidden">
                       <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-900 border-b border-neutral-800">
-                        <span className="text-[10px] font-mono text-neutral-400 truncate">{selectedArtifact.name}</span>
+                        <span className="text-[10px] font-mono text-neutral-400 truncate">{selectedArtifact?.name}</span>
                         <div className="flex items-center space-x-2">
                           <button onClick={() => setSelectedArtifactId(null)} className="text-neutral-500 hover:text-neutral-300">
                             <X className="w-3.5 h-3.5" />
@@ -303,7 +304,7 @@ export default function TaskDetailsModal({
                       </div>
                       <div className="p-3 max-h-64 overflow-y-auto custom-scrollbar bg-neutral-950">
                         <pre className="text-[11px] font-mono text-neutral-400 whitespace-pre-wrap leading-relaxed">
-                          {selectedArtifact.content}
+                          {selectedArtifact?.content}
                         </pre>
                       </div>
                     </div>
