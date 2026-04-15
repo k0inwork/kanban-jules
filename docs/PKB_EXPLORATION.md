@@ -503,7 +503,210 @@ await db.kbEvents.add({
 
 ---
 
-## Recommendation: Code Graph (Approach 4) + Event Sourcing Feed (Approach 5)
+## Phase 0 MVP: Tagged Log with Dreaming Appends
+
+### The Simplest Thing That Could Work
+
+Start with an append-only log. Every observation, decision, error, and consolidation is just another entry. Entries have tags and flags that enable filtering by layer, abstraction level, category, and subject. Dreaming doesn't transform entries -- it **appends new higher-level entries** that summarize clusters of older ones.
+
+No graph. No embeddings. No multiple tables. Just a log.
+
+### Schema
+
+```
+kb_log:
+  id: auto-increment
+  timestamp: number
+  
+  // Content
+  text: string          (human-readable knowledge chunk, 1-3 sentences)
+  
+  // Flags (drive filtering and projection)
+  category: string      ('architecture' | 'decision' | 'error' | 'pattern' | 
+                          'executor' | 'constitution' | 'observation' | 'dream')
+  abstraction: number   (0 = raw observation, 5 = synthesized, 10 = strategic insight)
+  layer: string[]       (['L0'] | ['L1'] | ['L2'] | ['L0','L1'] | ['L0','L1','L2'])
+  
+  // Tags (free-form, enable flexible filtering)
+  tags: string[]        (['executor-jules', 'timeout', 'auth-module', 'task-123', ...])
+  
+  // Provenance
+  source: string        ('scan' | 'execution' | 'dream:micro' | 'dream:session' | 
+                          'dream:deep' | 'user' | 'process-planner')
+  supersedes: number[]  (ids of entries this one summarizes -- empty for raw entries)
+  
+  // Lifecycle
+  active: boolean       (false = superseded/pruned, still queryable but excluded by default)
+```
+
+### How It Works
+
+**Recording**: Every time the system learns something, append a log entry:
+
+```
+// Task step fails
+append({ 
+  text: "Jules timed out on auth-module refactor (>30s, attempt 2/5)",
+  category: 'error', 
+  abstraction: 1, 
+  layer: ['L2'],
+  tags: ['executor-jules', 'timeout', 'auth-module', 'task-abc'],
+  source: 'execution',
+  supersedes: [],
+  active: true
+})
+
+// Repo scan discovers structure
+append({
+  text: "Project uses React 19 + TypeScript + Go/WASM. Key dirs: src/core/, src/modules/, wasm/",
+  category: 'architecture',
+  abstraction: 3,
+  layer: ['L0', 'L1'],
+  tags: ['react', 'typescript', 'wasm', 'structure'],
+  source: 'scan',
+  supersedes: [],
+  active: true
+})
+```
+
+**Projection**: Filter by layer + abstraction + active status, sorted by relevance:
+
+```typescript
+async project(layer: 'L0' | 'L1' | 'L2', opts?: { 
+  tags?: string[], 
+  budget?: number,  // max tokens
+  category?: string 
+}): Promise<string> {
+  
+  let entries = await db.kbLog
+    .where('active').equals(1)
+    .filter(e => e.layer.includes(layer))
+    .toArray();
+  
+  // For L0: prefer high abstraction
+  // For L2: prefer low abstraction + matching tags
+  if (layer === 'L0') {
+    entries.sort((a, b) => b.abstraction - a.abstraction || b.timestamp - a.timestamp);
+  } else if (layer === 'L2' && opts?.tags) {
+    entries = entries.filter(e => e.tags.some(t => opts.tags!.includes(t)));
+    entries.sort((a, b) => a.abstraction - b.abstraction || b.timestamp - a.timestamp);
+  } else {
+    entries.sort((a, b) => b.timestamp - a.timestamp);
+  }
+  
+  // Fill token budget
+  const budget = opts?.budget || 1500;
+  let tokens = 0;
+  const selected: KBLogEntry[] = [];
+  for (const entry of entries) {
+    const entryTokens = Math.ceil(entry.text.length / 4);
+    if (tokens + entryTokens > budget) break;
+    selected.push(entry);
+    tokens += entryTokens;
+  }
+  
+  return selected.map(e => `[${e.category}] ${e.text}`).join('\n');
+}
+```
+
+**Dreaming**: Append a new higher-abstraction entry that summarizes older ones:
+
+```typescript
+async microDream(taskId: string, llmCall): Promise<void> {
+  // Gather raw entries for this task
+  const raw = await db.kbLog
+    .where('active').equals(1)
+    .filter(e => e.tags.includes(taskId) && e.abstraction <= 2)
+    .toArray();
+  
+  if (raw.length < 3) return; // not enough to consolidate
+  
+  // LLM summarizes
+  const summary = await llmCall(`
+    Summarize these ${raw.length} observations into 1-2 sentences.
+    Focus on: what happened, what worked, what failed.
+    Entries: ${raw.map(e => e.text).join('\n')}
+  `);
+  
+  // Append consolidated entry
+  await db.kbLog.add({
+    timestamp: Date.now(),
+    text: summary,
+    category: 'dream',
+    abstraction: 5,
+    layer: ['L0', 'L1'],
+    tags: [...new Set(raw.flatMap(e => e.tags))],
+    source: 'dream:micro',
+    supersedes: raw.map(e => e.id),
+    active: true
+  });
+  
+  // Mark raw entries as inactive (still in DB, just excluded from default queries)
+  for (const entry of raw) {
+    await db.kbLog.update(entry.id, { active: false });
+  }
+}
+```
+
+### What the Log Looks Like Over Time
+
+```
+Day 1 (seed):
+  #1  [constitution] "Always test auth changes before merge" (abs=8, L0/L1/L2, user)
+  #2  [architecture] "React 19 + TS + Go/WASM, 11 modules" (abs=3, L0/L1, scan)
+  #3  [architecture] "Key dirs: src/core, src/modules, wasm/boot" (abs=2, L1/L2, scan)
+
+Day 1 (execution):
+  #4  [error] "Jules timed out on auth refactor (30s)" (abs=1, L2, execution)
+  #5  [error] "Jules timed out on auth refactor attempt 2" (abs=1, L2, execution)
+  #6  [decision] "Broke auth refactor into 3 smaller tasks" (abs=4, L0/L1, execution)
+  #7  [observation] "executor-jules: 2 timeouts on tasks >500 LOC" (abs=2, L2, execution)
+
+Day 1 (micro-dream after task):
+  #8  [dream] "Jules fails on large refactors (>500 LOC). Breaking into chunks works."
+              (abs=5, L0/L1, dream:micro, supersedes=[4,5,7])
+  → entries #4, #5, #7 marked active=false
+
+Day 2 (more execution):
+  #9  [error] "Jules timed out on migration script" (abs=1, L2, execution)
+  #10 [observation] "executor-local: 100% success on file ops" (abs=2, L1/L2, execution)
+
+Day 2 (session-dream):
+  #11 [dream] "Executor-jules: 70% success overall. Fails on >500 LOC tasks (3 timeouts).
+               Executor-local: 100% success on file operations. No failures."
+              (abs=7, L0, dream:session, supersedes=[8,9,10])
+  → entries #8, #9, #10 marked active=false
+
+Now L0 sees: #1, #2, #6, #11 (4 high-abstraction entries)
+    L1 sees: #1, #2, #3, #6, #11 (5 mid-level entries)
+    L2 sees: #1, #3 + any active tagged entries for the specific task
+```
+
+### Why Start Here
+
+1. **~100 LOC to implement** (one Dexie table, project function, micro-dream)
+2. **Zero new concepts** -- it's just a filtered log
+3. **Dreaming is just appending** -- no graph compression, no embedding, no structural changes
+4. **Tags are flexible** -- add new tag types without schema changes
+5. **Abstraction is a simple number** -- higher = more consolidated, lower = more raw
+6. **Upgradeable** -- if you later need a graph, you can build it as an index over this log. The log becomes the event source, the graph becomes a materialized view.
+
+### Migration Path to Graph
+
+When the log approach hits limits (can't answer "what's related to X?" efficiently), add a graph index:
+
+```
+Phase 0: Tagged log (MVP) .............. ~100 LOC
+Phase 1: Add graph index over log ...... +150 LOC  (graph nodes reference log entry IDs)
+Phase 2: Token-budgeted traversal ...... +100 LOC  (priority queue expansion)
+Phase 3: Full PKB module ............... +250 LOC  (manifest, handlers, dreaming levels)
+```
+
+Each phase is additive. The log is never replaced -- it becomes the audit trail behind the graph.
+
+---
+
+## Future: Code Graph (Approach 4) + Event Sourcing Feed (Approach 5)
 
 ### Why Both
 
