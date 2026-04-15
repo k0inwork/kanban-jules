@@ -277,6 +277,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
                 return JSON.stringify(openaiResp);
               } else {
                 // OpenAI-compatible: pass through directly
+                console.log('[llmfs] POST', openaiUrlRef.current + '/chat/completions', 'model:', req.model);
                 const response = await fetch(`${openaiUrlRef.current}/chat/completions`, {
                   method: 'POST',
                   headers: {
@@ -285,11 +286,14 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
                   },
                   body: JSON.stringify(req),
                 });
+                console.log('[llmfs] response status:', response.status, response.statusText);
                 if (response.ok) {
                   const data = await response.json();
+                  console.log('[llmfs] response data:', JSON.stringify(data).substring(0, 300));
                   return JSON.stringify(data);
                 } else {
                   const error = await response.text();
+                  console.error('[llmfs] API error response:', error);
                   throw new Error(`OpenAI API error: ${error}`);
                 }
               }
@@ -298,6 +302,13 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
               return JSON.stringify({ error: { message: e.message } });
             }
           },
+        },
+        dispatchTool: async (name: string, args: any[]): Promise<any> => {
+          console.log('[boardVM.dispatchTool]', name, args);
+          const resultJSON = await (window as any).boardVM.toolfs.callTool(name, JSON.stringify(args[0] || {}));
+          const parsed = JSON.parse(resultJSON);
+          if (parsed.error) throw new Error(parsed.error);
+          return parsed.content;
         },
         toolfs: {
           listTools: async () => {
@@ -429,6 +440,21 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
         status: () => (window as any).boardVM?.yuan?._status || 'not configured',
       };
 
+      // Initialize the real Yuan agent (almostnode + @yuaone/core) in background.
+      // Don't await — npm install can be slow and we don't want to block VM startup.
+      import(
+        /* @vite-ignore */
+        '../../bridge/agent-bootstrap'
+      ).then(async ({ initYuanAgent, registerYuanWithBoardVM }) => {
+        await initYuanAgent();
+        registerYuanWithBoardVM();
+        term.writeln('\r\n\x1b[1;32m●\x1b[0m Yuan agent ready.\r\n');
+        console.log('[TerminalPanel] Yuan agent initialized successfully');
+      }).catch((e: any) => {
+        console.error('[TerminalPanel] Yuan agent init failed:', e);
+        term.writeln(`\r\n\x1b[1;31m●\x1b[0m Yuan agent failed: ${e.message}\r\n`);
+      });
+
       // Create Wanix runtime instance (no screen, no helpers)
       const w = new WanixRuntime({
         screen: false,
@@ -502,48 +528,61 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
           // --- Session pipe bridge: read mux→JS messages, respond via LLM ---
           (async () => {
             try {
-              await w.waitFor('#sessions/0/out', 30000);
-              console.log('[session-bridge] session 0 pipe available');
+              await w.waitFor('#sessions/0/in', 30000);
+              console.log('[session-bridge] session pipes available');
 
-              const sessReadFd = await w.open('#sessions/0/out');
-              const sessDecoder = new TextDecoder();
-              let sessBuf = '';
+              // JS uses "in" (Port1) O_RDWR: reads buffer1 (mux writes), writes buffer2 (mux reads)
+              // Mux uses "out" (Port2) O_RDWR: writes buffer1, reads buffer2
+              const fd = await w.open('#sessions/0/in');
+              console.log('[session-bridge] opened in fd:', fd);
+              const decoder = new TextDecoder();
+              let buf = '';
 
               for (;;) {
-                const chunk: Uint8Array | null = await w.read(sessReadFd, 4096);
-                if (chunk === null) break;
-                if (chunk.length > 0) {
-                  sessBuf += sessDecoder.decode(chunk, { stream: true });
-
-                  // Process complete JSON lines
-                  const lines = sessBuf.split('\n');
-                  sessBuf = lines.pop() || ''; // keep incomplete line
-
-                  for (const line of lines) {
-                    if (!line.trim()) continue;
-                    try {
-                      const msg = JSON.parse(line);
-                      console.log('[session-bridge] msg:', msg);
-
-                      if (msg.type === 'chat' && msg.text) {
-                        // User chat from mux pane 1 → send to LLM → write response back
-                        (window as any).boardVM.yuan._status = 'running';
+                const chunk: Uint8Array | null = await w.read(fd, 4096);
+                if (chunk === null || chunk.length === 0) continue;
+                buf += decoder.decode(chunk, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop() || '';
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  try {
+                    const msg = JSON.parse(line);
+                    console.log('[session-bridge] msg:', msg);
+                    if (msg.type === 'chat' && msg.text) {
+                      (window as any).boardVM.yuan._status = 'running';
+                      (async () => {
                         try {
-                          const llmfs = (window as any).boardVM?.llmfs;
-                          const response = await llmfs?.sendPrompt?.(msg.text) || '[no LLM configured]';
+                          const yuan = (window as any).boardVM?.yuan;
+                          console.log('[session-bridge] calling Yuan agent, yuan:', !!yuan?.send);
+                          const response = await yuan?.send?.(msg.text) || '[Yuan not configured]';
+                          console.log('[session-bridge] LLM response:', response?.substring(0, 100));
                           const reply = JSON.stringify({ type: 'chat', text: response }) + '\n';
-                          await w.appendFile('#sessions/0/in', new TextEncoder().encode(reply));
+                          console.log('[session-bridge] writing reply to response');
+                          try {
+                            const rfd = await w.open('#sessions/0/response');
+                            await w.write(rfd, new TextEncoder().encode(reply));
+                            await w.close(rfd);
+                          } catch(e2: any) {
+                            console.log('[session-bridge] fallback to in:', e2.message);
+                            await w.appendFile('#sessions/0/in', new TextEncoder().encode(reply));
+                          }
+                          console.log('[session-bridge] reply written');
                         } catch (e: any) {
                           console.error('[session-bridge] LLM error:', e);
                           const errReply = JSON.stringify({ type: 'chat', text: `[error: ${e.message}]` }) + '\n';
-                          await w.appendFile('#sessions/0/in', new TextEncoder().encode(errReply));
+                          try {
+                            const efd = await w.open('#sessions/0/response');
+                            await w.write(efd, new TextEncoder().encode(errReply));
+                            await w.close(efd);
+                          } catch(e3) {
+                            await w.appendFile('#sessions/0/in', new TextEncoder().encode(errReply));
+                          }
                         }
                         (window as any).boardVM.yuan._status = 'idle';
-                      }
-                    } catch {
-                      // Not JSON, ignore
+                      })();
                     }
-                  }
+                  } catch { /* not JSON */ }
                 }
               }
             } catch (e: any) {

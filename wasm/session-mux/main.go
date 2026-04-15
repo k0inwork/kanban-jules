@@ -195,6 +195,7 @@ func (m *Mux) newLocalShell() error {
 		return err
 	}
 
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -227,10 +228,22 @@ func (m *Mux) newLocalShell() error {
 }
 
 func (m *Mux) tryYuanChat() {
-	// Open the "in" end (c1) for full-duplex: Read gets JS msgs, Write sends to JS
-	// JS side opens the "out" end (c2) for full-duplex
-	pipe, err := os.OpenFile("/sessions/0/in", os.O_RDWR, 0)
+	// Pipe routing (both ends use "out" = Port2):
+	//   mux writes to "out" → buffer1 → JS reads from "in" (buffer1)
+	//   JS writes to "in" → buffer2 → mux reads from "out" (buffer2)
+	pipeOut, err := os.OpenFile("/#sessions/0/out", os.O_WRONLY, 0)
 	if err != nil {
+		pipeOut, err = os.OpenFile("/sessions/0/out", os.O_WRONLY, 0)
+	}
+	if err != nil {
+		return
+	}
+	pipeIn, err := os.OpenFile("/#sessions/0/out", os.O_RDONLY, 0)
+	if err != nil {
+		pipeIn, err = os.OpenFile("/sessions/0/out", os.O_RDONLY, 0)
+	}
+	if err != nil {
+		pipeOut.Close()
 		return
 	}
 
@@ -241,10 +254,13 @@ func (m *Mux) tryYuanChat() {
 		id:      1,
 		name:    "yuan",
 		emu:     emu,
-		pipeIn:  pipe,
-		pipeOut: pipe,
+		pipeIn:  pipeIn,
+		pipeOut: pipeOut,
 	}
 	m.panes = append(m.panes, p)
+
+	// Debug: show pipe state
+	p.emu.Write([]byte(fmt.Sprintf("[yuan] pipes opened: out=%v in=%v\r\n", pipeOut != nil, pipeIn != nil)))
 
 	// Read Yuan JSON messages
 	go m.readYuanMsgs(p)
@@ -263,7 +279,7 @@ func (m *Mux) spawnYuanShell() {
 	emu := vt.NewSafeEmulator(m.cols, h)
 
 	// Open single pipe file bidirectionally (mux side = c1 = "in")
-	pipePath := fmt.Sprintf("/sessions/%d/in", id)
+	pipePath := fmt.Sprintf("/#sessions/%d/in", id)
 	pipe, err := os.OpenFile(pipePath, os.O_RDWR, 0)
 	if err != nil {
 		// Pipe not available, spawn local shell instead
@@ -296,6 +312,7 @@ func (m *Mux) spawnYuanShell() {
 	p.sin = sin
 	p.cmd = cmd
 
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Start()
 
 	// Shell output → emulator + 9p pipe out
@@ -397,6 +414,7 @@ func (m *Mux) spawnWatchShell(id int, emu *vt.SafeEmulator) {
 
 	p := &Pane{id: id, name: name, emu: emu, cmd: cmd, sin: sin}
 	m.panes = append(m.panes, p)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Start()
 
 	go m.feedOutput(p, sout)
@@ -483,36 +501,52 @@ func (m *Mux) feedOutput(p *Pane, r io.Reader) {
 }
 
 func (m *Mux) readYuanMsgs(p *Pane) {
-	dec := json.NewDecoder(p.pipeIn)
+	p.emu.Write([]byte("[yuan] readYuanMsgs started\r\n"))
+	m.triggerRender()
 	for {
-		var msg YuanMsg
-		if err := dec.Decode(&msg); err != nil {
-			break
+		// Read from response buffer file (regular file, no blocking)
+		data, err := os.ReadFile("/#sessions/0/response")
+		if err != nil {
+			data, err = os.ReadFile("/sessions/0/response")
 		}
-		switch msg.Type {
-		case "chat":
-			// Display in pane 1
-			line := fmt.Sprintf("Yuan: %s\n", msg.Text)
-			p.emu.Write([]byte(line))
-			p.mu.Lock()
-			p.activity = true
-			p.mu.Unlock()
-			m.triggerRender()
-		case "spawn":
-			m.spawnYuanShell()
-		case "write":
-			// Forward to target shell's stdin
-			m.mu.Lock()
-			for _, pp := range m.panes {
-				if pp.id == msg.Session && pp.sin != nil {
-					pp.sin.Write([]byte(msg.Data))
-					break
+		if err == nil && len(data) > 0 {
+			for _, line := range bytes.Split(data, []byte{'\n'}) {
+				if len(line) == 0 {
+					continue
+				}
+				var msg YuanMsg
+				if json.Unmarshal(line, &msg) == nil {
+					m.handleYuanMsg(p, &msg)
 				}
 			}
-			m.mu.Unlock()
-		case "kill":
-			m.closePane(msg.Session)
 		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func (m *Mux) handleYuanMsg(p *Pane, msg *YuanMsg) {
+	switch msg.Type {
+	case "chat":
+		text := bytes.ReplaceAll([]byte(msg.Text), []byte("\n"), []byte("\r\n"))
+		line := fmt.Sprintf("Yuan: %s\r\n", text)
+		p.emu.Write([]byte(line))
+		p.mu.Lock()
+		p.activity = true
+		p.mu.Unlock()
+		m.triggerRender()
+	case "spawn":
+		m.spawnYuanShell()
+	case "write":
+		m.mu.Lock()
+		for _, pp := range m.panes {
+			if pp.id == msg.Session && pp.sin != nil {
+				pp.sin.Write([]byte(msg.Data))
+				break
+			}
+		}
+		m.mu.Unlock()
+	case "kill":
+		m.closePane(msg.Session)
 	}
 }
 
@@ -560,6 +594,24 @@ func (m *Mux) handleKey(b byte) {
 		return
 	}
 
+	// Ctrl+C: send SIGINT to foreground process group
+	if b == 0x03 {
+		if p.cmd != nil && p.cmd.Process != nil {
+			syscall.Kill(-p.cmd.Process.Pid, syscall.SIGINT)
+		}
+		p.emu.Write([]byte("^C\r\n"))
+		p.lineBuf = p.lineBuf[:0]
+		m.triggerRender()
+		return
+	}
+	// Ctrl+Z: send SIGTSTP
+	if b == 0x1a {
+		if p.cmd != nil && p.cmd.Process != nil {
+			syscall.Kill(-p.cmd.Process.Pid, syscall.SIGTSTP)
+		}
+		return
+	}
+
 	// Local shell / Yuan shell: line editing + local echo
 	// (shell has no TTY so we handle line editing ourselves)
 	if p.sin != nil {
@@ -592,23 +644,36 @@ func (m *Mux) handleKey(b byte) {
 
 func (m *Mux) handleYuanInput(p *Pane, b byte) {
 	if b == 0x0d || b == 0x0a { // Enter
-		// Send the current line as a chat message
-		// For simplicity, we'll echo locally and send
-		// TODO: line buffering for proper chat input
-		if p.pipeOut != nil {
-			msg := YuanMsg{Type: "chat", Text: ""}
+		text := string(p.lineBuf)
+		p.lineBuf = p.lineBuf[:0]
+		p.emu.Write([]byte("\r\n"))
+		m.triggerRender()
+		// Async pipe write — never block input loop
+		if p.pipeOut != nil && text != "" {
+			msg := YuanMsg{Type: "chat", Text: text}
 			if data, err := json.Marshal(msg); err == nil {
 				data = append(data, '\n')
 				p.pipeOut.Write(data)
 			}
 		}
-		p.emu.Write([]byte("\r\n"))
-		m.triggerRender()
 		return
 	}
 
-	// Echo locally
-	p.emu.Write([]byte{b})
+	switch {
+	case b == 0x7f || b == 0x08: // Backspace
+		if len(p.lineBuf) > 0 {
+			p.lineBuf = p.lineBuf[:len(p.lineBuf)-1]
+			p.emu.Write([]byte("\b \b"))
+		}
+	case b == 0x15: // Ctrl+U: clear line
+		for range p.lineBuf {
+			p.emu.Write([]byte("\b \b"))
+		}
+		p.lineBuf = p.lineBuf[:0]
+	case b >= 0x20 && b < 0x7f: // Printable
+		p.lineBuf = append(p.lineBuf, b)
+		p.emu.Write([]byte{b})
+	}
 	m.triggerRender()
 }
 

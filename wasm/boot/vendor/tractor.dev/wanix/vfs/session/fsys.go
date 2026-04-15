@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	iofs "io/fs"
@@ -13,14 +14,15 @@ import (
 )
 
 // SessionFS manages named pipe pairs for terminal sessions.
-// Each session gets a directory with "in" and "out" files.
+// Each session gets a directory with "in", "out", and "response" files.
 //
 // Layout:
 //
 //	/sessions/
 //	├── 0/
-//	│   ├── in      (JS writes, mux reads)
-//	│   └── out     (mux writes, JS reads)
+//	│   ├── in       (pipe: JS writes, mux reads)
+//	│   ├── out      (pipe: mux writes, JS reads)
+//	│   └── response (buffer: JS writes reply, mux reads+clears)
 //	├── 1/
 //	│   ├── in
 //	│   └── out
@@ -30,9 +32,58 @@ type SessionFS struct {
 }
 
 type sessionEntry struct {
-	pipeFS   iofs.FS
-	inFile   *pipe.PortFile  // JS→mux end
-	outFile  *pipe.PortFile  // mux→JS end
+	pipeFS  iofs.FS
+	inFile  *pipe.PortFile // JS→mux pipe end
+	outFile *pipe.PortFile // mux→JS pipe end
+	respBuf *bytes.Buffer  // response buffer: JS writes, mux reads+clears
+	respMu  sync.Mutex
+}
+
+// respFile wraps a bytes.Buffer as an fs.File for the response channel.
+// Read returns and clears available data. Write appends.
+type respFile struct {
+	entry *sessionEntry
+	name  string
+}
+
+func (r *respFile) Close() error { return nil }
+
+func (r *respFile) Read(p []byte) (int, error) {
+	r.entry.respMu.Lock()
+	defer r.entry.respMu.Unlock()
+	if r.entry.respBuf.Len() == 0 {
+		return 0, nil
+	}
+	n, err := r.entry.respBuf.Read(p)
+	// If we read everything, reset the buffer
+	if r.entry.respBuf.Len() == 0 {
+		r.entry.respBuf.Reset()
+	}
+	return n, err
+}
+
+func (r *respFile) Write(p []byte) (int, error) {
+	r.entry.respMu.Lock()
+	defer r.entry.respMu.Unlock()
+	return r.entry.respBuf.Write(p)
+}
+
+func (r *respFile) Stat() (iofs.FileInfo, error) {
+	r.entry.respMu.Lock()
+	defer r.entry.respMu.Unlock()
+	return fskit.Entry(r.name, 0644, int64(r.entry.respBuf.Len())), nil
+}
+
+func (r *respFile) ReadAt(p []byte, off int64) (int, error) {
+	return r.Read(p)
+}
+
+func (r *respFile) WriteAt(p []byte, off int64) (int, error) {
+	return r.Write(p)
+}
+
+func (r *respFile) Seek(offset int64, whence int) (int64, error) {
+	return 0, nil
 }
 
 // NewFS creates a new SessionFS.
@@ -51,11 +102,12 @@ func (s *SessionFS) Create(id int) (iofs.FS, error) {
 		return nil, fmt.Errorf("session %d already exists", id)
 	}
 
-	pfs, inFile, outFile := pipe.NewFS(true)
+	pfs, inFile, outFile := pipe.NewFS(false)
 	s.sessions[id] = &sessionEntry{
 		pipeFS:  pfs,
 		inFile:  inFile,
 		outFile: outFile,
+		respBuf: &bytes.Buffer{},
 	}
 	return pfs, nil
 }
@@ -120,8 +172,6 @@ func (s *SessionFS) OpenContext(ctx context.Context, name string) (iofs.File, er
 		}
 		return fskit.DirFile(fskit.Entry(".", fs.ModeDir|0555), nodes...), nil
 	default:
-		// Check if it's a direct session pipe request like "0/in" or "0/out"
-		// or a session directory like "0"
 		entry, err := s.resolvePath(name)
 		if err != nil {
 			return nil, err
@@ -131,7 +181,6 @@ func (s *SessionFS) OpenContext(ctx context.Context, name string) (iofs.File, er
 }
 
 func (s *SessionFS) resolvePath(name string) (iofs.File, error) {
-	// Parse: "N" (session dir) or "N/in" or "N/out" or "N/status"
 	parts := splitPath(name)
 	if len(parts) == 0 {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
@@ -149,10 +198,14 @@ func (s *SessionFS) resolvePath(name string) (iofs.File, error) {
 
 	if len(parts) == 1 {
 		// Session directory listing
-		return fskit.DirFile(
-			fskit.Entry(parts[0], fs.ModeDir|0555),
+		entries := []fs.DirEntry{
 			fskit.Entry("in", 0644),
 			fskit.Entry("out", 0644),
+			fskit.Entry("resp", 0644),
+		}
+		return fskit.DirFile(
+			fskit.Entry(parts[0], fs.ModeDir|0555),
+			entries...,
 		), nil
 	}
 
@@ -161,6 +214,8 @@ func (s *SessionFS) resolvePath(name string) (iofs.File, error) {
 		return entry.inFile, nil
 	case "out":
 		return entry.outFile, nil
+	case "response", "resp":
+		return &respFile{entry: entry, name: "resp"}, nil
 	default:
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}

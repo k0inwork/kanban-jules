@@ -38,6 +38,10 @@ repack() {
 	mkdir -p "$OUTPUT_DIR"
 	tar -C "$BUILD_DIR" -czf "$OUTPUT_DIR/$TAR_NAME" .
 	ls -lh "$OUTPUT_DIR/$TAR_NAME"
+	# Also copy boot.wasm so the browser loads the latest version
+	if [ -f "$OVERLAY_DIR/boot.wasm" ]; then
+		cp -v "$OVERLAY_DIR/boot.wasm" "$OUTPUT_DIR/boot.wasm"
+	fi
 	echo "==> Done"
 }
 

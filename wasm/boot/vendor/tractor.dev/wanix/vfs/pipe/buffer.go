@@ -47,6 +47,12 @@ func (bp *Buffer) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 
+	// Non-blocking: return (0, nil) when empty so callers can poll.
+	// bytes.Buffer.Read returns (0, io.EOF) on empty which is fatal through 9p.
+	if bp.buffer.Len() == 0 {
+		return 0, nil
+	}
+
 	return bp.buffer.Read(p)
 }
 
