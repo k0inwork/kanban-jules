@@ -1,6 +1,66 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-export const BUILD = 35;
+export const BUILD = 37;
+
+/**
+ * Early VM boot — starts fetching wanix.min.js and sys.tar.gz bundle
+ * immediately when this module is imported (before user clicks terminal tab).
+ * The actual WanixRuntime + VM boot happens in parallel with the rest of the app.
+ * When TerminalPanel mounts, it just waits for the pre-booted VM and connects xterm.
+ */
+let vmBootPromise: Promise<any> | null = null;
+const termSizeRef = { cols: 120, rows: 40 };
+
+function prebootVM(bundleUrl: string, wanixUrl: string, wasmUrl: string): Promise<any> {
+  if (vmBootPromise) return vmBootPromise;
+
+  vmBootPromise = (async () => {
+    console.log('[preboot] Starting early VM boot...');
+
+    // 1. Load WanixRuntime
+    const WanixRuntime = await loadWanixRuntime(wanixUrl);
+    if (!WanixRuntime) throw new Error('WanixRuntime not loaded');
+
+    // 2. Create runtime instance
+    const w = new WanixRuntime({
+      screen: false,
+      helpers: false,
+      debug9p: false,
+      wasm: null,
+      network: 'fetch',
+    });
+
+    // 3. Fetch bundle + WASM in parallel
+    const [bundleResp, wasmResp] = await Promise.all([
+      fetch(bundleUrl),
+      fetch(wasmUrl),
+    ]);
+    if (!bundleResp.ok) throw new Error(`Failed to fetch bundle: ${bundleResp.status}`);
+    if (!wasmResp.ok) throw new Error(`Failed to fetch WASM: ${wasmResp.status}`);
+
+    const [bundleData, wasmData] = await Promise.all([
+      bundleResp.arrayBuffer(),
+      wasmResp.arrayBuffer(),
+    ]);
+
+    w._bundle = bundleData;
+    w._getBundle = async () => undefined;
+
+    // 4. Load WASM (starts VM boot)
+    w._loadWasm(wasmData);
+
+    // 5. Wait for VM to be ready
+    await w.ready();
+    console.log('[preboot] VM ready');
+    return w;
+  })();
+
+  return vmBootPromise;
+}
+
+// Auto-preboot at module import time with static URLs.
+// The VM boots in parallel with React rendering.
+prebootVM('/assets/wasm/sys.tar.gz', '/assets/wasm/wanix.min.js', '/assets/wasm/boot.wasm');
 
 /**
  * TerminalPanel — xterm.js terminal connected to a Wanix VM.
@@ -89,6 +149,31 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
   openaiKeyRef.current = openaiKey;
   openaiModelRef.current = openaiModel;
 
+  // Parse <tool_call name="...">JSON</tool_call from LLM response
+  // and convert to OpenAI tool_calls format
+  const parseXMLToolCalls = (content: string): any[] => {
+    const calls: any[] = [];
+    const regex = /<tool_call\s+name="([^"]+)">([\s\S]*?)<\/tool_call>/g;
+    let match;
+    let idx = 0;
+    while ((match = regex.exec(content)) !== null) {
+      const name = match[1];
+      let args: any = {};
+      try {
+        args = JSON.parse(match[2].trim());
+      } catch {
+        args = { input: match[2].trim() };
+      }
+      calls.push({
+        id: `call_${idx}`,
+        type: 'function',
+        function: { name, arguments: JSON.stringify(args) },
+      });
+      idx++;
+    }
+    return calls;
+  };
+
   const sendCommand = useCallback((text: string) => {
     const fn = (window as any).__boardSend;
     if (fn) fn(text);
@@ -127,27 +212,47 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
     term.loadAddon(new WebLinksAddon());
     term.open(terminalRef.current);
     fitAddon.fit();
+
     xtermRef.current = term;
     (window).__xterm = term; // expose for testing
 
-    term.writeln(`\r\n\x1b[1;36m●\x1b[0m Starting terminal (v${BUILD})...\r\n`);
+    // Check if container is visible (has dimensions). When the terminal tab
+    // is hidden via display:none, xterm reports 0x0. In that case, skip the
+    // size wait and use defaults — the ResizeObserver in the resize handler
+    // will send the correct size when the tab becomes visible.
+    const containerVisible = terminalRef.current.offsetWidth > 0;
+    if (containerVisible) {
+      await new Promise<void>((resolve) => {
+        const tryFit = (): boolean => {
+          fitAddon.fit();
+          return term.cols >= 80 && term.rows >= 24;
+        };
+        if (tryFit()) { resolve(); return; }
+        const container = terminalRef.current;
+        if (!container) { resolve(); return; }
+        const observer = new ResizeObserver(() => {
+          if (tryFit()) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(container);
+      });
+    }
+    console.log(`[TerminalPanel] Starting terminal (v${BUILD}) cols=${term.cols} rows=${term.rows} visible=${containerVisible}...`);
 
     try {
-      // Load WanixRuntime — fetch the ESM module and eval it to extract the export
-      // Vite blocks import() for files in /public, so we fetch + eval instead
-      const WanixRuntime = await loadWanixRuntime(wanixUrl);
-
-      if (!WanixRuntime) {
-        term.writeln('\r\n[error: WanixRuntime not exported from wanix.min.js]\r\n');
-        return;
-      }
-
       // Set up boardVM config for boot.wasm to read
+      // Uses static defaults; resize escape sequence updates VM when xterm is ready
+      if (containerVisible) {
+        termSizeRef.cols = term.cols;
+        termSizeRef.rows = term.rows;
+      }
       (window as any).boardVM = {
         mode: 'terminal',
         memoryMB: 1024,
-        get termCols() { return term.cols; },
-        get termRows() { return term.rows; },
+        get termCols() { return termSizeRef.cols; },
+        get termRows() { return termSizeRef.rows; },
         gitfs: {
           getFile: (_path: string) => Promise.resolve(undefined),
           listFiles: (_path: string) => Promise.resolve([]),
@@ -276,19 +381,75 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
                 };
                 return JSON.stringify(openaiResp);
               } else {
-                // OpenAI-compatible: pass through directly
-                console.log('[llmfs] POST', openaiUrlRef.current + '/chat/completions', 'model:', req.model);
+                // OpenAI-compatible provider that may not support native function calling.
+                // Strategy: strip tools from API request, inject tool schema into the
+                // last user message as XML, then parse XML tool calls from the response
+                // back into OpenAI tool_calls format for the agent framework.
+                const cleanReq: any = { ...req };
+                const tools = cleanReq.tools;
+                let toolSchemaXML = '';
+
+                if (tools && tools.length > 0) {
+                  // Build XML tool schema to inject into prompt
+                  const lines = ['\n\n<available_tools>'];
+                  for (const t of tools) {
+                    const fn = t.function;
+                    lines.push(`  <tool name="${fn.name}">`);
+                    lines.push(`    <description>${fn.description || ''}</description>`);
+                    if (fn.parameters?.properties) {
+                      lines.push('    <parameters>');
+                      for (const [k, v] of Object.entries(fn.parameters.properties)) {
+                        lines.push(`      <param name="${k}" type="${(v as any).type || 'string'}">${(v as any).description || ''}</param>`);
+                      }
+                      lines.push('    </parameters>');
+                    }
+                    lines.push('  </tool>');
+                  }
+                  lines.push('</available_tools>');
+                  lines.push('To use a tool, respond with: <tool_call name="tool_name">{"arg": "value"}</tool_call}');
+                  lines.push('You can make multiple tool calls. After tool results, continue your response.');
+                  toolSchemaXML = lines.join('\n');
+
+                  // Remove tools from API request
+                  delete cleanReq.tools;
+                  delete cleanReq.tool_choice;
+                }
+
+                // Append tool schema to last user message
+                if (toolSchemaXML && cleanReq.messages?.length > 0) {
+                  const lastMsg = cleanReq.messages[cleanReq.messages.length - 1];
+                  if (lastMsg.role === 'user') {
+                    lastMsg.content = (lastMsg.content || '') + toolSchemaXML;
+                  } else {
+                    cleanReq.messages.push({ role: 'user', content: toolSchemaXML });
+                  }
+                }
+
+                console.log('[llmfs] POST (tools stripped, schema in prompt) model:', cleanReq.model);
                 const response = await fetch(`${openaiUrlRef.current}/chat/completions`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${openaiKeyRef.current}`,
                   },
-                  body: JSON.stringify(req),
+                  body: JSON.stringify(cleanReq),
                 });
-                console.log('[llmfs] response status:', response.status, response.statusText);
+
                 if (response.ok) {
                   const data = await response.json();
+                  // Parse XML tool calls from response content and convert to OpenAI format
+                  const content = data.choices?.[0]?.message?.content || '';
+                  const toolCalls = parseXMLToolCalls(content);
+
+                  if (toolCalls.length > 0) {
+                    // Strip the XML from displayed content
+                    const cleanContent = content.replace(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/g, '').trim();
+                    data.choices[0].message.content = cleanContent || null;
+                    data.choices[0].message.tool_calls = toolCalls;
+                    data.choices[0].finish_reason = 'tool_calls';
+                    console.log('[llmfs] parsed', toolCalls.length, 'tool calls from XML');
+                  }
+
                   console.log('[llmfs] response data:', JSON.stringify(data).substring(0, 300));
                   return JSON.stringify(data);
                 } else {
@@ -299,7 +460,18 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
               }
             } catch (e: any) {
               console.error('[llmfs] sendRequest error:', e);
-              return JSON.stringify({ error: { message: e.message } });
+              // Return as a valid OpenAI response so the agent sees the error as content
+              // instead of silently failing with "Task completed"
+              return JSON.stringify({
+                id: `chatcmpl-err-${Date.now()}`,
+                object: 'chat.completion',
+                choices: [{
+                  index: 0,
+                  message: { role: 'assistant', content: `[LLM Error] ${e.message}` },
+                  finish_reason: 'stop',
+                }],
+                usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+              });
             }
           },
         },
@@ -448,158 +620,138 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
       ).then(async ({ initYuanAgent, registerYuanWithBoardVM }) => {
         await initYuanAgent();
         registerYuanWithBoardVM();
-        term.writeln('\r\n\x1b[1;32m●\x1b[0m Yuan agent ready.\r\n');
         console.log('[TerminalPanel] Yuan agent initialized successfully');
       }).catch((e: any) => {
         console.error('[TerminalPanel] Yuan agent init failed:', e);
-        term.writeln(`\r\n\x1b[1;31m●\x1b[0m Yuan agent failed: ${e.message}\r\n`);
+        console.error('[TerminalPanel] Yuan agent init failed:', e.message);
       });
 
-      // Create Wanix runtime instance (no screen, no helpers)
-      const w = new WanixRuntime({
-        screen: false,
-        helpers: false,
-        debug9p: false,
-        wasm: null,
-        network: 'fetch',
-      });
+      // Await preboot (runtime + bundle + WASM) — starts if not already running
+      const w = await prebootVM(bundleUrl, wanixUrl, wasmUrl);
       runtimeRef.current = w;
+      console.log('[TerminalPanel] VM preboot complete, connecting console...');
+      onReady?.();
 
-      // Load the sys.tar.gz bundle
-      const bundleResp = await fetch(bundleUrl);
-      if (!bundleResp.ok) throw new Error(`Failed to fetch bundle: ${bundleResp.status}`);
-      const bundleData = await bundleResp.arrayBuffer();
-      w._bundle = bundleData;
-      w._getBundle = async () => undefined;
+      // Connect serial console
+      try {
+        await w.waitFor('#console/data', 60000);
+        console.log('[TerminalPanel] Console connected');
 
-      // Wait for WASM ready, then connect serial to xterm
-      w.ready().then(async () => {
-        term.writeln('\r\n\x1b[1;36m●\x1b[0m VM ready, connecting console...\r\n');
-        onReady?.();
+        const readFd = await w.open('#console/data');
+        console.log('[TerminalPanel] read fd:', readFd);
 
-        try {
-          // Wait for the v86 VM to boot and serial to be available.
-          await w.waitFor('#console/data', 60000);
-          term.writeln('\x1b[1;32m●\x1b[0m Connected.\r\n');
+        const decoder = new TextDecoder();
 
-          // --- Console output: read from #console/data (pipe Port 1) ---
-          const readFd = await w.open('#console/data');
-          console.log('[TerminalPanel] read fd:', readFd);
-
-          const decoder = new TextDecoder();
-
-          (async () => {
-            try {
-              for (;;) {
-                const chunk: Uint8Array | null = await w.read(readFd, 4096);
-                if (chunk === null) {
-                  term.writeln('\r\n[console EOF]\r\n');
-                  break;
-                }
-                if (chunk.length > 0) {
-                  const text = decoder.decode(chunk, { stream: true });
-                  term.write(text);
-                  onOutput?.(text);
-                }
+        (async () => {
+          try {
+            for (;;) {
+              const chunk: Uint8Array | null = await w.read(readFd, 4096);
+              if (chunk === null) {
+                term.writeln('\r\n[console EOF]\r\n');
+                break;
               }
-            } catch (e: any) {
-              console.error('[TerminalPanel] console read error:', e);
-              term.writeln(`\r\n[console read error: ${e.message}]\r\n`);
-            }
-          })();
-
-          // Mark ready
-          (runtimeRef.current as any)._serialReady = true;
-          // Expose send function on window so GUI input bar can call it
-          (window as any).__boardSend = (text: string) => {
-            const encoded = new TextEncoder().encode(text + '\r');
-            return w.appendFile('#console/data', encoded).catch((e: any) => {
-              console.error('[TerminalPanel] send error:', e);
-            });
-          };
-          // Raw keystroke send (no \r) for interactive typing
-          (window as any).__boardSendRaw = (data: Uint8Array) => {
-            return w.appendFile('#console/data', data).catch((e: any) => {
-              console.error('[TerminalPanel] sendRaw error:', e);
-            });
-          };
-          setSerialReady(true);
-
-          // --- Session pipe bridge: read mux→JS messages, respond via LLM ---
-          (async () => {
-            try {
-              await w.waitFor('#sessions/0/in', 30000);
-              console.log('[session-bridge] session pipes available');
-
-              // JS uses "in" (Port1) O_RDWR: reads buffer1 (mux writes), writes buffer2 (mux reads)
-              // Mux uses "out" (Port2) O_RDWR: writes buffer1, reads buffer2
-              const fd = await w.open('#sessions/0/in');
-              console.log('[session-bridge] opened in fd:', fd);
-              const decoder = new TextDecoder();
-              let buf = '';
-
-              for (;;) {
-                const chunk: Uint8Array | null = await w.read(fd, 4096);
-                if (chunk === null || chunk.length === 0) continue;
-                buf += decoder.decode(chunk, { stream: true });
-                const lines = buf.split('\n');
-                buf = lines.pop() || '';
-                for (const line of lines) {
-                  if (!line.trim()) continue;
-                  try {
-                    const msg = JSON.parse(line);
-                    console.log('[session-bridge] msg:', msg);
-                    if (msg.type === 'chat' && msg.text) {
-                      (window as any).boardVM.yuan._status = 'running';
-                      (async () => {
-                        try {
-                          const yuan = (window as any).boardVM?.yuan;
-                          console.log('[session-bridge] calling Yuan agent, yuan:', !!yuan?.send);
-                          const response = await yuan?.send?.(msg.text) || '[Yuan not configured]';
-                          console.log('[session-bridge] LLM response:', response?.substring(0, 100));
-                          const reply = JSON.stringify({ type: 'chat', text: response }) + '\n';
-                          console.log('[session-bridge] writing reply to response');
-                          try {
-                            const rfd = await w.open('#sessions/0/response');
-                            await w.write(rfd, new TextEncoder().encode(reply));
-                            await w.close(rfd);
-                          } catch(e2: any) {
-                            console.log('[session-bridge] fallback to in:', e2.message);
-                            await w.appendFile('#sessions/0/in', new TextEncoder().encode(reply));
-                          }
-                          console.log('[session-bridge] reply written');
-                        } catch (e: any) {
-                          console.error('[session-bridge] LLM error:', e);
-                          const errReply = JSON.stringify({ type: 'chat', text: `[error: ${e.message}]` }) + '\n';
-                          try {
-                            const efd = await w.open('#sessions/0/response');
-                            await w.write(efd, new TextEncoder().encode(errReply));
-                            await w.close(efd);
-                          } catch(e3) {
-                            await w.appendFile('#sessions/0/in', new TextEncoder().encode(errReply));
-                          }
-                        }
-                        (window as any).boardVM.yuan._status = 'idle';
-                      })();
-                    }
-                  } catch { /* not JSON */ }
-                }
+              if (chunk.length > 0) {
+                const text = decoder.decode(chunk, { stream: true });
+                term.write(text);
+                onOutput?.(text);
               }
-            } catch (e: any) {
-              console.error('[session-bridge] error:', e);
             }
-          })();
-        } catch (serialErr: any) {
-          console.error('[TerminalPanel] console setup error:', serialErr);
-          term.writeln(`\r\n[console setup error: ${serialErr.message}]\r\n`);
+          } catch (e: any) {
+            console.error('[TerminalPanel] console read error:', e);
+            term.writeln(`\r\n[console read error: ${e.message}]\r\n`);
+          }
+        })();
+
+        // Expose send functions
+        (runtimeRef.current as any)._serialReady = true;
+        (window as any).__boardSend = (text: string) => {
+          const encoded = new TextEncoder().encode(text + '\r');
+          return w.appendFile('#console/data', encoded).catch((e: any) => {
+            console.error('[TerminalPanel] send error:', e);
+          });
+        };
+        (window as any).__boardSendRaw = (data: Uint8Array) => {
+          return w.appendFile('#console/data', data).catch((e: any) => {
+            console.error('[TerminalPanel] sendRaw error:', e);
+          });
+        };
+        setSerialReady(true);
+
+        // Send initial resize to sync xterm dimensions with VM
+        // Only when container is visible — otherwise the ResizeObserver
+        // handles it when the terminal tab is shown.
+        if (containerVisible && term.cols >= 80 && term.rows >= 24) {
+          const initSeq = `\x1b[8;${term.rows};${term.cols}t`;
+          (window as any).__boardSendRaw(new TextEncoder().encode(initSeq));
+          console.log(`[TerminalPanel] sent initial resize: ${term.cols}x${term.rows}`);
         }
-      });
 
-      // Load and boot the WASM
-      const wasmResp = await fetch(wasmUrl);
-      if (!wasmResp.ok) throw new Error(`Failed to fetch WASM: ${wasmResp.status}`);
-      const wasmData = await wasmResp.arrayBuffer();
-      w._loadWasm(wasmData);
+        // --- Session pipe bridge: read mux→JS messages, respond via LLM ---
+        (async () => {
+          try {
+            await w.waitFor('#sessions/0/in', 30000);
+            console.log('[session-bridge] session pipes available');
+
+            const fd = await w.open('#sessions/0/in');
+            console.log('[session-bridge] opened in fd:', fd);
+            const decoder = new TextDecoder();
+            let buf = '';
+
+            for (;;) {
+              const chunk: Uint8Array | null = await w.read(fd, 4096);
+              if (chunk === null || chunk.length === 0) continue;
+              buf += decoder.decode(chunk, { stream: true });
+              const lines = buf.split('\n');
+              buf = lines.pop() || '';
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                  const msg = JSON.parse(line);
+                  console.log('[session-bridge] msg:', msg);
+                  if (msg.type === 'chat' && msg.text) {
+                    (window as any).boardVM.yuan._status = 'running';
+                    (async () => {
+                      try {
+                        const yuan = (window as any).boardVM?.yuan;
+                        console.log('[session-bridge] calling Yuan agent, yuan:', !!yuan?.send);
+                        const response = await yuan?.send?.(msg.text) || '[Yuan not configured]';
+                        console.log('[session-bridge] LLM response:', response?.substring(0, 100));
+                        const reply = JSON.stringify({ type: 'chat', text: response }) + '\n';
+                        console.log('[session-bridge] writing reply to response');
+                        try {
+                          const rfd = await w.open('#sessions/0/response');
+                          await w.write(rfd, new TextEncoder().encode(reply));
+                          await w.close(rfd);
+                        } catch(e2: any) {
+                          console.log('[session-bridge] fallback to in:', e2.message);
+                          await w.appendFile('#sessions/0/in', new TextEncoder().encode(reply));
+                        }
+                        console.log('[session-bridge] reply written');
+                      } catch (e: any) {
+                        console.error('[session-bridge] LLM error:', e);
+                        const errReply = JSON.stringify({ type: 'chat', text: `[error: ${e.message}]` }) + '\n';
+                        try {
+                          const efd = await w.open('#sessions/0/response');
+                          await w.write(efd, new TextEncoder().encode(errReply));
+                          await w.close(efd);
+                        } catch(e3) {
+                          await w.appendFile('#sessions/0/in', new TextEncoder().encode(errReply));
+                        }
+                      }
+                      (window as any).boardVM.yuan._status = 'idle';
+                    })();
+                  }
+                } catch { /* not JSON */ }
+              }
+            }
+          } catch (e: any) {
+            console.error('[session-bridge] error:', e);
+          }
+        })();
+      } catch (serialErr: any) {
+        console.error('[TerminalPanel] console setup error:', serialErr);
+        term.writeln(`\r\n[console setup error: ${serialErr.message}]\r\n`);
+      }
 
       // xterm keystrokes → VM console pipe (via __boardSendRaw)
       term.onData((data: string) => {
@@ -612,13 +764,24 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
       term.writeln(`\r\n[error: ${err.message || err}]\r\n`);
     }
 
-    // Resize handling
-    const onResize = () => fitAddon.fit();
-    window.addEventListener('resize', onResize);
+    // Resize handling: fit xterm AND propagate to VM's VT emulator
+    const sendResizeToVM = () => {
+      const fn = (window as any).__boardSendRaw;
+      if (!fn) return;
+      // Send CSI 8;rows;cols t — session-mux intercepts this
+      const seq = `\x1b[8;${term.rows};${term.cols}t`;
+      fn(new TextEncoder().encode(seq));
+    };
+
+    const handleResize = () => {
+      try { fitAddon.fit(); } catch {}
+      sendResizeToVM();
+    };
+    window.addEventListener('resize', handleResize);
 
     // Refit when the container becomes visible (e.g. tab switch)
     const resizeObserver = new ResizeObserver(() => {
-      try { fitAddon.fit(); } catch {}
+      handleResize();
     });
     if (terminalRef.current) {
       resizeObserver.observe(terminalRef.current);

@@ -68,6 +68,9 @@ type Mux struct {
 	renderCh chan struct{}
 	stopCh   chan struct{}
 	saved    *unix.Termios
+
+	// Escape sequence parser for resize: \x1b[8;rows;colst
+	escBuf []byte
 }
 
 func main() {
@@ -558,9 +561,70 @@ func (m *Mux) readInput() {
 			return
 		}
 		for _, b := range buf[:n] {
-			m.handleKey(b)
+			m.handleInputByte(b)
 		}
 	}
+}
+
+func (m *Mux) handleInputByte(b byte) {
+	// Escape sequence buffering: look for \x1b[8;ROWS;COLSt
+	if len(m.escBuf) > 0 || b == 0x1b {
+		m.escBuf = append(m.escBuf, b)
+		// Check for complete CSI 8;rows;cols t sequence
+		if b == 't' && len(m.escBuf) >= 6 && m.escBuf[0] == 0x1b && m.escBuf[1] == '[' {
+			m.handleResizeSeq()
+			m.escBuf = m.escBuf[:0]
+			return
+		}
+		// Timeout: if buffer gets too long without matching, flush
+		if len(m.escBuf) > 20 {
+			for _, eb := range m.escBuf {
+				m.handleKey(eb)
+			}
+			m.escBuf = m.escBuf[:0]
+		}
+		return
+	}
+	m.handleKey(b)
+}
+
+func (m *Mux) handleResizeSeq() {
+	// Parse \x1b[8;ROWS;COLSt
+	s := string(m.escBuf)
+	if !strings.HasPrefix(s, "\x1b[8;") {
+		// Not a resize sequence, forward as keystrokes
+		for _, b := range m.escBuf {
+			m.handleKey(b)
+		}
+		return
+	}
+	parts := strings.Split(s[4:len(s)-1], ";") // between "8;" and "t"
+	if len(parts) != 2 {
+		return
+	}
+	rows, err1 := strconv.Atoi(parts[0])
+	cols, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || cols < 10 || rows < 5 {
+		return
+	}
+
+	m.mu.Lock()
+	m.rows = rows
+	m.cols = cols
+	m.mu.Unlock()
+
+	// Log resize to active pane
+	if len(m.panes) > m.active {
+		m.panes[m.active].emu.Write([]byte(fmt.Sprintf("\r\n[mux] resize: %dx%d\r\n", cols, rows)))
+	}
+	for _, p := range m.panes {
+		h := rows - 1
+		if p.emu.IsAltScreen() {
+			h = rows
+		}
+		p.emu.Resize(cols, h)
+	}
+	m.triggerRender()
 }
 
 func (m *Mux) handleKey(b byte) {

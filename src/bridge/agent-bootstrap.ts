@@ -174,31 +174,41 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     const { AgentLoop, BYOKClient } = require('@yuaone/core');
     const fleetTools = require('@fleet/tools');
 
-    // Build tool definitions from Fleet tools
+    // Build tool definitions in OpenAI format: { type: 'function', function: { name, description, parameters } }
+    // NOTE: Some providers (Zhipu, etc.) don't accept additionalProperties or empty schemas.
+    // Use a minimal valid schema that works across providers.
     const toolDefs = Object.keys(fleetTools).map(function(name) {
       return {
-        name: name,
-        description: 'Fleet tool: ' + name,
-        parameters: { type: 'object', properties: {}, additionalProperties: true },
+        type: 'function',
+        function: {
+          name: name,
+          description: 'Fleet tool: ' + name,
+          parameters: { type: 'object', properties: { input: { type: 'string', description: 'Input for ' + name } }, required: [] },
+        },
       };
     });
 
     // Tool executor that routes to Fleet via boardVM
+    // Handles both OpenAI tool_call format ({ function: { name, arguments } }) and flat format
     const toolExecutor = {
       definitions: toolDefs,
       execute: async function(call) {
         var startTime = Date.now();
         try {
-          var args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments;
-          var toolFn = fleetTools[call.name];
+          // Normalize: OpenAI tool_calls use call.function.name / call.function.arguments
+          var toolName = (call.function && call.function.name) || call.name;
+          var rawArgs = (call.function && call.function.arguments) || call.arguments;
+          var args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          var toolFn = fleetTools[toolName];
           if (!toolFn) {
-            return { tool_call_id: call.id, name: call.name, output: 'Unknown tool: ' + call.name, success: false, durationMs: Date.now() - startTime };
+            return { tool_call_id: call.id, name: toolName, output: 'Unknown tool: ' + toolName, success: false, durationMs: Date.now() - startTime };
           }
           var result = await toolFn(args);
           var output = typeof result === 'string' ? result : JSON.stringify(result);
-          return { tool_call_id: call.id, name: call.name, output: output, success: true, durationMs: Date.now() - startTime };
+          return { tool_call_id: call.id, name: toolName, output: output, success: true, durationMs: Date.now() - startTime };
         } catch (err) {
-          return { tool_call_id: call.id, name: call.name, output: 'Error: ' + err.message, success: false, durationMs: Date.now() - startTime };
+          var name2 = (call.function && call.function.name) || call.name || 'unknown';
+          return { tool_call_id: call.id, name: name2, output: 'Error: ' + err.message, success: false, durationMs: Date.now() - startTime };
         }
       }
     };
