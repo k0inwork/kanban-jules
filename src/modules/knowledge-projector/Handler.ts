@@ -136,7 +136,7 @@ export class ProjectorHandler {
   }
 
   private static async projectRAG(layer: string, project: string, opts: any, charBudget: number, keywords: string[]): Promise<string> {
-    let docs = await db.kbDocs.where('active').equals(1).toArray();
+    let docs = await db.kbDocs.filter(d => d.active).toArray();
     docs = docs.filter(d => {
       if (project !== 'all' && d.project !== project) return false;
       if (!d.layer.includes(layer)) return false;
@@ -161,7 +161,7 @@ export class ProjectorHandler {
   }
 
   private static async projectExperience(layer: string, project: string, opts: any, charBudget: number, keywords: string[]): Promise<string> {
-    let entries = await db.kbLog.where('active').equals(1).toArray();
+    let entries = await db.kbLog.filter(e => e.active).toArray();
     entries = entries.filter(e => {
       if (project !== 'all' && e.project !== project) return false;
       if (!e.layer.includes(layer)) return false;

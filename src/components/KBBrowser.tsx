@@ -40,9 +40,9 @@ export default function KBBrowser({ onDocSelect, onEntrySelect }: KBBrowserProps
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const entries = useLiveQuery(() => db.kbLog.where('active').equals(1).toArray()) || [];
-  const docs = useLiveQuery(() => db.kbDocs.where('active').equals(1).toArray()) || [];
-  const artifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
+  const entries = (useLiveQuery(() => db.kbLog.filter(e => e.active).toArray()) as KBEntry[] | undefined) ?? [];
+  const docs = (useLiveQuery(() => db.kbDocs.filter(d => d.active).toArray()) as KBDoc[] | undefined) ?? [];
+  const artifacts = (useLiveQuery(() => db.taskArtifacts.toArray()) as Artifact[] | undefined) ?? [];
 
   // Filter by project
   const filteredEntries = entries.filter(e => projectFilter === 'all' || e.project === projectFilter);
@@ -60,7 +60,7 @@ export default function KBBrowser({ onDocSelect, onEntrySelect }: KBBrowserProps
   const matchedDocs = searchQuery
     ? filteredDocs.filter(d => d.title.toLowerCase().includes(searchLower) || d.summary.toLowerCase().includes(searchLower))
     : filteredDocs;
-  const matchedCategories = searchQuery
+  const matchedCategories: Record<string, KBEntry[]> = searchQuery
     ? Object.fromEntries(
         Object.entries(entriesByCategory).map(([cat, ents]) => [
           cat,
@@ -137,7 +137,9 @@ export default function KBBrowser({ onDocSelect, onEntrySelect }: KBBrowserProps
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400">Knowledge Base</span>
         </div>
         <div className="flex items-center gap-1">
-          <span className="text-[10px] font-mono text-neutral-600">{filteredDocs.length}d {filteredEntries.length}e</span>
+          {(filteredDocs.length > 0 || filteredEntries.length > 0) && (
+	            <span className="text-[10px] font-mono text-neutral-600">{filteredDocs.length}d {filteredEntries.length}e</span>
+	          )}
           <div className="relative">
             <button
               onClick={() => setShowAddMenu(!showAddMenu)}
