@@ -1,209 +1,128 @@
-# Knowledge, Dream & Reflection Systems
+# Test Suite: knowledge-kb, process-dream, process-reflection
 
-## Overview
+## Setup
 
-The agent platform has three interconnected knowledge management systems that form a self-improving loop:
+**File**: `src/__tests__/modules.test.ts`
+**Runner**: `npx vitest run` (uses `fake-indexeddb/auto` via `src/__tests__/setup.ts`)
+**Result**: 42 tests, all passing, ~300ms
 
-1. **knowledge-kb** — The memory store (read/write observations, patterns, documents)
-2. **process-dream** — The consolidation engine (summarizes raw observations into insights)
-3. **process-reflection** — The self-correction engine (detects agent-level failures and reclassifies them)
-
-```
-Execution → knowledge-kb (records raw observations)
-                  ↓
-          process-dream (consolidates into patterns)
-                  ↓
-          process-reflection (detects self-caused failures)
-                  ↓
-          knowledge-kb (stores corrections + self-tasks)
-```
-
----
-
-## knowledge-kb — The Memory Store
-
-### What it does
-
-CRUD operations on two IndexedDB tables:
-
-- **kbLog** — timestamped entries (observations, errors, patterns, decisions, dreams, corrections)
-- **kbDocs** — structured documents (specs, designs, API references, readmes)
-
-### Tools
-
-| Tool | Purpose |
-|---|---|
-| `knowledge-kb.recordEntry` | Add a KB log entry |
-| `knowledge-kb.queryLog` | Query entries by category, source, layer, tags, active status, abstraction level |
-| `knowledge-kb.updateEntries` | Bulk-update entries by ID |
-| `knowledge-kb.saveDocument` | Create or upsert a document (matched by title + project) |
-| `knowledge-kb.queryDocs` | Query documents by type, project, tags, layer |
-
-### KB Entry structure
+### Test infrastructure
 
 ```typescript
-{
-  text: string,           // The observation or insight
-  category: string,       // error | pattern | decision | observation | dream | correction | ...
-  abstraction: number,    // 0=raw event → 5=synthesized → 9=strategic
-  layer: string[],        // Which agent layers this is relevant to ['L0','L1','L2','L3']
-  tags: string[],         // Freeform tags for retrieval (task-123, executor-local, constitution, gap)
-  source: string,         // execution | dream:micro | dream:session | dream:deep | user
-  active: boolean,        // Soft delete — deactivated entries are hidden from queries
-  project: 'target'|'self' // 'target' = about the user's project, 'self' = about the agent itself
-}
+// Factory: builds a KBEntry with sensible defaults, override anything
+makeEntry({ text: 'some error', tags: ['task-1'], category: 'error' })
+
+// Mock context: fake RequestContext with a stubbed llmCall
+mockContext('LLM response string')
+
+// beforeEach: wipes all IndexedDB tables so tests are isolated
 ```
 
-### Abstraction levels
-
-| Level | Meaning | Example |
-|---|---|---|
-| 0-2 | Raw execution events | "Build failed: syntax error on line 42" |
-| 3-5 | Synthesized observations | "React components frequently miss useEffect cleanup" |
-| 6-7 | Patterns & decisions | "Always use try/catch around fetch calls" |
-| 8-9 | Strategic insights | "Project needs migration from REST to tRPC" |
-
-### Project duality
-
-- **target** — Knowledge about the user's project (their codebase, their bugs, their patterns)
-- **self** — Knowledge about the agent itself (its own failures, protocol issues, constitution)
-
-This separation is critical: when the agent fails, `process-reflection` moves errors from `target` to `self`, acknowledging "this is MY problem, not the user's."
+No real LLM calls — all `llmCall` invocations return a controlled string. This makes tests deterministic and fast.
 
 ---
 
-## process-dream — The Consolidation Engine
+## Test Breakdown
 
-### What it does
+### 1. `applyRules` (10 tests)
 
-Periodically summarizes raw observations into higher-abstraction insights. Named after "dreaming" in cognitive science — the brain consolidates memories during sleep.
+Tests the pure reflection rule engine in `process-reflection/rules.ts`. No DB involved — just pass arrays of `KBEntry` and check which rules fire.
 
-### Three dream levels
+| Test | What it verifies |
+|---|---|
+| Rule 1 fires (≥3 same error, ≥2 tasks) | 3 entries with identical first-60-chars across task-1/2/3 → `SAME-ERROR DIFFERENT-TASK` fires, creates self-task |
+| Rule 1 negated (1 task only) | 3 identical errors but all on task-1 → rule does NOT fire (need cross-task evidence) |
+| Rule 1 negated (<3 occurrences) | 2 identical errors across 2 tasks → rule does NOT fire (threshold=3) |
+| Rule 2 fires (constitution errors) | 2 errors tagged `constitution` on `target` → `CONSTITUTION-VIOLATION` fires |
+| Rule 2 ignores self-project | Same setup but `project: 'self'` → rule does NOT fire (agent blaming itself is circular) |
+| Rule 3 fires (executor failures) | 3 errors tagged `executor-local` → `RECURRING-PROTOCOL-FAILURE` fires |
+| Rule 4 fires (user correction) | User correction entry shares a tag with an error → `USER-CORRECTION` fires, no self-task |
+| Rule 5 fires (known gap) | Error shares tag with a `gap`-tagged observation → `KNOWN-GAP` fires, no reclassify |
+| No rules match | 2 unique errors, no patterns → empty results |
+| Multiple rules fire | 3 same errors across tasks, all on same executor → both Rule 1 AND Rule 3 fire |
 
-#### 1. Micro-dream (post-task)
-
-- **When**: After a task completes
-- **Input**: Raw entries (abstraction ≤ 2) tagged with the task ID
-- **Requires**: ≥ 3 entries (otherwise skips)
-- **Action**: LLM summarizes into 1-2 sentences → creates an abstraction-5 entry → deactivates the raw originals
-- **Example**: 4 raw "parsing failed" entries → "JSON parsing consistently fails on API responses — likely malformed responses"
-
-#### 2. Session-dream (idle)
-
-- **When**: When the agent is idle between tasks
-- **Input**: Active execution + micro-dream entries (up to 40)
-- **Action**: LLM analyzes for patterns, failures, strategies, and documentation gaps
-- **Output**: Creates 4 types of entries:
-  - `pattern` — Recurring behaviors
-  - `error` — Failure clusters
-  - `decision` — Suggested strategies
-  - `observation` (tagged `gap`) — Missing documentation
-- **Example**: Notices "executor-local fails 3x on test tasks" → creates a pattern entry
-
-#### 3. Deep-dream (daily)
-
-- **When**: Once per day (or on demand)
-- **Input**: All active entries + all docs + task board state + constitution
-- **Action**: 3-phase process:
-  1. **Strategic consolidation** — LLM produces 3-5 strategic insights (abstraction 9)
-  2. **Constitution review** — LLM proposes amendments if rules are causing failures
-  3. **Pruning** — Deactivates raw execution entries older than 7 days (preserves high-abstraction)
-- **Example**: "The project needs better error handling across all API routes. Constitution rule 'never use try/catch' should be amended."
+**Why these matter**: The rules decide when the agent admits fault. False positives mean the agent blames itself for user bugs. False negatives mean it never self-corrects. The negation tests guard the thresholds.
 
 ---
 
-## process-reflection — The Self-Correction Engine
+### 2. `ReflectionHandler` (7 tests)
 
-### What it does
+End-to-end tests for the `process-reflection.reclassify` tool. Uses real IndexedDB (fake-indexeddb), seeds entries, calls the handler, checks DB state.
 
-Detects when errors are the agent's fault (not the user's project) and reclassifies them from `project: 'target'` → `project: 'self'`.
+| Test | What it verifies |
+|---|---|
+| No matching errors | Seeds an `observation` (not `error`) → reclassify returns 0, nothing changes |
+| Skips inactive entries | Seeds 3 matching errors but `active: false` → reclassify returns 0 (deleted entries ignored) |
+| Reclassifies to "self" | 3 same errors across 3 tasks → project changed from `target` to `self` in DB |
+| Appends reflection entry | After reclassification → a `correction` entry is logged with `source: 'dream:session'` and `project: 'self'` |
+| Creates self-task | Rule with `createSelfTask: true` → a task with `project: 'self'` and title containing `[self]` appears in DB |
+| entryIds filtering | Pass `entryIds: [1]` → only entry #1 is considered (too few to trigger rules → 0 reclassified) |
+| Unknown tool rejection | Pass bogus tool name → throws "Unknown tool" |
 
-### The 5 reflection rules
-
-#### Rule 1: SAME-ERROR DIFFERENT-TASK
-
-- **Trigger**: Same error text (normalized first 60 chars) appears ≥3 times across ≥2 different tasks
-- **Logic**: If the same error happens on different tasks, it's not task-specific — it's an agent-level issue
-- **Action**: Reclassify to `self`, create a self-task to fix it
-- **Example**: "Failed to parse JSON" on task-1, task-4, task-7 → agent has a parsing bug
-
-#### Rule 2: CONSTITUTION-VIOLATION
-
-- **Trigger**: ≥2 errors tagged `constitution` on `target` project
-- **Logic**: Constitution rules are causing failures — the rules themselves may be wrong
-- **Action**: Reclassify to `self`, create a self-task to review constitution
-- **Example**: Agent follows "never use async/await" rule but keeps failing → rule needs amendment
-
-#### Rule 3: RECURRING-PROTOCOL-FAILURE
-
-- **Trigger**: Same executor (e.g., `executor-local`) has ≥3 errors
-- **Logic**: If one executor consistently fails, the protocol generation (step planning) is broken for it
-- **Action**: Reclassify to `self`, create a self-task to fix protocol generation
-- **Example**: `executor-local` fails 5 times → step plans are generating bad code
-
-#### Rule 4: USER-CORRECTION
-
-- **Trigger**: A user correction entry overlaps (shares tags) with error entries
-- **Logic**: User overrode the agent's decision on a task that also had errors — agent made wrong choices
-- **Action**: Reclassify to `self` (no self-task — user already corrected it)
-- **Example**: User says "don't delete node_modules" on a task where build cleanup failed
-
-#### Rule 5: KNOWN-GAP
-
-- **Trigger**: An error shares tags with a `gap`-tagged observation
-- **Logic**: This error was already flagged as a known knowledge gap — not the agent's fault
-- **Action**: Tag as `gap-confirmed` — do NOT reclassify (it's a known limitation, not a bug)
-- **Example**: Error about "missing config docs" matches existing gap "no API documentation"
-
-### The reclassify flow
-
-```
-1. Gather: Load active error entries (category=error, project=target, source=execution)
-2. Cross-reference: Load all active entries for rule matching
-3. Apply rules: Run all 5 rules against the error set
-4. Reclassify: Change project from 'target' → 'self' for matched entries
-5. Log: Append a 'correction' entry documenting what was reclassified and why
-6. Self-task: Create a TODO task (project=self) if the rule requests it
-```
+**Why these matter**: The handler ties together rules + DB mutations. These tests verify the full write pipeline: rule matches → entries reclassified → reflection logged → self-task created. The `entryIds` test confirms scoped reclassify works (important for partial runs).
 
 ---
 
-## How They Work Together
+### 3. `DreamHandler` (8 tests)
 
-```
-Day 1:
-  Executor runs → records raw error entries (abstraction 1-2, project=target)
-  ↓
-  Micro-dream → summarizes per-task errors (abstraction 5)
-  ↓
-  Session-dream → notices patterns across tasks (abstraction 7)
+Tests all 3 dream levels. Uses real IndexedDB with mock LLM calls.
 
-Day 2:
-  Reflection → detects "same error across 3 tasks" → reclassifies to self
-  ↓
-  Self-task created → "[self] Fix recurring JSON parsing error"
-  ↓
-  Deep-dream → strategic insight: "executor-local has systematic parsing issues"
-  ↓
-  Constitution review → proposes amendment to error handling rules
+| Test | What it verifies |
+|---|---|
+| Unknown tool rejection | Bogus tool name → throws |
+| **microDream** consolidation | Seeds 4 raw entries tagged `task-42` → LLM summarizes → creates 1 `dream:micro` entry at abstraction 5, originals deactivated |
+| **microDream** skip (<3) | Only 1 entry → skips, LLM never called |
+| **sessionDream** pattern extraction | Seeds 5 execution + 1 micro-dream entries → mock LLM returns JSON with patterns/failures/strategies/gaps → verifies 1 of each category written to DB |
+| **sessionDream** early return | Empty DB → returns "no active entries", LLM never called |
+| **sessionDream** malformed JSON | LLM returns garbage string → parser falls back to empty arrays, no crash |
+| **deepDream** pruning | Seeds: 3 old raw entries (8 days ago, abstraction 1) + 1 recent + 1 old but high-abstraction → old raw entries deactivated, others survive |
+| **deepDream** amendment positive | LLM response includes amendment text → `constitution` entry created with `project: 'self'` |
+| **deepDream** amendment negative | LLM says "No amendments needed" → no constitution entry created |
 
-Day 3:
-  Agent picks up self-task → fixes its own parsing bug
-  ↓
-  Future executions no longer produce that error
-```
-
-This creates a **self-healing loop**: the agent observes its own failures, consolidates them into patterns, recognizes when it's at fault, creates tasks to fix itself, and learns from the fixes.
+**Why these matter**: Dreams are the agent's learning mechanism. The malformed-JSON test prevents a bad LLM response from crashing the dream cycle. The pruning test ensures raw data is cleaned up but insights are preserved. The amendment tests verify the constitution can evolve but doesn't change unnecessarily.
 
 ---
 
-## Test Coverage
+### 4. `KBHandler` (14 tests)
 
-42 tests in `src/__tests__/modules.test.ts`:
+Tests the CRUD layer for `kbLog` and `kbDocs`. Pure DB operations, no LLM involved.
 
-| Suite | Tests | Coverage |
-|---|---|---|
-| `applyRules` | 10 | All 5 rules (positive + negative cases), multi-rule firing, threshold boundaries |
-| `ReflectionHandler` | 7 | Reclassify end-to-end: no-match, inactive, project change, reflection logging, self-task creation, entry filtering |
-| `DreamHandler` | 8 | micro (consolidation + skip), session (pattern extraction + early return + malformed JSON), deep (pruning + amendments positive/negative) |
-| `KBHandler` | 14 | recordEntry, queryLog (7 filter types + sort), updateEntries, saveDocument (create + upsert + project isolation), queryDocs |
+| Test | What it verifies |
+|---|---|
+| Unknown tool rejection | Bogus tool name → throws |
+| **recordEntry** basic | Creates entry, verifies it's in DB with correct defaults (`active: true`, `project: 'target'`) |
+| **recordEntry** project param | Explicit `project: 'self'` → respected |
+| **queryLog** by category | 3 entries (2 errors, 1 pattern) → filter by `error` → returns 2 |
+| **queryLog** by active | 1 active + 1 inactive → `active: true` returns 1, `active: false` returns 1 |
+| **queryLog** by tags | Tags: [react,frontend], [backend,api], [react,backend] → filter `['react']` → returns 2 (any-match) |
+| **queryLog** by source | execution vs dream:micro → filter works |
+| **queryLog** by layer | [L0], [L0,L1], [L2] → filter `L1` → returns only [L0,L1] (includes check) |
+| **queryLog** limit | 10 entries, limit 3 → returns 3 |
+| **queryLog** sort order | Entries at abstraction 1/9/5 → sorted desc by abstraction (9, 5, 1) |
+| **updateEntries** | Changes text and tags on existing entry |
+| **saveDocument** create | New doc → version 1, returns ID |
+| **saveDocument** upsert | Same title, same project → updates in place, version bumps to 2 |
+| **saveDocument** project isolation | Same title, different project → creates separate docs (different IDs) |
+| **queryDocs** multi-filter | 3 docs (2 specs + 1 design, mixed projects/tags) → filter by type, project, and tags individually |
+| **queryDocs** excludes inactive | Active + inactive doc → only active returned |
+
+**Why these matter**: KBHandler is the data layer everything else depends on. The upsert test catches a real bug we fixed — `kbDocs` was missing a `title` index, so `.where('title').equals()` would throw `SchemaError` in production. The project-isolation test ensures `target` and `self` knowledge never leaks between scopes.
+
+---
+
+## Running
+
+```bash
+# All module tests
+npx vitest run src/__tests__/modules.test.ts
+
+# Watch mode
+npx vitest src/__tests__/modules.test.ts
+
+# Full suite (includes other test files)
+npx vitest run
+```
+
+## Bug caught during test development
+
+Test 3 failures (`saveDocument` upserts) revealed that `kbDocs` was missing a `title` index in the Dexie schema. The handler uses `.where('title').equals()` for upsert lookups, which requires the field to be indexed. Fixed by adding `title` to the index in schema v21 (`src/services/db.ts`).
