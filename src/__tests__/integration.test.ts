@@ -11,6 +11,11 @@ import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
 import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
 import { eventBus } from '../core/event-bus';
+import { agentContext } from '../services/AgentContext';
+import { Orchestrator } from '../core/orchestrator';
+import { composeProgrammerPrompt } from '../core/prompt';
+import { registry } from '../core/registry';
+import { Task } from '../types';
 
 function mockContext(llmResponse: string = 'mock response'): any {
   return {
@@ -843,5 +848,312 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
     const readmeDocs = docs.filter(d => d.type === 'readme');
     expect(readmeDocs).toHaveLength(1);
     expect(readmeDocs[0].source).toBe('repo-scan');
+  });
+});
+
+// ─── Flow 9: GlobalVars persistence across steps ──────────────
+describe('Integration: agentContext persists across task steps', () => {
+  it('context set in step 1 is available when step 2 prompt is composed', async () => {
+    // Create a task with a 2-step protocol
+    const taskId = 'test-gv-1';
+    await db.tasks.add({
+      id: taskId,
+      title: 'Multi-step task',
+      description: 'Test context persistence',
+      workflowStatus: 'IN_PROGRESS',
+      agentState: 'EXECUTING',
+      createdAt: Date.now(),
+      protocol: {
+        steps: [
+          { id: 1, title: 'Step 1', description: 'Set context', executor: 'executor-local', status: 'pending' },
+          { id: 2, title: 'Step 2', description: 'Read context', executor: 'executor-local', status: 'pending' },
+        ],
+      },
+    });
+
+    // Simulate Step 1: orchestrator loads agentContext, sandbox sets values, then persists
+    agentContext.clear();
+    const task = (await db.tasks.get(taskId))!;
+    // Orchestrator.runStep loads existing agentContext into the singleton
+    if (task.agentContext) {
+      for (const [k, v] of Object.entries(task.agentContext)) {
+        agentContext.set(k, v);
+      }
+    }
+
+    // Sandbox code sets context (simulating addToContext('discoveredApis', [...]))
+    agentContext.set('discoveredApis', ['users', 'orders', 'payments']);
+    agentContext.set('authToken', 'abc123');
+
+    // After sandbox execution, orchestrator persists agentContext to DB
+    await db.tasks.update(taskId, { agentContext: agentContext.getAll() });
+
+    // Verify persistence
+    const afterStep1 = (await db.tasks.get(taskId))!;
+    expect(afterStep1.agentContext).toBeDefined();
+    expect(afterStep1.agentContext!.discoveredApis).toEqual(['users', 'orders', 'payments']);
+    expect(afterStep1.agentContext!.authToken).toBe('abc123');
+
+    // Simulate Step 2: orchestrator loads the persisted context
+    agentContext.clear();
+    const taskStep2 = (await db.tasks.get(taskId))!;
+    if (taskStep2.agentContext) {
+      for (const [k, v] of Object.entries(taskStep2.agentContext)) {
+        agentContext.set(k, v);
+      }
+    }
+
+    // Verify the singleton has the data from step 1
+    expect(agentContext.get('discoveredApis')).toEqual(['users', 'orders', 'payments']);
+    expect(agentContext.get('authToken')).toBe('abc123');
+
+    // Verify composeProgrammerPrompt includes the agentContext
+    const modules = registry.getEnabled();
+    const prompt = composeProgrammerPrompt(
+      modules,
+      taskStep2 as Task,
+      taskStep2.protocol!.steps[1],
+      '',
+    );
+    expect(prompt).toContain('discoveredApis');
+    expect(prompt).toContain('users');
+    expect(prompt).toContain('authToken');
+  });
+
+  it('context accumulates across 3 steps without loss', async () => {
+    const taskId = 'test-gv-2';
+    await db.tasks.add({
+      id: taskId,
+      title: '3-step accumulation',
+      description: 'Each step adds context',
+      workflowStatus: 'IN_PROGRESS',
+      agentState: 'EXECUTING',
+      createdAt: Date.now(),
+      protocol: {
+        steps: [
+          { id: 1, title: 'Discover', description: 'Find APIs', executor: 'executor-local', status: 'pending' },
+          { id: 2, title: 'Test', description: 'Test APIs', executor: 'executor-local', status: 'pending' },
+          { id: 3, title: 'Integrate', description: 'Integrate APIs', executor: 'executor-local', status: 'pending' },
+        ],
+      },
+    });
+
+    // Step 1: discover APIs
+    agentContext.clear();
+    agentContext.set('apis', ['users', 'orders']);
+    await db.tasks.update(taskId, { agentContext: agentContext.getAll() });
+
+    // Step 2: load + add test results
+    agentContext.clear();
+    const step2Task = (await db.tasks.get(taskId))!;
+    for (const [k, v] of Object.entries(step2Task.agentContext || {})) {
+      agentContext.set(k, v);
+    }
+    agentContext.set('testResults', { users: 'pass', orders: 'pass' });
+    await db.tasks.update(taskId, { agentContext: agentContext.getAll() });
+
+    // Step 3: load + verify everything is there + add integration notes
+    agentContext.clear();
+    const step3Task = (await db.tasks.get(taskId))!;
+    for (const [k, v] of Object.entries(step3Task.agentContext || {})) {
+      agentContext.set(k, v);
+    }
+
+    // Step 3 sees data from both step 1 and step 2
+    expect(agentContext.get('apis')).toEqual(['users', 'orders']);
+    expect(agentContext.get('testResults')).toEqual({ users: 'pass', orders: 'pass' });
+
+    agentContext.set('integrationDone', true);
+    await db.tasks.update(taskId, { agentContext: agentContext.getAll() });
+
+    // Final verification: all 3 keys present in DB
+    const finalTask = (await db.tasks.get(taskId))!;
+    expect(Object.keys(finalTask.agentContext!)).toHaveLength(3);
+    expect(finalTask.agentContext!.integrationDone).toBe(true);
+  });
+});
+
+// ─── Flow 10: Analyze forwarding across steps ──────────────────
+describe('Integration: analyze() output forwarded to subsequent steps', () => {
+  it('analysis from step 1 appears in step 2 prompt via task.analysis', async () => {
+    const llmResponses = [
+      'The API returns a paginated list with a cursor token.',
+    ];
+    let callIdx = 0;
+    const mockLlm = vi.fn().mockImplementation(() => {
+      const resp = llmResponses[callIdx] || llmResponses[llmResponses.length - 1];
+      callIdx++;
+      return Promise.resolve(resp);
+    });
+
+    const orc = new Orchestrator();
+    orc.init({
+      repoUrl: 'https://github.com/test/repo',
+      repoBranch: 'main',
+      moduleConfigs: {},
+      llmCall: mockLlm,
+    });
+
+    const taskId = 'test-af-1';
+    await db.tasks.add({
+      id: taskId,
+      title: 'Analyze logs then fix bug',
+      description: 'First analyze error logs, then fix the bug',
+      workflowStatus: 'IN_PROGRESS',
+      agentState: 'EXECUTING',
+      createdAt: Date.now(),
+      protocol: {
+        steps: [
+          { id: 1, title: 'Analyze', description: 'Analyze error logs', executor: 'executor-local', status: 'pending' },
+          { id: 2, title: 'Fix', description: 'Fix the bug', executor: 'executor-local', status: 'pending' },
+        ],
+      },
+    });
+
+    // Simulate host.analyze being called during step 1
+    // This is what the orchestrator.moduleRequest does for 'host.analyze'
+    agentContext.clear();
+    const analysisResult = await (orc as any).moduleRequest(taskId, 'host.analyze', [
+      'Error: Cannot read property "cursor" of undefined at fetchPage (api.js:42)',
+    ]);
+
+    expect(analysisResult).toBe('The API returns a paginated list with a cursor token.');
+    expect(mockLlm).toHaveBeenCalled();
+
+    // After execution, orchestrator saves accumulatedAnalysis to task.analysis
+    const accumulatedAnalysis = (orc as any).context.accumulatedAnalysis;
+    expect(accumulatedAnalysis).toHaveLength(1);
+    expect(accumulatedAnalysis[0]).toContain('paginated list');
+
+    // Simulate persisting to task.analysis (as executeInSandbox does)
+    const taskAfterStep1 = (await db.tasks.get(taskId))!;
+    const existingAnalysis = taskAfterStep1.analysis ? taskAfterStep1.analysis + '\n' : '';
+    const newAnalysis = accumulatedAnalysis.join('\n');
+    await db.tasks.update(taskId, {
+      agentContext: agentContext.getAll(),
+      analysis: (existingAnalysis + newAnalysis).trim(),
+    });
+
+    // Verify task.analysis is persisted
+    const updated = (await db.tasks.get(taskId))!;
+    expect(updated.analysis).toContain('paginated list');
+
+    // Verify composeProgrammerPrompt includes the analysis for step 2
+    const modules = registry.getEnabled();
+    const step2Prompt = composeProgrammerPrompt(
+      modules,
+      updated as Task,
+      updated.protocol!.steps[1],
+      '',
+    );
+    expect(step2Prompt).toContain('paginated list');
+    expect(step2Prompt).toContain('Accumulated Analysis Results');
+  });
+
+  it('multiple analyze() calls accumulate across steps', async () => {
+    const orc = new Orchestrator();
+    const responses = ['Analysis 1: auth uses JWT tokens', 'Analysis 2: rate limit is 100/min'];
+    let callIdx = 0;
+    orc.init({
+      repoUrl: 'https://github.com/test/repo',
+      repoBranch: 'main',
+      moduleConfigs: {},
+      llmCall: vi.fn().mockImplementation(() => {
+        const resp = responses[callIdx] || responses[responses.length - 1];
+        callIdx++;
+        return Promise.resolve(resp);
+      }),
+    });
+
+    const taskId = 'test-af-2';
+    await db.tasks.add({
+      id: taskId,
+      title: 'Multi-analyze task',
+      description: 'Multiple analyses',
+      workflowStatus: 'IN_PROGRESS',
+      agentState: 'EXECUTING',
+      createdAt: Date.now(),
+      protocol: {
+        steps: [
+          { id: 1, title: 'Auth analysis', description: 'Analyze auth', executor: 'executor-local', status: 'pending' },
+          { id: 2, title: 'Rate limit analysis', description: 'Analyze rate limiting', executor: 'executor-local', status: 'pending' },
+          { id: 3, title: 'Implement', description: 'Implement solution', executor: 'executor-local', status: 'pending' },
+        ],
+      },
+    });
+
+    // Step 1: analyze auth
+    agentContext.clear();
+    await (orc as any).moduleRequest(taskId, 'host.analyze', ['auth logs']);
+
+    // Step 2: analyze rate limit (accumulatedAnalysis keeps growing)
+    await (orc as any).moduleRequest(taskId, 'host.analyze', ['rate limit logs']);
+
+    // Both analyses accumulated
+    expect((orc as any).context.accumulatedAnalysis).toHaveLength(2);
+    expect((orc as any).context.accumulatedAnalysis[0]).toContain('JWT');
+    expect((orc as any).context.accumulatedAnalysis[1]).toContain('rate limit');
+
+    // Persist
+    await db.tasks.update(taskId, {
+      analysis: (orc as any).context.accumulatedAnalysis.join('\n'),
+    });
+
+    // Verify step 3 prompt sees both analyses
+    const updated = (await db.tasks.get(taskId))!;
+    const modules = registry.getEnabled();
+    const step3Prompt = composeProgrammerPrompt(
+      modules,
+      updated as Task,
+      updated.protocol!.steps[2],
+      '',
+    );
+    expect(step3Prompt).toContain('JWT');
+    expect(step3Prompt).toContain('rate limit');
+  });
+
+  it('addToContext stores key-value pairs visible in later steps', async () => {
+    const orc = new Orchestrator();
+    orc.init({
+      repoUrl: 'https://github.com/test/repo',
+      repoBranch: 'main',
+      moduleConfigs: {},
+      llmCall: vi.fn().mockResolvedValue('unused'),
+    });
+
+    const taskId = 'test-af-3';
+    await db.tasks.add({
+      id: taskId,
+      title: 'Context passthrough',
+      description: 'Test addToContext persistence',
+      workflowStatus: 'IN_PROGRESS',
+      agentState: 'EXECUTING',
+      createdAt: Date.now(),
+      protocol: {
+        steps: [
+          { id: 1, title: 'Store', description: 'Store data', executor: 'executor-local', status: 'pending' },
+          { id: 2, title: 'Retrieve', description: 'Retrieve data', executor: 'executor-local', status: 'pending' },
+        ],
+      },
+    });
+
+    // Step 1: addToContext with key-value
+    agentContext.clear();
+    await (orc as any).moduleRequest(taskId, 'host.addToContext', ['dbSchema', 'users(id, name), orders(id, user_id, total)']);
+
+    // Persist
+    await db.tasks.update(taskId, { agentContext: agentContext.getAll() });
+
+    // Step 2: load and verify in prompt
+    const updated = (await db.tasks.get(taskId))!;
+    const modules = registry.getEnabled();
+    const prompt = composeProgrammerPrompt(
+      modules,
+      updated as Task,
+      updated.protocol!.steps[1],
+      '',
+    );
+    expect(prompt).toContain('dbSchema');
+    expect(prompt).toContain('users(id, name)');
   });
 });

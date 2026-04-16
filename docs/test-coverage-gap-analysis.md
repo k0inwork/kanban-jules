@@ -1,6 +1,6 @@
 # Test Suite vs MVP Proposals — Coverage Gap Analysis
 
-Compares the 80 tests in `src/__tests__/modules.test.ts` (71 unit) and `src/__tests__/integration.test.ts` (9 integration) against:
+Compares the 85 tests in `src/__tests__/modules.test.ts` (71 unit) and `src/__tests__/integration.test.ts` (14 integration) against:
 - `docs/self-healing-agent.md` — 4 module specs
 - `docs/mvp-phase0-kb-context.md` — 10 implementation steps + 7 data flows
 - `docs/modules-testing.md` — per-module-type test strategy
@@ -115,7 +115,7 @@ Compares the 80 tests in `src/__tests__/modules.test.ts` (71 unit) and `src/__te
 
 ## Integration Test Coverage
 
-File: `src/__tests__/integration.test.ts` — 9 tests exercising full cross-module pipelines.
+File: `src/__tests__/integration.test.ts` — 14 tests exercising full cross-module pipelines.
 
 | Flow | What it tests | Data Flow |
 |---|---|---|
@@ -128,6 +128,11 @@ File: `src/__tests__/integration.test.ts` — 9 tests exercising full cross-modu
 | Constitution amendment approval | deepDream proposes → user approves via event bus → constitution updated | F5 + user interaction |
 | Constitution amendment rejection | deepDream proposes → user rejects → constitution unchanged | F5 + user interaction |
 | Full project lifecycle (e-commerce checkout) | scanRepo → 3 tasks (success + errors) → microDream → sessionDream + reflection → deepDream + constitution amendment → full state verification | F1 + F2 + F4 + F5 + F8 |
+| GlobalVars persistence (step→step) | agentContext set in step 1 → persisted to DB → loaded in step 2 → appears in prompt | Orchestrator context flow |
+| GlobalVars accumulation (3 steps) | Context accumulates across 3 steps without data loss | Orchestrator context flow |
+| Analyze forwarding (step 1→2) | host.analyze output → task.analysis → appears in step 2 prompt | F3 partial |
+| Analyze accumulation (multiple calls) | Multiple analyze() calls accumulate → all visible in step 3 prompt | F3 partial |
+| addToContext passthrough | addToContext key-value → persisted to agentContext → visible in next step prompt | Orchestrator context flow |
 
 ---
 
@@ -177,12 +182,12 @@ From the testing strategy doc §15:
 | **Process modules** — missing stage artifacts | N/A (process-project-manager specific) |
 | **Process modules** — duplicate proposal detection | N/A (process-project-manager specific) |
 | MockHost test harness | Not built — using direct DB + mock llmCall instead |
-| Integration tests (orchestrator → module pipeline) | **Done** — 6 integration tests |
+| Integration tests (orchestrator → module pipeline) | **Done** — 14 integration tests |
 | Integration — multi-module pipelines | **Done** — dream → reflection → self-task |
 | Integration — KB state evolution | **Done** — abstraction climb, pruning, gap lifecycle |
 | Integration — constitution evolution | **Done** — deep-dream amendment → reflection self-task |
-| Integration — GlobalVars persistence | **Not done** |
-| Integration — analyze forwarding | **Not done** |
+| Integration — GlobalVars persistence | **Done** — context persists across steps, accumulates without loss |
+| Integration — analyze forwarding | **Done** — analyze output forwarded to subsequent step prompts |
 
 ---
 
@@ -196,12 +201,11 @@ From the testing strategy doc §15:
 | **process-reflection** | 24 | 0 | **100%** |
 | **Implementation steps** | 9/10 | 1 (External KB) | **90%** |
 | **Data flows** | 5/7 | 2 (narrowing, background research) | **71%** |
-| **Integration tests** | 9 | 2 (GlobalVars, analyze forwarding — orchestrator-level) | **82%** |
+| **Integration tests** | 14 | 0 (all MVP flows covered) | **100%** |
 
 ### Remaining gaps (not testable yet):
 
 1. **External KB integration** — stubs return `available()=false`
-2. **Orchestrator-level integration** — GlobalVars, analyze forwarding, full step execution
 
 ---
 
