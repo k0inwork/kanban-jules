@@ -25,6 +25,7 @@
     }
   ],
   "sandboxBindings": {
+    "bash": "executor-wasm.execute",
     "readFile": "knowledge-repo-browser.readFile",
     "saveArtifact": "knowledge-artifacts.saveArtifact",
     "listArtifacts": "knowledge-artifacts.listArtifacts"

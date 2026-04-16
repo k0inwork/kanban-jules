@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "node scripts/bundle-yuaone.mjs && vite build",
+    "bundle:yuaone": "node scripts/bundle-yuaone.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
@@ -21,6 +22,8 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
+    "@yuaone/cli": "^2.0.2",
+    "@yuaone/core": "^1.0.2",
     "almostnode": "^0.2.14",
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
