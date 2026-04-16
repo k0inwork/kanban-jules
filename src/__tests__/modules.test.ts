@@ -153,6 +153,51 @@ describe('applyRules', () => {
     expect(results).toHaveLength(0);
   });
 
+  it('Rule 3: does NOT fire when < 3 executor failures', () => {
+    const errors = [
+      makeEntry({ text: 'Fail 1', tags: ['executor-local'] }),
+      makeEntry({ text: 'Fail 2', tags: ['executor-local'] }),
+    ];
+    const results = applyRules(errors, errors);
+    expect(results.find(r => r.ruleName === 'RECURRING-PROTOCOL-FAILURE')).toBeUndefined();
+  });
+
+  it('Rule 4: does NOT fire when correction has no overlapping tags with errors', () => {
+    const errors = [
+      makeEntry({ text: 'Build failed', tags: ['task-5', 'build'] }),
+    ];
+    const allEntries = [
+      ...errors,
+      makeEntry({ text: 'User override', category: 'correction', source: 'user', tags: ['task-99'] }),
+    ];
+    const results = applyRules(errors, allEntries);
+    expect(results.find(r => r.ruleName === 'USER-CORRECTION')).toBeUndefined();
+  });
+
+  it('Rule 5: does NOT fire when no gap tags match error tags', () => {
+    const errors = [
+      makeEntry({ text: 'Missing config', tags: ['config', 'task-1'] }),
+    ];
+    const allEntries = [
+      ...errors,
+      makeEntry({ text: 'GAP: no API docs', category: 'observation', tags: ['gap', 'api'] }),
+    ];
+    const results = applyRules(errors, allEntries);
+    expect(results.find(r => r.ruleName === 'KNOWN-GAP')).toBeUndefined();
+  });
+
+  it('applyRules respects custom threshold parameter', () => {
+    const errors = [
+      makeEntry({ text: 'Rare error X', tags: ['task-1'] }),
+      makeEntry({ text: 'Rare error X', tags: ['task-2'] }),
+    ];
+    // Default threshold=3: no match
+    expect(applyRules(errors, errors).find(r => r.ruleName === 'SAME-ERROR DIFFERENT-TASK')).toBeUndefined();
+    // threshold=2: matches
+    const results = applyRules(errors, errors, 2);
+    expect(results.find(r => r.ruleName === 'SAME-ERROR DIFFERENT-TASK')).toBeDefined();
+  });
+
   it('multiple rules can fire simultaneously', () => {
     const errors = [
       makeEntry({ text: 'Failed to parse JSON', tags: ['task-1', 'executor-local'] }),
@@ -243,6 +288,29 @@ describe('ReflectionHandler', () => {
     expect(selfTasks[0].title).toContain('[self]');
   });
 
+  it('reclassify: KNOWN-GAP tags entries but does not reclassify to self', async () => {
+    // Seed 1 error + 1 gap observation sharing a tag
+    await seedErrors([
+      { text: 'Config error', category: 'error', source: 'execution', project: 'target', tags: ['config', 'task-1'] },
+    ]);
+    await db.kbLog.add(makeEntry({
+      text: 'GAP: no config docs', category: 'observation', tags: ['gap', 'config'],
+      source: 'execution', project: 'target',
+    }));
+
+    const ctx = mockContext();
+    const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
+
+    // Should return 0 reclassified (KNOWN-GAP doesn't reclassify)
+    expect(result.reclassified).toBe(0);
+
+    // Error should still be project='target', but tagged gap-confirmed
+    const errors = await db.kbLog.filter(e => e.category === 'error').toArray();
+    expect(errors).toHaveLength(1);
+    expect(errors[0].project).toBe('target');
+    expect(errors[0].tags).toContain('gap-confirmed');
+  });
+
   it('reclassify with entryIds filters to specific entries', async () => {
     await seedErrors([
       { text: 'Error A', category: 'error', source: 'execution', project: 'target', tags: ['task-1'] },
@@ -289,6 +357,44 @@ describe('DreamHandler', () => {
     const dreams = active.filter(e => e.source === 'dream:micro');
     expect(dreams).toHaveLength(1);
     expect(dreams[0].abstraction).toBe(5);
+  });
+
+  it('microDream sets supersedes to original entry ids', async () => {
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = await db.kbLog.add(makeEntry({
+        text: `Raw ${i}`, category: 'observation', abstraction: 1,
+        tags: ['task-55'], source: 'execution', project: 'target',
+      }));
+      ids.push(id);
+    }
+    const ctx = mockContext('Consolidated observation');
+    await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-55' }], ctx);
+
+    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro').toArray();
+    expect(dreams).toHaveLength(1);
+    expect(dreams[0].supersedes).toEqual(ids);
+  });
+
+  it('microDream merges tags from all entries (union)', async () => {
+    await db.kbLog.add(makeEntry({
+      text: 'Obs 1', category: 'observation', abstraction: 1,
+      tags: ['task-77', 'react'], source: 'execution',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Obs 2', category: 'observation', abstraction: 1,
+      tags: ['task-77', 'api'], source: 'execution',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Obs 3', category: 'observation', abstraction: 1,
+      tags: ['task-77', 'react', 'backend'], source: 'execution',
+    }));
+    const ctx = mockContext('Consolidated');
+    await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-77' }], ctx);
+
+    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro').toArray();
+    expect(dreams).toHaveLength(1);
+    expect(dreams[0].tags.sort()).toEqual(['api', 'backend', 'react', 'task-77'].sort());
   });
 
   it('microDream skips when < 3 entries', async () => {
@@ -516,6 +622,16 @@ describe('KBHandler', () => {
     expect(results).toHaveLength(2);
   });
 
+  it('queryLog filters by project', async () => {
+    await db.kbLog.add(makeEntry({ text: 'Target entry', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'Self entry', project: 'self' }));
+
+    const ctx = mockContext();
+    const results = await KBHandler.handleRequest('knowledge-kb.queryLog', [{ project: 'self' }], ctx);
+    expect(results).toHaveLength(1);
+    expect(results[0].text).toBe('Self entry');
+  });
+
   it('queryLog filters by source', async () => {
     await db.kbLog.add(makeEntry({ text: 'Exec', source: 'execution' }));
     await db.kbLog.add(makeEntry({ text: 'Dream', source: 'dream:micro' }));
@@ -669,6 +785,61 @@ describe('KBHandler', () => {
 
     const tagged = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ tags: ['ui'] }], ctx);
     expect(tagged).toHaveLength(1);
+  });
+
+  it('queryDocs filters by source', async () => {
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Uploaded', type: 'spec', content: '',
+      summary: '', tags: [], layer: ['L0'], source: 'upload',
+      active: true, version: 1, project: 'target',
+    });
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Scanned', type: 'spec', content: '',
+      summary: '', tags: [], layer: ['L0'], source: 'repo-scan',
+      active: true, version: 1, project: 'target',
+    });
+
+    const ctx = mockContext();
+    const results = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ source: 'repo-scan' }], ctx);
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Scanned');
+  });
+
+  it('queryDocs filters by layer', async () => {
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'L0 Doc', type: 'spec', content: '',
+      summary: '', tags: [], layer: ['L0'], source: 'upload',
+      active: true, version: 1, project: 'target',
+    });
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'L1 Doc', type: 'spec', content: '',
+      summary: '', tags: [], layer: ['L1'], source: 'upload',
+      active: true, version: 1, project: 'target',
+    });
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'L0+L1 Doc', type: 'spec', content: '',
+      summary: '', tags: [], layer: ['L0', 'L1'], source: 'upload',
+      active: true, version: 1, project: 'target',
+    });
+
+    const ctx = mockContext();
+    const results = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ layer: 'L1' }], ctx);
+    expect(results).toHaveLength(2);
+    expect(results.map((r: any) => r.title).sort()).toEqual(['L0+L1 Doc', 'L1 Doc']);
+  });
+
+  it('queryDocs respects limit', async () => {
+    for (let i = 0; i < 5; i++) {
+      await db.kbDocs.add({
+        timestamp: Date.now() + i, title: `Doc ${i}`, type: 'spec', content: '',
+        summary: '', tags: [], layer: ['L0'], source: 'upload',
+        active: true, version: 1, project: 'target',
+      });
+    }
+
+    const ctx = mockContext();
+    const results = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ limit: 2 }], ctx);
+    expect(results).toHaveLength(2);
   });
 
   it('queryDocs excludes inactive docs', async () => {
