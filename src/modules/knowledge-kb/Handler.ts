@@ -38,7 +38,11 @@ export class KBHandler {
   private static async queryLog(params: any): Promise<KBEntry[]> {
     let collection = db.kbLog.toCollection();
     if (params.active !== undefined) {
-      collection = db.kbLog.where('active').equals(params.active ? 1 : 0);
+      if (params.active) {
+        collection = db.kbLog.filter(e => e.active);
+      } else {
+        collection = db.kbLog.filter(e => !e.active);
+      }
     }
     let results = await collection.toArray();
     if (params.project) results = results.filter(e => e.project === params.project);
@@ -92,7 +96,7 @@ export class KBHandler {
   }
 
   private static async queryDocs(params: any): Promise<KBDoc[]> {
-    let results = await db.kbDocs.where('active').equals(1).toArray();
+    let results = await db.kbDocs.filter(d => d.active).toArray();
     if (params.project) results = results.filter(d => d.project === params.project);
     if (params.type) results = results.filter(d => d.type === params.type);
     if (params.source) results = results.filter(d => d.source === params.source);

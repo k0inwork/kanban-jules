@@ -12,7 +12,7 @@ export class ReflectionHandler {
 
   private static async reclassify(params: { entryIds?: number[] }): Promise<any> {
     // Gather error entries
-    let errors = await db.kbLog.where('active').equals(1).toArray();
+    let errors = await db.kbLog.filter(e => e.active).toArray();
     errors = errors.filter(e => e.category === 'error' && e.project === 'target' && e.source === 'execution');
 
     if (params.entryIds && params.entryIds.length > 0) {
@@ -25,7 +25,7 @@ export class ReflectionHandler {
     }
 
     // Get all entries for cross-referencing
-    const allEntries = await db.kbLog.where('active').equals(1).toArray();
+    const allEntries = await db.kbLog.filter(e => e.active).toArray();
 
     // Apply reflection rules
     const results = applyRules(errors, allEntries);

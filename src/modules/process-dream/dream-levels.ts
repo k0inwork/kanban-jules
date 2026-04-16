@@ -4,7 +4,7 @@ import { RequestContext } from '../../core/types';
 
 export async function microDream(taskId: string, context: RequestContext): Promise<string> {
   // Gather raw entries for this task
-  let entries = await db.kbLog.where('active').equals(1).toArray();
+  let entries = await db.kbLog.filter(e => e.active).toArray();
   entries = entries.filter(e => e.tags.includes(taskId) && e.abstraction <= 2);
 
   if (entries.length < 3) {
@@ -45,12 +45,12 @@ export async function microDream(taskId: string, context: RequestContext): Promi
 
 export async function sessionDream(context: RequestContext): Promise<string> {
   // Phase 1: Gather
-  let entries = await db.kbLog.where('active').equals(1).toArray();
+  let entries = await db.kbLog.filter(e => e.active).toArray();
   entries = entries.filter(e =>
     e.source === 'execution' || e.source === 'dream:micro'
   );
 
-  const docs = await db.kbDocs.where('active').equals(1).toArray();
+  const docs = await db.kbDocs.filter(d => d.active).toArray();
   const tasks = await db.tasks.toArray();
 
   if (entries.length === 0) {
@@ -59,7 +59,7 @@ export async function sessionDream(context: RequestContext): Promise<string> {
 
   // Phase 2: Pattern recognition via LLM
   const groupedTexts = entries.slice(0, 40).map(e => `[${e.category}|${e.source}] ${e.text}`).join('\n');
-  const boardSummary = `${tasks.length} tasks: ${tasks.filter(t => t.workflowStatus === 'EXECUTING').length} executing, ${tasks.filter(t => t.workflowStatus === 'DONE').length} done`;
+  const boardSummary = `${tasks.length} tasks: ${tasks.filter(t => t.workflowStatus === 'IN_PROGRESS').length} in progress, ${tasks.filter(t => t.workflowStatus === 'DONE').length} done`;
 
   const prompt = `Analyze these ${entries.length} active observations. Board: ${boardSummary}. Docs available: ${docs.length}.\n\nObservations:\n${groupedTexts}\n\nOutput JSON: { "patterns": [{ "text": "...", "tags": [] }], "failures": [{ "text": "...", "tags": [] }], "strategies": [{ "text": "...", "tags": [] }], "docGaps": [{ "text": "...", "tags": [] }] }`;
 
@@ -122,8 +122,8 @@ export async function sessionDream(context: RequestContext): Promise<string> {
 }
 
 export async function deepDream(context: RequestContext): Promise<string> {
-  const entries = await db.kbLog.where('active').equals(1).toArray();
-  const docs = await db.kbDocs.where('active').equals(1).toArray();
+  const entries = await db.kbLog.filter(e => e.active).toArray();
+  const docs = await db.kbDocs.filter(d => d.active).toArray();
   const tasks = await db.tasks.toArray();
   const configs = await db.projectConfigs.toArray();
   const constitution = configs[0]?.constitution || '(none)';

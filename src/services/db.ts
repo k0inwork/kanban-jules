@@ -203,6 +203,18 @@ export class MyDatabase extends Dexie {
       kbLog: '++id, timestamp, category, abstraction, active, source, project',
       kbDocs: '++id, timestamp, type, active, source, project'
     });
+    this.version(21).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project'
+    });
   }
 }
 
