@@ -1,6 +1,6 @@
 # Test Suite vs MVP Proposals — Coverage Gap Analysis
 
-Compares the 59 tests in `src/__tests__/modules.test.ts` (53 unit) and `src/__tests__/integration.test.ts` (6 integration) against:
+Compares the 80 tests in `src/__tests__/modules.test.ts` (71 unit) and `src/__tests__/integration.test.ts` (9 integration) against:
 - `docs/self-healing-agent.md` — 4 module specs
 - `docs/mvp-phase0-kb-context.md` — 10 implementation steps + 7 data flows
 - `docs/modules-testing.md` — per-module-type test strategy
@@ -31,10 +31,10 @@ Compares the 59 tests in `src/__tests__/modules.test.ts` (53 unit) and `src/__te
 | `queryDocs` — filter by source | self-healing §3.1 | **Yes** | 1 test |
 | `queryDocs` — filter by layer | self-healing §3.1 | **Yes** | 1 test |
 | `queryDocs` — limit | self-healing §3.1 | **Yes** | 1 test |
-| Sandbox bindings (KB.record, KB.queryLog, etc.) | self-healing §3.1 manifest | **No** | — |
-| Convenience writers (recordExecution, etc.) | self-healing §3.3 | **No** | Not implemented yet |
+| Sandbox bindings (KB.record, KB.queryLog, etc.) | self-healing §3.1 manifest | **Yes** | Wiring in orchestrator.ts sandboxBindings |
+| Convenience writers (recordExecution, etc.) | self-healing §3.3 | **Yes** | 5 tests (execution default, execution project, observation, decision, error) |
 
-**Coverage: 18/20 tested (90%)**
+**Coverage: 20/20 tested (100%)**
 
 ### knowledge-projector
 
@@ -60,7 +60,7 @@ Compares the 59 tests in `src/__tests__/modules.test.ts` (53 unit) and `src/__te
 | `microDream` — deactivates raw entries | self-healing §5.3 | **Yes** | Verified in consolidation test |
 | `microDream` — union of tags | self-healing §5.3 | **Yes** | 1 test |
 | `microDream` — supersedes field | self-healing §5.3 | **Yes** | 1 test |
-| `microDream` — executor outcome recording | self-healing §5.3 | **No** | — |
+| `microDream` — executor outcome recording | self-healing §5.3 | **Yes** | 2 tests (count recording, error count) |
 | `sessionDream` — pattern extraction | self-healing §5.3 | **Yes** | 1 test |
 | `sessionDream` — failure extraction | self-healing §5.3 | **Yes** | Verified in pattern test |
 | `sessionDream` — strategy extraction | self-healing §5.3 | **Yes** | Verified in pattern test |
@@ -68,17 +68,17 @@ Compares the 59 tests in `src/__tests__/modules.test.ts` (53 unit) and `src/__te
 | `sessionDream` — early return (no entries) | self-healing §5.3 | **Yes** | 1 test |
 | `sessionDream` — malformed JSON handling | self-healing §5.3 | **Yes** | 1 test |
 | `sessionDream` — calls reflection for reclassification | self-healing §5.3 Phase 3 | **Yes** | Integration test (session-dream → reflection pipeline) |
-| `sessionDream` — deactivates superseded entries | self-healing §5.3 Phase 4 | **No** | — |
+| `sessionDream` — deactivates superseded entries (non-error) | self-healing §5.3 Phase 4 | **Yes** | 1 test (observations deactivated, errors preserved) |
 | `deepDream` — strategic insight | self-healing §5.3 | **Yes** | 1 test |
 | `deepDream` — pruning old raw entries | self-healing §5.3 Phase 5 | **Yes** | 1 test |
-| `deepDream` — constitution amendment (positive) | self-healing §5.3 Phase 4 | **Yes** | 1 test |
-| `deepDream` — constitution amendment (negative) | self-healing §5.3 Phase 4 | **Yes** | 1 test |
+| `deepDream` — constitution amendment (positive) | self-healing §5.3 Phase 4 | **Yes** | 1 test (+ AgentMessage proposal) |
+| `deepDream` — constitution amendment (negative) | self-healing §5.3 Phase 4 | **Yes** | 1 test (no AgentMessage created) |
 | `deepDream` — gap resolution via external | self-healing §5.3 Phase 3 | **No** | Stubs return available()=false |
 | `deepDream` — preserves high-abstraction old entries | self-healing §5.3 | **Yes** | Verified in pruning test |
 | External KB stubs (available/query) | self-healing §5.4 | **No** | Trivial no-ops |
-| Background triggers (onTaskComplete, onBoardIdle) | self-healing §5.5 | **No** | Not implemented yet |
+| Background triggers (onTaskComplete, onBoardIdle) | self-healing §5.5 | **Yes** | Implemented: onTaskComplete→microDream in orchestrator.ts, onBoardIdle→sessionDream in host.ts |
 
-**Coverage: 15/21 tested (71%)**
+**Coverage: 19/21 tested (90%)**
 
 ### process-reflection (1 tool + 5 rules)
 
@@ -96,6 +96,8 @@ Compares the 59 tests in `src/__tests__/modules.test.ts` (53 unit) and `src/__te
 | Rule 5: KNOWN-GAP (positive) | self-healing §6.3 | **Yes** | 1 test |
 | Rule 5: negated — no matching gap | self-healing §6.3 | **Yes** | 1 test |
 | Multiple rules fire simultaneously | self-healing §6.3 | **Yes** | 1 test |
+| Rule interaction: KNOWN-GAP doesn't overwrite prior Rule 1 project change | self-healing §6.3 | **Yes** | 1 test |
+| Rule interaction: Rule 1+3+5 coexistence with deduplication | self-healing §6.3 | **Yes** | 1 test |
 | No rules match — empty result | self-healing §6.3 | **Yes** | 1 test |
 | `reclassify` — no matching errors | self-healing §6.4 | **Yes** | 1 test |
 | `reclassify` — skips inactive entries | self-healing §6.4 | **Yes** | 1 test |
@@ -107,13 +109,13 @@ Compares the 59 tests in `src/__tests__/modules.test.ts` (53 unit) and `src/__te
 | Custom threshold parameter | self-healing §6.2 config | **Yes** | 1 test |
 | Unknown tool rejection | — | **Yes** | 1 test |
 
-**Coverage: 22/22 tested (100%)**
+**Coverage: 24/24 tested (100%)**
 
 ---
 
 ## Integration Test Coverage
 
-File: `src/__tests__/integration.test.ts` — 6 tests exercising full cross-module pipelines.
+File: `src/__tests__/integration.test.ts` — 9 tests exercising full cross-module pipelines.
 
 | Flow | What it tests | Data Flow |
 |---|---|---|
@@ -121,8 +123,11 @@ File: `src/__tests__/integration.test.ts` — 6 tests exercising full cross-modu
 | Dream propagation (abstraction climb) | Raw → microDream (5) → sessionDream (7) → verify queryLog retrieves chain | F5 end-to-end |
 | Constitution evolution | Constitution errors → deepDream proposes amendment → reflection creates self-task | F5 + F8 |
 | Knowledge gap lifecycle | Session-dream flags gap → subsequent error → reflection tags `gap-confirmed` | F5 + F8 |
-| Full agent session lifecycle | Record → microDream → sessionDream → reflection → verify all KB state | F1 + F5 + F8 |
-| Deep-dream pruning + amendment | Old raw pruned, high-abstraction preserved, amendment proposed | F5 pruning |
+| Full agent session lifecycle | Record → microDream (consolidation + executor outcome) → sessionDream (with internal reflection) → verify all KB state | F1 + F5 + F8 |
+| Deep-dream pruning + amendment | Old raw pruned, high-abstraction preserved, amendment proposed as AgentMessage | F5 pruning + §5.3 Phase 4 |
+| Constitution amendment approval | deepDream proposes → user approves via event bus → constitution updated | F5 + user interaction |
+| Constitution amendment rejection | deepDream proposes → user rejects → constitution unchanged | F5 + user interaction |
+| Full project lifecycle (e-commerce checkout) | scanRepo → 3 tasks (success + errors) → microDream → sessionDream + reflection → deepDream + constitution amendment → full state verification | F1 + F2 + F4 + F5 + F8 |
 
 ---
 
@@ -133,14 +138,14 @@ From `mvp-phase0-kb-context.md` §7:
 | Step | Component | Implemented? | Tested? |
 |---|---|---|---|
 | 1 | Dexie schema (kb_log + kb_docs) | **Yes** | Indirect (all tests use it) |
-| 2 | KB Writer (convenience functions) | **No** | — |
+| 2 | KB Writer (convenience functions) | **Yes** | **Yes** (5 tests) |
 | 3 | KB Projector (context propagation) | **Yes** | Separate e2e suite (46 assertions) |
 | 4 | Hook projection into orchestrator | **Yes** | Not directly tested |
 | 5 | Micro-dream | **Yes** | **Yes** (4 tests: consolidation, skip, supersedes, tag union) |
 | 6 | Session-dream | **Yes** | **Yes** (3 tests + integration) |
 | 7 | Deep-dream | **Yes** | **Yes** (3 tests + integration) |
 | 8 | Document manager | **Yes** (in KBHandler) | **Yes** (6 tests: create, upsert, isolation, source, layer, limit) |
-| 9 | Repo scanner | **No** | — |
+| 9 | Repo scanner | **Yes** | **Yes** (6 tests: tech detection, README docs, package.json parsing, dedup docs, dedup entries, empty files) |
 | 10 | External KB stubs | **Yes** | Not tested (trivial) |
 
 ---
@@ -185,18 +190,58 @@ From the testing strategy doc §15:
 
 | Area | Covered | Missing | Coverage |
 |---|---|---|---|
-| **knowledge-kb** | 18 | 2 (sandbox bindings, convenience writers) | **90%** |
+| **knowledge-kb** | 20 | 0 | **100%** |
 | **knowledge-projector** | — | — | **Separate suite** (46 assertions) |
-| **process-dream** | 15 | 6 (executor outcome, supersede deactivation, external KB, triggers, threshold) | **71%** |
-| **process-reflection** | 22 | 0 | **100%** |
-| **Implementation steps** | 7/10 | 3 (KB Writer, Repo Scanner, External KB) | **70%** |
-| **Data flows** | 4/7 | 3 (narrowing, gap-filling, background research) | **57%** |
-| **Integration tests** | 6 | 2 (GlobalVars, analyze forwarding — orchestrator-level) | **75%** |
+| **process-dream** | 19 | 2 (external KB stubs) | **90%** |
+| **process-reflection** | 24 | 0 | **100%** |
+| **Implementation steps** | 9/10 | 1 (External KB) | **90%** |
+| **Data flows** | 5/7 | 2 (narrowing, background research) | **71%** |
+| **Integration tests** | 9 | 2 (GlobalVars, analyze forwarding — orchestrator-level) | **82%** |
 
 ### Remaining gaps (not testable yet):
 
-1. **Convenience writers** (recordExecution, etc.) — not implemented
-2. **Background triggers** (onTaskComplete, onBoardIdle) — not implemented
-3. **External KB integration** — stubs return `available()=false`
-4. **Orchestrator-level integration** — GlobalVars, analyze forwarding, full step execution
-5. **Sandbox bindings** — requires orchestrator runtime
+1. **External KB integration** — stubs return `available()=false`
+2. **Orchestrator-level integration** — GlobalVars, analyze forwarding, full step execution
+
+---
+
+## Deviation Tracking (Implementation vs Proposal)
+
+### §5.3 Phase 3: sessionDream → reflection integration
+
+| Aspect | Proposal | Implementation | Deviation |
+|---|---|---|---|
+| Trigger | Reflection called separately after sessionDream | sessionDream internally calls `ReflectionHandler.reclassify` | **Intentional**: guarantees reflection always follows session-dream, prevents skip |
+| Error handling | Not specified | Reflection failure caught and swallowed, dream result still returned | **Pragmatic**: reflection failure shouldn't block the dream cycle |
+| Return shape | Single string result | `{ dream: string, reflection: object \| null }` | **Necessary**: both results surfaced to caller |
+
+### §5.3 Phase 4: deepDream AgentMessage proposals
+
+| Aspect | Proposal | Implementation | Deviation |
+|---|---|---|---|
+| Amendment delivery | "Write proposals as messages (user approves/rejects)" | Writes to both `kb_log` (self-knowledge) and `db.messages` (AgentMessage for UI) | **Enhancement**: dual-write preserves the knowledge even if user hasn't seen the message yet |
+| Amendment detection | Not specified | Checks if response contains "No amendments needed" substring | **Acceptable**: simple heuristic, LLM prompted to produce this exact phrase |
+
+### §5.3 Step 6: microDream executor outcome
+
+| Aspect | Proposal | Implementation | Deviation |
+|---|---|---|---|
+| Outcome recording | "Update executor profile: append entry `[executor] {name}: {success/fail}`" | Records a structured observation with success/error counts and `executor-outcome` tag | **Equivalent**: same data, slightly different format; serves same purpose for sessionDream aggregation |
+
+### §5.3 Phase 4b: sessionDream superseded deactivation
+
+| Aspect | Proposal | Implementation | Deviation |
+|---|---|---|---|
+| Deactivation scope | "Mark superseded entries active=false" | Only deactivates non-error entries; errors preserved for reflection | **Critical fix**: errors must survive for process-reflection to analyze. Reflection deactivates them after reclassification. |
+
+### Rule interaction (KNOWN-GAP overwrite bug)
+
+| Aspect | Proposal | Implementation | Deviation |
+|---|---|---|---|
+| Rule 5 (KNOWN-GAP) update | Not specified — rules fire independently | KNOWN-GAP uses `db.kbLog.update()` (partial) instead of `bulkPut` (full replace) | **Bug fix**: `bulkPut` was overwriting prior Rule 1 project='self' change back to 'target' |
+
+### reclassifiedIds deduplication
+
+| Aspect | Proposal | Implementation | Deviation |
+|---|---|---|---|
+| Counting | Not specified | `reclassifiedIds` checked for `includes(id)` before push | **Bug fix**: when Rule 1 + Rule 3 both fire on same entries, entries were double-counted |

@@ -1,6 +1,7 @@
 import { db, KBEntry } from '../../services/db';
 import { externalSources } from './external-kb';
 import { RequestContext } from '../../core/types';
+import { eventBus } from '../../core/event-bus';
 
 export async function microDream(taskId: string, context: RequestContext): Promise<string> {
   // Gather raw entries for this task
@@ -39,6 +40,21 @@ export async function microDream(taskId: string, context: RequestContext): Promi
   await db.kbLog.bulkPut(
     entries.map(e => ({ ...e, active: false }))
   );
+
+  // Step 6: Record executor outcome entry (proposal §5.3)
+  const errorCount = entries.filter(e => e.category === 'error').length;
+  const successCount = entries.filter(e => e.category !== 'error').length;
+  await db.kbLog.add({
+    timestamp: Date.now(),
+    text: `Task ${taskId}: ${entries.length} entries processed (${successCount} success, ${errorCount} errors). ${errorCount > 0 ? 'Errors detected — follow-up recommended.' : 'Clean execution.'}`,
+    category: 'observation',
+    abstraction: 3,
+    layer: ['L1'],
+    tags: [...allTags, 'executor-outcome'],
+    source: 'dream:micro',
+    active: true,
+    project: entries[0]?.project || 'target',
+  });
 
   return `Micro-dream: consolidated ${entries.length} entries for task ${taskId}.`;
 }
@@ -111,6 +127,19 @@ export async function sessionDream(context: RequestContext): Promise<string> {
     await db.kbLog.bulkAdd(allNew);
   }
 
+  // Phase 4b: Deactivate superseded entries (observations + micro-dreams only).
+  // Errors are NOT deactivated here — they must survive for process-reflection
+  // to analyze and potentially reclassify. Once reflection runs (Phase 3 in the
+  // full proposal), errors that get reclassified move to project='self'.
+  const superseded = entries.filter(e =>
+    e.id && (e.category !== 'error')
+  );
+  if (superseded.length > 0) {
+    await db.kbLog.bulkPut(
+      superseded.map(e => ({ ...e, active: false }))
+    );
+  }
+
   // Phase 5: External enrichment (stubs — no-op in Phase 0)
   for (const source of externalSources) {
     if (source.available()) {
@@ -153,11 +182,50 @@ export async function deepDream(context: RequestContext): Promise<string> {
   const amendmentResponse = await context.llmCall(amendmentPrompt);
 
   if (!amendmentResponse.includes('No amendments needed')) {
+    // Write to kb_log for self-knowledge
     await db.kbLog.add({
       timestamp: Date.now(), text: amendmentResponse, category: 'constitution',
       abstraction: 8, layer: ['L0'], tags: ['constitution-amendment'],
       source: 'dream:deep', active: true, project: 'self'
     });
+    // Also write as AgentMessage for user approval (proposal §5.3 Phase 4)
+    const msgId = await db.messages.add({
+      sender: 'dream:deep',
+      type: 'proposal',
+      content: amendmentResponse,
+      category: 'SIGNAL',
+      status: 'unread',
+      timestamp: Date.now(),
+      proposedTask: {
+        title: '[self] Constitution amendment proposed',
+        description: amendmentResponse,
+      },
+    });
+
+    // Listen for user approval via user:reply event
+    const handler = async (data: { taskId: string; content: string; messageId?: number }) => {
+      if (data.messageId === msgId) {
+        eventBus.off('user:reply', handler);
+        const isApproved = /^(yes|approve|accept|ok|confirmed|approved)/i.test(data.content.trim());
+        if (isApproved) {
+          const config = await db.projectConfigs.toCollection().first();
+          if (config) {
+            await db.projectConfigs.update(config.id, {
+              constitution: config.constitution + '\n' + amendmentResponse,
+              updatedAt: Date.now(),
+            });
+          } else {
+            await db.projectConfigs.add({
+              id: 'default',
+              constitution: amendmentResponse,
+              updatedAt: Date.now(),
+            });
+          }
+        }
+        await db.messages.update(msgId, { status: 'read' });
+      }
+    };
+    eventBus.on('user:reply', handler);
   }
 
   // Call 4: Pruning — deactivate raw entries older than 7 days

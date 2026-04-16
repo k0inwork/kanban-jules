@@ -7,6 +7,7 @@ import { OrchestratorConfig } from './types';
 import { agentContext } from '../services/AgentContext';
 import { Sandbox, injectBindings } from './sandbox';
 import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
+import { KBHandler } from '../modules/knowledge-kb/Handler';
 
 export class Orchestrator {
   private config: OrchestratorConfig | null = null;
@@ -270,7 +271,11 @@ export class Orchestrator {
       'askUser': 'channel-user-negotiator.askUser',
       'sendUser': 'channel-user-negotiator.sendUser',
       '__agentContextGet': 'host.agentContextGet',
-      '__agentContextSet': 'host.agentContextSet'
+      '__agentContextSet': 'host.agentContextSet',
+      'KB.record': 'knowledge-kb.recordEntry',
+      'KB.queryLog': 'knowledge-kb.queryLog',
+      'KB.saveDoc': 'knowledge-kb.saveDocument',
+      'KB.queryDocs': 'knowledge-kb.queryDocs',
     };
 
     this.context.accumulatedAnalysis = [];
@@ -422,12 +427,26 @@ export class Orchestrator {
         nextAgentState = 'IDLE';
       }
 
-      await db.tasks.update(task.id, { 
+      await db.tasks.update(task.id, {
         workflowStatus: nextWorkflowStatus,
         agentState: nextAgentState,
         agentId: 'local-agent'
       });
-      
+
+      // KB hook: record outcome + trigger microDream on task completion
+      if (status === 'DONE' && this.config) {
+        try {
+          await KBHandler.recordExecution(
+            `Task ${task.id} completed successfully: ${task.title}`,
+            [task.id],
+            task.project
+          );
+          await this.moduleRequest(task.id, 'process-dream.microDream', [{ taskId: task.id }]);
+        } catch {
+          // KB recording / dream failure must not affect task status
+        }
+      }
+
       return status;
     } catch (error: any) {
       const isSessionMissing = error.status === 404 || error.message?.includes('not found');

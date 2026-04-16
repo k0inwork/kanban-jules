@@ -2,7 +2,7 @@ export type SystemEvent =
   | { type: 'project:review', data: any }
   | { type: 'module:log', data: { taskId: string, moduleId: string, message: string } }
   | { type: 'task:manual-trigger', data: { taskId: string } }
-  | { type: 'user:reply', data: { taskId: string, content: string } }
+  | { type: 'user:reply', data: { taskId: string, content: string, messageId?: number } }
   | { type: 'module:request', data: { requestId: string, taskId: string, toolName: string, args: any[] } }
   | { type: 'module:response', data: { requestId: string, result: any, error?: string } };
 

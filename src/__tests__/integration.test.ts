@@ -8,6 +8,9 @@ import { db } from '../services/db';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
+import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
+import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
+import { eventBus } from '../core/event-bus';
 
 function mockContext(llmResponse: string = 'mock response'): any {
   return {
@@ -40,6 +43,7 @@ beforeEach(async () => {
   await db.kbDocs.clear();
   await db.tasks.clear();
   await db.projectConfigs.clear();
+  await db.messages.clear();
 });
 
 // ─── Flow 1: Multi-task failure → self-healing pipeline ─────────
@@ -67,22 +71,19 @@ describe('Integration: multi-task failure triggers self-healing', () => {
       expect(result).toContain('only 1 raw entries');
     }
 
-    // Step 3: Session-dream extracts the pattern
+    // Step 3: Session-dream extracts the pattern AND triggers reflection internally
     const sessionJson = JSON.stringify({
       patterns: [{ text: 'API parsing failures across multiple tasks', tags: ['api', 'parsing'] }],
       failures: [{ text: 'JSON parse error recurring in 3 tasks', tags: ['api'] }],
       strategies: [{ text: 'Add JSON validation wrapper', tags: ['reliability'] }],
       docGaps: [{ text: 'No error handling docs', tags: ['docs'] }],
     });
-    await DreamHandler.handleRequest('process-dream.sessionDream', [], mockContext(sessionJson));
+    const sessionResult = await DreamHandler.handleRequest('process-dream.sessionDream', [], mockContext(sessionJson));
+    expect(sessionResult.dream).toContain('Session-dream');
+    // Reflection runs automatically — verify it reclassified
+    expect(sessionResult.reflection.reclassified).toBe(3);
 
-    // Step 4: Reflection reclassifies cross-task errors
-    const result = await ReflectionHandler.handleRequest(
-      'process-reflection.reclassify', [{}], mockContext()
-    );
-    expect(result.reclassified).toBe(3);
-
-    // Step 5: Verify final state
+    // Step 4: Verify final state
     // — Errors moved to self
     const allEntries = await db.kbLog.toArray();
     const originalErrors = allEntries.filter(e =>
@@ -139,7 +140,7 @@ describe('Integration: dream levels propagate correctly through KB', () => {
 
     // Verify micro-dreams created at abstraction 5, originals deactivated
     const afterMicro = await db.kbLog.filter(e => e.active).toArray();
-    const microDreams = afterMicro.filter(e => e.source === 'dream:micro');
+    const microDreams = afterMicro.filter(e => e.source === 'dream:micro' && e.category === 'dream');
     expect(microDreams).toHaveLength(2);
     expect(microDreams.every(d => d.abstraction === 5)).toBe(true);
 
@@ -369,22 +370,18 @@ describe('Integration: full agent session lifecycle', () => {
     );
     expect(microResultB).toContain('consolidated 3 entries');
 
-    // === Phase 3: Session-dream discovers the TS pattern ===
+    // === Phase 3: Session-dream discovers the TS pattern AND triggers reflection ===
     const sessionJson = JSON.stringify({
       patterns: [{ text: 'TypeScript module resolution failing', tags: ['typescript'] }],
       failures: [{ text: 'Module resolution error in 3 tasks', tags: ['typescript'] }],
       strategies: [{ text: 'Add tsconfig paths configuration', tags: ['typescript', 'config'] }],
       docGaps: [{ text: 'No project setup guide', tags: ['docs'] }],
     });
-    await DreamHandler.handleRequest(
+    const sessionResult = await DreamHandler.handleRequest(
       'process-dream.sessionDream', [], mockContext(sessionJson)
     );
-
-    // === Phase 4: Reflection reclassifies cross-task errors ===
-    const reflectionResult = await ReflectionHandler.handleRequest(
-      'process-reflection.reclassify', [{}], mockContext()
-    );
-    expect(reflectionResult.reclassified).toBe(3); // task-C, D, E TS errors → self (task-B error deactivated by microDream)
+    // Reflection runs automatically inside sessionDream
+    expect(sessionResult.reflection.reclassified).toBe(3); // task-C, D, E TS errors → self (task-B error deactivated by microDream)
 
     // === Verify final KB state ===
 
@@ -394,11 +391,12 @@ describe('Integration: full agent session lifecycle', () => {
     ).toArray();
     expect(rawActive).toHaveLength(0);
 
-    // 2. Micro-dreams at abstraction 5
+    // 2. Micro-dreams were deactivated by sessionDream (observations + micro-dreams superseded)
     const microDreams = await db.kbLog.filter(e =>
-      e.source === 'dream:micro' && e.active
+      e.source === 'dream:micro' && e.category === 'dream'
     ).toArray();
     expect(microDreams).toHaveLength(2);
+    expect(microDreams.every(e => !e.active)).toBe(true);
 
     // 3. Session-dream insights at abstraction 7
     const sessionInsights = await db.kbLog.filter(e =>
@@ -427,6 +425,7 @@ describe('Integration: full agent session lifecycle', () => {
     const ctx2 = mockContext();
     const dreamChain = await KBHandler.handleRequest('knowledge-kb.queryLog', [{
       source: 'dream:micro',
+      category: 'dream',
     }], ctx2);
     expect(dreamChain).toHaveLength(2);
 
@@ -513,9 +512,336 @@ describe('Integration: deep-dream prunes old data and evolves constitution', () 
     expect(deepInsight).toBeDefined();
     expect(deepInsight!.abstraction).toBe(9);
 
-    // Amendment proposed
+    // Amendment proposed in kb_log
     const amendment = active.find(e => e.category === 'constitution');
     expect(amendment).toBeDefined();
     expect(amendment!.project).toBe('self');
+
+    // Amendment also proposed as AgentMessage for user approval
+    const messages = await db.messages.toArray();
+    const proposal = messages.find(m => m.type === 'proposal' && m.sender === 'dream:deep');
+    expect(proposal).toBeDefined();
+    expect(proposal!.proposedTask).toBeDefined();
+  });
+});
+
+// ─── Flow 7: Constitution amendment approval via user:reply ────
+describe('Integration: deepDream amendment → user approval → constitution update', () => {
+  it('proposed amendment is applied to constitution after user approves', async () => {
+    // Seed constitution
+    await db.projectConfigs.add({ id: 'default', constitution: 'Rule 1: always test before merge', updatedAt: Date.now() });
+
+    // Seed some KB entries for deepDream to analyze
+    await db.kbLog.add({
+      timestamp: Date.now(),
+      text: 'Repeated auth test failures',
+      category: 'error',
+      abstraction: 1,
+      layer: ['L2'],
+      tags: ['auth', 'testing'],
+      source: 'execution',
+      active: true,
+      project: 'target',
+    });
+
+    // Deep-dream proposes an amendment
+    const deepCtx = trackingContext([
+      'Consolidation: auth tests keep failing due to missing mocks',
+      'Amendment: always mock external services in auth tests',
+    ]);
+    await DreamHandler.handleRequest('process-dream.deepDream', [], deepCtx);
+
+    // Verify proposal exists
+    const messages = await db.messages.toArray();
+    const proposal = messages.find(m => m.type === 'proposal' && m.sender === 'dream:deep');
+    expect(proposal).toBeDefined();
+    expect(proposal!.status).toBe('unread');
+
+    // Constitution unchanged before approval
+    const beforeApprove = await db.projectConfigs.get('default');
+    expect(beforeApprove!.constitution).toBe('Rule 1: always test before merge');
+
+    // User approves via event bus (same mechanism as UI)
+    eventBus.emit('user:reply', {
+      taskId: 'test-task',
+      content: 'approved',
+      messageId: proposal!.id,
+    });
+    // Allow async handler to settle
+    await new Promise(r => setTimeout(r, 10));
+
+    // Constitution now includes the amendment
+    const afterApprove = await db.projectConfigs.get('default');
+    expect(afterApprove!.constitution).toContain('always mock external services in auth tests');
+    expect(afterApprove!.constitution).toContain('Rule 1: always test before merge');
+
+    // Proposal message marked read
+    const readProposal = await db.messages.get(proposal!.id!);
+    expect(readProposal!.status).toBe('read');
+  });
+
+  it('proposed amendment is NOT applied when user rejects', async () => {
+    await db.projectConfigs.add({ id: 'default', constitution: 'Original rules', updatedAt: Date.now() });
+    await db.kbLog.add({
+      timestamp: Date.now(),
+      text: 'Some observation',
+      category: 'observation',
+      abstraction: 1,
+      layer: ['L2'],
+      tags: ['test'],
+      source: 'execution',
+      active: true,
+      project: 'target',
+    });
+
+    const deepCtx = trackingContext([
+      'Consolidation: system running smoothly',
+      'Amendment: delete all tests to save time',
+    ]);
+    await DreamHandler.handleRequest('process-dream.deepDream', [], deepCtx);
+
+    const messages = await db.messages.toArray();
+    const proposal = messages.find(m => m.type === 'proposal' && m.sender === 'dream:deep');
+
+    // User rejects
+    eventBus.emit('user:reply', {
+      taskId: 'test-task',
+      content: 'no, bad idea',
+      messageId: proposal!.id,
+    });
+    await new Promise(r => setTimeout(r, 10));
+
+    // Constitution unchanged
+    const config = await db.projectConfigs.get('default');
+    expect(config!.constitution).toBe('Original rules');
+
+    // Message still marked read
+    const readProposal = await db.messages.get(proposal!.id!);
+    expect(readProposal!.status).toBe('read');
+  });
+});
+
+// ─── Flow 8: Full Project Lifecycle — e-commerce checkout ─────────
+describe('Integration: full project lifecycle — e-commerce checkout', () => {
+  it('simulates project init → task execution → dream cycles → self-healing → constitution evolution', async () => {
+    // ═══ Phase 1: Project Init ═══
+    const files = [
+      { path: 'README.md', content: '# E-Commerce Checkout\n\nPayment processing with Stripe and order confirmation via email.' },
+      { path: 'package.json', content: JSON.stringify({
+        dependencies: { react: '^18', dexie: '^4', stripe: '^12' },
+        devDependencies: { typescript: '^5', vitest: '^1' },
+      })},
+      { path: 'src/checkout.ts' },
+      { path: 'src/payment.tsx' },
+    ];
+    const scanResult = await scanRepo(files);
+    expect(scanResult.docs).toBeGreaterThanOrEqual(1); // README doc created
+    expect(scanResult.entries).toBe(1); // tech stack observation
+
+    // Verify tech detection
+    const scanEntries = await db.kbLog.filter(e => e.source === 'repo-scan').toArray();
+    const techEntry = scanEntries.find(e => e.tags.includes('tech-stack'));
+    expect(techEntry!.text).toContain('typescript');
+    expect(techEntry!.text).toContain('react');
+    expect(techEntry!.text).toContain('dexie');
+
+    // Verify README doc
+    const readmeDoc = await db.kbDocs.filter(d => d.type === 'readme').first();
+    expect(readmeDoc!.title).toBe('README.md');
+    expect(readmeDoc!.tags).toContain('project-overview');
+
+    // ═══ Phase 2: Task Execution — 3 tasks ═══
+    // Task pay-1: "Add payment API" — successful execution
+    for (let i = 0; i < 3; i++) {
+      await KBHandler.recordExecution(
+        `Payment API step ${i}: ${i < 2 ? 'success' : 'connected to Stripe'}`,
+        ['task-pay-1', 'payment'],
+      );
+    }
+    await KBHandler.recordObservation('Stripe SDK initialized correctly', ['task-pay-1', 'payment']);
+
+    // Task pay-2: "Retry payment API" — 3 timeout errors
+    for (let i = 0; i < 3; i++) {
+      await KBHandler.recordError(
+        'Payment API timeout: stripe/v1/charges took >30s',
+        ['task-pay-2', 'payment', 'timeout'],
+      );
+    }
+
+    // Task email-1: "Add order confirmation" — 2 timeout errors + 1 success
+    await KBHandler.recordError(
+      'Payment API timeout: stripe/v1/charges took >30s',
+      ['task-email-1', 'payment', 'timeout'],
+    );
+    await KBHandler.recordError(
+      'Payment API timeout: stripe/v1/charges took >30s',
+      ['task-email-1', 'payment', 'timeout'],
+    );
+    await KBHandler.recordExecution('Order confirmation email sent', ['task-email-1', 'email']);
+
+    // Total: 10 execution entries + 1 scan observation = 11
+    const phase2Entries = await db.kbLog.filter(e => e.active).toArray();
+    expect(phase2Entries.length).toBe(11);
+
+    // ═══ Phase 3: Micro-dreams ═══
+    // Only micro-dream pay-1 (successful task). Error tasks left raw so sessionDream + reflection
+    // can detect cross-task recurring patterns.
+    const microPay1 = await DreamHandler.handleRequest(
+      'process-dream.microDream', [{ taskId: 'task-pay-1' }],
+      mockContext('Payment API integration working. Stripe SDK setup correct.'),
+    );
+    expect(microPay1).toContain('consolidated 4 entries');
+
+    // Verify micro-dream consolidation at abstraction 5
+    const microDreams = await db.kbLog.filter(e =>
+      e.source === 'dream:micro' && e.category === 'dream' && e.active
+    ).toArray();
+    expect(microDreams).toHaveLength(1);
+    expect(microDreams[0].abstraction).toBe(5);
+
+    // Verify executor outcome recorded
+    const executorOutcomes = await db.kbLog.filter(e =>
+      e.source === 'dream:micro' && e.tags.includes('executor-outcome')
+    ).toArray();
+    expect(executorOutcomes).toHaveLength(1);
+    expect(executorOutcomes[0].text).toContain('Clean execution');
+
+    // Raw entries for pay-1 deactivated by microDream; pay-2/email-1 still active for sessionDream
+    const rawActive = await db.kbLog.filter(e =>
+      e.source === 'execution' && e.abstraction <= 2 && e.active
+    ).toArray();
+    expect(rawActive.length).toBeGreaterThan(0); // pay-2 + email-1 entries still raw
+
+    // ═══ Phase 4: Session Dream + Reflection ═══
+    const sessionJson = JSON.stringify({
+      patterns: [
+        { text: 'Payment API timeouts correlate with high latency periods', tags: ['payment', 'timeout', 'latency'] },
+      ],
+      failures: [
+        { text: 'Stripe charges endpoint unreliable under load', tags: ['payment', 'stripe'] },
+      ],
+      strategies: [
+        { text: 'Implement exponential backoff for payment API calls', tags: ['payment', 'reliability'] },
+      ],
+      docGaps: [
+        { text: 'No retry policy documentation for external APIs', tags: ['docs', 'payment'] },
+      ],
+    });
+    const sessionResult = await DreamHandler.handleRequest(
+      'process-dream.sessionDream', [], mockContext(sessionJson)
+    );
+    expect(sessionResult.dream).toContain('Session-dream');
+    // Reflection fires automatically — 5 timeout errors across 2 tasks
+    expect(sessionResult.reflection.reclassified).toBe(5);
+
+    // Verify session-dream insights at abstraction 7
+    const sessionInsights = await db.kbLog.filter(e =>
+      e.source === 'dream:session' && e.active
+    ).toArray();
+    expect(sessionInsights.length).toBeGreaterThanOrEqual(4); // pattern + failure + strategy + gap
+
+    // Errors reclassified to self
+    const timeoutErrors = await db.kbLog.filter(e =>
+      e.text === 'Payment API timeout: stripe/v1/charges took >30s' && e.active
+    ).toArray();
+    expect(timeoutErrors.every(e => e.project === 'self')).toBe(true);
+
+    // Self-task created
+    const selfTasks = await db.tasks.filter(t => t.project === 'self').toArray();
+    expect(selfTasks.length).toBeGreaterThan(0);
+
+    // Gap flagged
+    const gaps = await db.kbLog.filter(e =>
+      e.tags.includes('gap') && e.source === 'dream:session'
+    ).toArray();
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0].text).toContain('retry policy');
+
+    // ═══ Phase 5: Deep Dream + Constitution Amendment ═══
+    await db.projectConfigs.add({
+      id: 'default',
+      constitution: 'Rule 1: all tasks must have tests\nRule 2: no direct external API calls from UI',
+      updatedAt: Date.now(),
+    });
+
+    const deepCtx = trackingContext([
+      'Consolidation: Payment timeouts causing cascading failures. Retry logic needed. Project uses Stripe for payments.',
+      'Constitutional amendment: Add Rule 3 — all external API calls must implement exponential backoff with max 3 retries',
+    ]);
+    await DreamHandler.handleRequest('process-dream.deepDream', [], deepCtx);
+
+    // Verify deep-dream strategic insight at abstraction 9
+    const deepInsight = await db.kbLog.filter(e =>
+      e.source === 'dream:deep' && e.category === 'dream'
+    ).first();
+    expect(deepInsight).toBeDefined();
+    expect(deepInsight!.abstraction).toBe(9);
+
+    // Amendment proposed in kb_log
+    const amendment = await db.kbLog.filter(e =>
+      e.category === 'constitution' && e.tags.includes('constitution-amendment')
+    ).first();
+    expect(amendment).toBeDefined();
+    expect(amendment!.project).toBe('self');
+
+    // Amendment proposed as AgentMessage
+    const proposal = await db.messages.filter(m => m.type === 'proposal').first();
+    expect(proposal).toBeDefined();
+    expect(proposal!.sender).toBe('dream:deep');
+
+    // Constitution NOT yet changed
+    const beforeApprove = await db.projectConfigs.get('default');
+    expect(beforeApprove!.constitution).not.toContain('exponential backoff');
+
+    // User approves
+    eventBus.emit('user:reply', {
+      taskId: 'test-task',
+      content: 'approved',
+      messageId: proposal!.id,
+    });
+    await new Promise(r => setTimeout(r, 10));
+
+    // Constitution NOW includes amendment
+    const afterApprove = await db.projectConfigs.get('default');
+    expect(afterApprove!.constitution).toContain('exponential backoff');
+    expect(afterApprove!.constitution).toContain('Rule 1');
+
+    // ═══ Phase 6: Full State Verification ═══
+    // 6a: Abstraction chain exists: 7→9 (session-dream, deep-dream)
+    // Note: micro-dream (abstraction 5) is correctly deactivated by sessionDream Phase 4b,
+    // which deactivates all non-error superseded entries including dream:micro entries.
+    const allActive = await db.kbLog.filter(e => e.active).toArray();
+    const abstractions = [...new Set(allActive.map(e => e.abstraction))].sort();
+    expect(abstractions).toContain(7);  // session-dream insights
+    expect(abstractions).toContain(9);  // deep-dream strategic insight
+
+    // 6b: Self-task exists with correct title
+    const selfTask = await db.tasks.filter(t => t.project === 'self').first();
+    expect(selfTask).toBeDefined();
+    expect(selfTask!.title).toMatch(/\[self\].*payment api timeout/);
+
+    // 6c: Projector returns self-knowledge (error patterns)
+    const selfProjection = await ProjectorHandler.project({
+      layer: 'L0', project: 'self',
+    });
+    expect(selfProjection).toContain('Experience');
+    expect(selfProjection.length).toBeGreaterThan(0);
+
+    // 6d: Projector returns target-knowledge (tech stack, README)
+    const targetProjection = await ProjectorHandler.project({
+      layer: 'L0', project: 'target', taskDescription: 'payment checkout stripe',
+    });
+    expect(targetProjection).toContain('E-Commerce Checkout'); // from README doc
+
+    // 6e: KB has entries across multiple projects
+    const projects = [...new Set(allActive.map(e => e.project))];
+    expect(projects).toContain('self');
+    expect(projects).toContain('target');
+
+    // 6f: Repo scanner docs still intact
+    const docs = await db.kbDocs.filter(d => d.active).toArray();
+    const readmeDocs = docs.filter(d => d.type === 'readme');
+    expect(readmeDocs).toHaveLength(1);
+    expect(readmeDocs[0].source).toBe('repo-scan');
   });
 });

@@ -36,20 +36,23 @@ export class ReflectionHandler {
       if (!result.match) continue;
 
       if (result.ruleName === 'KNOWN-GAP') {
-        // Don't reclassify — just tag
-        await db.kbLog.bulkPut(
-          result.entryIds.map(id => {
-            const entry = errors.find(e => e.id === id);
-            return entry ? { ...entry, tags: [...entry.tags, 'gap-confirmed'] } : null;
-          }).filter(Boolean) as any[]
-        );
+        // Don't reclassify — just tag (use update, not bulkPut, to avoid
+        // overwriting prior rule mutations like project='self')
+        for (const id of result.entryIds) {
+          const entry = await db.kbLog.get(id);
+          if (entry) {
+            await db.kbLog.update(id, { tags: [...entry.tags, 'gap-confirmed'] });
+          }
+        }
         continue;
       }
 
       // Reclassify to project='self'
       for (const id of result.entryIds) {
         await db.kbLog.update(id, { project: 'self' });
-        reclassifiedIds.push(id);
+        if (!reclassifiedIds.includes(id)) {
+          reclassifiedIds.push(id);
+        }
       }
 
       // Append reflection entry

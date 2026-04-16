@@ -8,6 +8,7 @@ import { applyRules } from '../modules/process-reflection/rules';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
+import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
 
 // Helper: build a KBEntry
 let nextId = 1;
@@ -37,6 +38,22 @@ function mockContext(llmResponse: string = 'mock response'): any {
   };
 }
 
+// Helper: context returning responses in sequence
+function trackingContext(responses: string[]): any {
+  let callIdx = 0;
+  return {
+    taskId: 'test-task',
+    repoUrl: '',
+    repoBranch: 'main',
+    llmCall: vi.fn().mockImplementation(() => {
+      const resp = responses[callIdx] || responses[responses.length - 1];
+      callIdx++;
+      return Promise.resolve(resp);
+    }),
+    moduleConfig: {},
+  };
+}
+
 beforeEach(async () => {
   nextId = 1;
   // Clear all tables
@@ -44,6 +61,7 @@ beforeEach(async () => {
   await db.kbDocs.clear();
   await db.tasks.clear();
   await db.projectConfigs.clear();
+  await db.messages.clear();
 });
 
 // ─── Reflection Rules ───────────────────────────────────────────
@@ -209,6 +227,49 @@ describe('applyRules', () => {
     expect(ruleNames).toContain('SAME-ERROR DIFFERENT-TASK');
     expect(ruleNames).toContain('RECURRING-PROTOCOL-FAILURE');
   });
+
+  it('Rule 1 + Rule 5 on same entries: KNOWN-GAP does not overwrite Rule 1 project change', async () => {
+    // Seed 3 same errors across 3 tasks + a gap observation sharing a tag
+    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-1', 'config'], category: 'error', source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-2', 'config'], category: 'error', source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-3', 'config'], category: 'error', source: 'execution', project: 'target' }));
+    // Gap shares 'config' tag with errors
+    await db.kbLog.add(makeEntry({ text: 'GAP: no config docs', category: 'observation', tags: ['gap', 'config'], source: 'execution', project: 'target' }));
+
+    const ctx = mockContext();
+    const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
+
+    // Rule 1 should have reclassified errors to self
+    expect(result.reclassified).toBe(3);
+
+    // KNOWN-GAP should have also tagged them gap-confirmed
+    const errors = await db.kbLog.filter(e => e.category === 'error' && e.source === 'execution').toArray();
+    expect(errors.every(e => e.project === 'self')).toBe(true);
+    expect(errors.every(e => e.tags.includes('gap-confirmed'))).toBe(true);
+  });
+
+  it('Rule 1 + Rule 3 + Rule 5 on same entries: all mutations coexist', async () => {
+    // 3 same errors across 3 tasks, all from same executor, sharing tag with gap
+    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-1', 'executor-local', 'build'], category: 'error', source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-2', 'executor-local', 'build'], category: 'error', source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-3', 'executor-local', 'build'], category: 'error', source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'GAP: no build docs', category: 'observation', tags: ['gap', 'build'], source: 'execution', project: 'target' }));
+
+    const ctx = mockContext();
+    const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
+
+    // All 3 errors reclassified to self
+    expect(result.reclassified).toBe(3);
+
+    const errors = await db.kbLog.filter(e => e.category === 'error' && e.source === 'execution').toArray();
+    // project='self' from Rule 1
+    expect(errors.every(e => e.project === 'self')).toBe(true);
+    // gap-confirmed tag from Rule 5
+    expect(errors.every(e => e.tags.includes('gap-confirmed'))).toBe(true);
+    // Self-task created (Rule 1 or Rule 3)
+    const tasks = await db.tasks.toArray();
+    expect(tasks.filter(t => t.project === 'self').length).toBeGreaterThan(0);
+  });
 });
 
 // ─── Reflection Handler ─────────────────────────────────────────
@@ -354,9 +415,15 @@ describe('DreamHandler', () => {
 
     // Should have added a dream entry and deactivated originals
     const active = await db.kbLog.filter(e => e.active).toArray();
-    const dreams = active.filter(e => e.source === 'dream:micro');
+    const dreams = active.filter(e => e.source === 'dream:micro' && e.category === 'dream');
     expect(dreams).toHaveLength(1);
     expect(dreams[0].abstraction).toBe(5);
+
+    // Should also have executor outcome entry
+    const outcomes = active.filter(e => e.source === 'dream:micro' && e.tags.includes('executor-outcome'));
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].text).toContain('task-42');
+    expect(outcomes[0].abstraction).toBe(3);
   });
 
   it('microDream sets supersedes to original entry ids', async () => {
@@ -371,7 +438,7 @@ describe('DreamHandler', () => {
     const ctx = mockContext('Consolidated observation');
     await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-55' }], ctx);
 
-    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro').toArray();
+    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro' && e.category === 'dream').toArray();
     expect(dreams).toHaveLength(1);
     expect(dreams[0].supersedes).toEqual(ids);
   });
@@ -392,9 +459,32 @@ describe('DreamHandler', () => {
     const ctx = mockContext('Consolidated');
     await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-77' }], ctx);
 
-    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro').toArray();
+    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro' && e.category === 'dream').toArray();
     expect(dreams).toHaveLength(1);
     expect(dreams[0].tags.sort()).toEqual(['api', 'backend', 'react', 'task-77'].sort());
+  });
+
+  it('microDream executor outcome records error count', async () => {
+    // 2 observations + 1 error
+    await db.kbLog.add(makeEntry({
+      text: 'Obs', category: 'observation', abstraction: 1,
+      tags: ['task-88'], source: 'execution',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Obs 2', category: 'observation', abstraction: 1,
+      tags: ['task-88'], source: 'execution',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Error', category: 'error', abstraction: 1,
+      tags: ['task-88'], source: 'execution',
+    }));
+    const ctx = mockContext('Consolidated');
+    await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-88' }], ctx);
+
+    const outcomes = await db.kbLog.filter(e => e.tags.includes('executor-outcome') && e.active).toArray();
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].text).toContain('2 success');
+    expect(outcomes[0].text).toContain('1 errors');
   });
 
   it('microDream skips when < 3 entries', async () => {
@@ -439,7 +529,8 @@ describe('DreamHandler', () => {
     const ctx = mockContext(mockJson);
 
     const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
-    expect(result).toContain('Session-dream');
+    // sessionDream now returns { dream, reflection } via Handler
+    expect(result.dream).toContain('Session-dream');
     expect(ctx.llmCall).toHaveBeenCalled();
 
     // Check new entries were added
@@ -460,7 +551,7 @@ describe('DreamHandler', () => {
   it('sessionDream returns early when no active entries', async () => {
     const ctx = mockContext();
     const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
-    expect(result).toContain('no active entries');
+    expect(result.dream).toContain('no active entries');
     expect(ctx.llmCall).not.toHaveBeenCalled();
   });
 
@@ -474,8 +565,66 @@ describe('DreamHandler', () => {
     }
     const ctx = mockContext('not valid json at all');
     const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
-    expect(result).toContain('Session-dream');
+    expect(result.dream).toContain('Session-dream');
     // Should complete without throwing
+  });
+
+  it('sessionDream deactivates superseded entries (execution + micro-dream inputs)', async () => {
+    // Seed execution and micro-dream entries
+    for (let i = 0; i < 3; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Execution obs ${i}`, category: 'observation', abstraction: 2,
+        source: 'execution', tags: ['task-1'],
+      }));
+    }
+    await db.kbLog.add(makeEntry({
+      text: 'Micro summary', category: 'dream', abstraction: 5,
+      source: 'dream:micro', tags: ['task-1'],
+    }));
+
+    const mockJson = JSON.stringify({
+      patterns: [{ text: 'Some pattern', tags: ['test'] }],
+      failures: [], strategies: [], docGaps: [],
+    });
+    const ctx = mockContext(mockJson);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    // Original observation entries should be deactivated
+    const all = await db.kbLog.toArray();
+    const execObs = all.filter(e => e.source === 'execution' && e.category === 'observation');
+    expect(execObs.every(e => !e.active)).toBe(true);
+
+    // Micro-dream entries should be deactivated
+    const micro = all.filter(e => e.source === 'dream:micro');
+    expect(micro.every(e => !e.active)).toBe(true);
+
+    // Session-dream insights should be active
+    const session = all.filter(e => e.source === 'dream:session');
+    expect(session.length).toBeGreaterThan(0);
+    expect(session.every(e => e.active)).toBe(true);
+  });
+
+  it('sessionDream does NOT deactivate error entries', async () => {
+    // Errors must survive for process-reflection to analyze
+    await db.kbLog.add(makeEntry({
+      text: 'An error', category: 'error', abstraction: 2,
+      source: 'execution', tags: ['task-1'],
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Observation', category: 'observation', abstraction: 2,
+      source: 'execution', tags: ['task-1'],
+    }));
+
+    const mockJson = JSON.stringify({
+      patterns: [], failures: [], strategies: [], docGaps: [],
+    });
+    const ctx = mockContext(mockJson);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    const all = await db.kbLog.toArray();
+    const errors = all.filter(e => e.category === 'error');
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.every(e => e.active)).toBe(true);
   });
 
   it('deepDream adds strategic insight and prunes old raw entries', async () => {
@@ -507,7 +656,10 @@ describe('DreamHandler', () => {
       timestamp: sevenDaysAgo,
     }));
 
-    const ctx = mockContext('Strategic insight: focus on reliability');
+    const ctx = trackingContext([
+      'Strategic insight: focus on reliability',
+      'No amendments needed',
+    ]);
     const result = await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
     expect(result).toContain('Deep-dream');
 
@@ -524,7 +676,10 @@ describe('DreamHandler', () => {
 
   it('deepDream proposes constitution amendments when LLM suggests them', async () => {
     await db.kbLog.add(makeEntry({ text: 'Some entry', category: 'observation', source: 'execution' }));
-    const ctx = mockContext('Constitutional amendment: change rule X');
+    const ctx = trackingContext([
+      'Strategic insight',
+      'Constitutional amendment: change rule X',
+    ]);
 
     await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
 
@@ -532,17 +687,100 @@ describe('DreamHandler', () => {
     const amendment = entries.find(e => e.category === 'constitution' && e.tags.includes('constitution-amendment'));
     expect(amendment).toBeDefined();
     expect(amendment!.project).toBe('self');
+
+    // Should also create an AgentMessage for user approval
+    const messages = await db.messages.toArray();
+    const proposal = messages.find(m => m.type === 'proposal' && m.sender === 'dream:deep');
+    expect(proposal).toBeDefined();
+    expect(proposal!.content).toContain('amendment');
+    expect(proposal!.status).toBe('unread');
+    expect(proposal!.proposedTask).toBeDefined();
   });
 
   it('deepDream skips amendment when LLM says none needed', async () => {
     await db.kbLog.add(makeEntry({ text: 'Some entry', category: 'observation', source: 'execution' }));
-    const ctx = mockContext('No amendments needed');
+    const ctx = trackingContext([
+      'Strategic insight',
+      'No amendments needed',
+    ]);
 
     await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
 
     const entries = await db.kbLog.toArray();
     const amendment = entries.find(e => e.category === 'constitution' && e.tags.includes('constitution-amendment'));
     expect(amendment).toBeUndefined();
+
+    // No proposal message should be created
+    const messages = await db.messages.toArray();
+    expect(messages.filter(m => m.type === 'proposal')).toHaveLength(0);
+  });
+
+  it('deepDream constitution amendment — approved via user:reply', async () => {
+    // Seed a project config with existing constitution
+    await db.projectConfigs.add({ id: 'default', constitution: 'Existing rules', updatedAt: Date.now() });
+    await db.kbLog.add(makeEntry({ text: 'Some entry', category: 'observation', source: 'execution' }));
+    const ctx = trackingContext([
+      'Strategic insight',
+      'New rule: always write tests first',
+    ]);
+
+    await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
+
+    // Find the proposal message
+    const messages = await db.messages.toArray();
+    const proposal = messages.find(m => m.type === 'proposal' && m.sender === 'dream:deep');
+    expect(proposal).toBeDefined();
+    expect(proposal!.status).toBe('unread');
+
+    // Simulate user approval via event bus
+    const { eventBus } = await import('../../src/core/event-bus');
+    eventBus.emit('user:reply', {
+      taskId: 'test-task',
+      content: 'approved',
+      messageId: proposal!.id,
+    });
+    // Allow async handler to run
+    await new Promise(r => setTimeout(r, 10));
+
+    // Constitution should be updated
+    const config = await db.projectConfigs.get('default');
+    expect(config!.constitution).toContain('New rule: always write tests first');
+    expect(config!.constitution).toContain('Existing rules');
+
+    // Message should be marked read
+    const updated = await db.messages.get(proposal!.id!);
+    expect(updated!.status).toBe('read');
+  });
+
+  it('deepDream constitution amendment — rejected via user:reply', async () => {
+    await db.projectConfigs.add({ id: 'default', constitution: 'Existing rules', updatedAt: Date.now() });
+    await db.kbLog.add(makeEntry({ text: 'Some entry', category: 'observation', source: 'execution' }));
+    const ctx = trackingContext([
+      'Strategic insight',
+      'Bad amendment: delete all tests',
+    ]);
+
+    await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
+
+    const messages = await db.messages.toArray();
+    const proposal = messages.find(m => m.type === 'proposal' && m.sender === 'dream:deep');
+
+    // Simulate user rejection
+    const { eventBus } = await import('../../src/core/event-bus');
+    eventBus.emit('user:reply', {
+      taskId: 'test-task',
+      content: 'no, rejected',
+      messageId: proposal!.id,
+    });
+    await new Promise(r => setTimeout(r, 10));
+
+    // Constitution should NOT be updated
+    const config = await db.projectConfigs.get('default');
+    expect(config!.constitution).toBe('Existing rules');
+
+    // Message should still be marked read
+    const updated = await db.messages.get(proposal!.id!);
+    expect(updated!.status).toBe('read');
   });
 });
 
@@ -858,5 +1096,122 @@ describe('KBHandler', () => {
     const results = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{}], ctx);
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe('Active');
+  });
+});
+
+// ─── KB Writer Convenience Functions ───────────────────────────
+describe('KBHandler convenience writers', () => {
+  it('recordExecution — creates entry with correct defaults', async () => {
+    const id = await KBHandler.recordExecution('Built feature X', ['task-1']);
+    expect(id).toBeGreaterThan(0);
+    const entries = await db.kbLog.toArray();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].category).toBe('execution');
+    expect(entries[0].abstraction).toBe(1);
+    expect(entries[0].layer).toEqual(['L1']);
+    expect(entries[0].source).toBe('execution');
+    expect(entries[0].tags).toEqual(['task-1']);
+    expect(entries[0].project).toBe('target');
+    expect(entries[0].active).toBe(true);
+  });
+
+  it('recordExecution — respects explicit project', async () => {
+    await KBHandler.recordExecution('Self-healing ran', ['self'], 'self');
+    const entries = await db.kbLog.toArray();
+    expect(entries[0].project).toBe('self');
+  });
+
+  it('recordObservation — creates entry with correct defaults', async () => {
+    await KBHandler.recordObservation('Pattern detected in logs', ['logs']);
+    const entries = await db.kbLog.toArray();
+    expect(entries[0].category).toBe('observation');
+    expect(entries[0].abstraction).toBe(2);
+    expect(entries[0].layer).toEqual(['L0']);
+    expect(entries[0].source).toBe('observation');
+  });
+
+  it('recordDecision — creates entry with correct defaults', async () => {
+    await KBHandler.recordDecision('Switched to batch processing', ['perf']);
+    const entries = await db.kbLog.toArray();
+    expect(entries[0].category).toBe('decision');
+    expect(entries[0].abstraction).toBe(4);
+    expect(entries[0].layer).toEqual(['L0', 'L1']);
+    expect(entries[0].source).toBe('decision');
+  });
+
+  it('recordError — creates entry with correct defaults', async () => {
+    await KBHandler.recordError('API rate limit exceeded', ['api']);
+    const entries = await db.kbLog.toArray();
+    expect(entries[0].category).toBe('error');
+    expect(entries[0].abstraction).toBe(2);
+    expect(entries[0].layer).toEqual(['L0', 'L1']);
+    expect(entries[0].source).toBe('execution');
+  });
+});
+
+// ─── Repo Scanner ───────────────────────────────────────────────
+describe('scanRepo', () => {
+  it('detects tech stack from file extensions', async () => {
+    const files = [
+      { path: 'src/index.ts' },
+      { path: 'src/App.tsx' },
+      { path: 'src/style.css' },
+    ];
+    const result = await scanRepo(files);
+    expect(result.entries).toBe(1);
+    const entries = await db.kbLog.toArray();
+    expect(entries[0].text).toContain('typescript');
+    expect(entries[0].text).toContain('react');
+    expect(entries[0].tags).toContain('tech-stack');
+    expect(entries[0].source).toBe('repo-scan');
+  });
+
+  it('creates docs from README', async () => {
+    const files = [
+      { path: 'README.md', content: '# My Project\n\nA great project.' },
+    ];
+    const result = await scanRepo(files);
+    expect(result.docs).toBe(1);
+    const docs = await db.kbDocs.toArray();
+    expect(docs[0].title).toBe('README.md');
+    expect(docs[0].type).toBe('readme');
+    expect(docs[0].source).toBe('repo-scan');
+    expect(docs[0].tags).toContain('project-overview');
+  });
+
+  it('parses package.json for tech detection', async () => {
+    const files = [
+      { path: 'package.json', content: JSON.stringify({ dependencies: { react: '^18', dexie: '^4' }, devDependencies: { typescript: '^5' } }) },
+    ];
+    await scanRepo(files);
+    const entries = await db.kbLog.toArray();
+    expect(entries[0].text).toContain('react');
+    expect(entries[0].text).toContain('dexie');
+    expect(entries[0].text).toContain('typescript');
+  });
+
+  it('deduplicates — does not re-create existing docs', async () => {
+    const files = [
+      { path: 'README.md', content: '# V1' },
+    ];
+    await scanRepo(files);
+    await scanRepo(files);
+    const docs = await db.kbDocs.toArray();
+    expect(docs).toHaveLength(1);
+  });
+
+  it('deduplicates — does not re-create tech stack observation', async () => {
+    const files = [{ path: 'src/app.ts' }];
+    await scanRepo(files);
+    await scanRepo(files);
+    const entries = await db.kbLog.filter(e => e.source === 'repo-scan').toArray();
+    expect(entries).toHaveLength(1);
+  });
+
+  it('returns empty when no recognizable files', async () => {
+    const files = [{ path: 'data.bin' }];
+    const result = await scanRepo(files);
+    expect(result.docs).toBe(0);
+    expect(result.entries).toBe(0);
   });
 });

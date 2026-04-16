@@ -28,6 +28,35 @@ export class ModuleHost {
   }
 
   private setupListeners() {
+    // Background trigger: board idle → sessionDream (self-healing §5.5)
+    let boardIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    eventBus.on('module:log', async ({ taskId, moduleId }) => {
+      if (moduleId === 'orchestrator') {
+        // Reset idle timer on any orchestrator activity
+        if (boardIdleTimer) clearTimeout(boardIdleTimer);
+        boardIdleTimer = setTimeout(async () => {
+          if (!this.config) return;
+          const tasks = await db.tasks.toArray();
+          const inProgress = tasks.filter(t => t.workflowStatus === 'IN_PROGRESS').length;
+          if (inProgress === 0) {
+            try {
+              const context: RequestContext = {
+                taskId: '',
+                repoUrl: this.config.repoUrl,
+                repoBranch: this.config.repoBranch,
+                githubToken: this.config.githubToken,
+                llmCall: this.llmCall.bind(this),
+                moduleConfig: this.config.moduleConfigs['process-dream'] || {}
+              };
+              await registry.invokeHandler('process-dream.sessionDream', [], context);
+            } catch {
+              // Session dream failure is non-critical
+            }
+          }
+        }, 5 * 60 * 1000); // 5 minutes idle threshold
+      }
+    });
+
     eventBus.on('project:review', async () => {
       if (!this.config) return;
       console.log('Project review triggered.');

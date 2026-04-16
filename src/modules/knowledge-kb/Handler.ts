@@ -19,6 +19,23 @@ export class KBHandler {
     }
   }
 
+  // Convenience writers (self-healing §3.3)
+  static async recordExecution(text: string, tags: string[], project?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'execution', abstraction: 1, layer: ['L1'], tags, source: 'execution', project });
+  }
+
+  static async recordObservation(text: string, tags: string[], project?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 2, layer: ['L0'], tags, source: 'observation', project });
+  }
+
+  static async recordDecision(text: string, tags: string[], project?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'decision', abstraction: 4, layer: ['L0', 'L1'], tags, source: 'decision', project });
+  }
+
+  static async recordError(text: string, tags: string[], project?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'error', abstraction: 2, layer: ['L0', 'L1'], tags, source: 'execution', project });
+  }
+
   private static async recordEntry(params: any): Promise<number> {
     const entry: KBEntry = {
       timestamp: Date.now(),
