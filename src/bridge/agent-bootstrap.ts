@@ -19,6 +19,7 @@
 import openaiShimSource from './openai-shim.js?raw';
 import fleetToolsShimSource from './fleet-tools-shim.js?raw';
 import fsBridgeShimSource from './fs-bridge-shim.js?raw';
+import fastGlobShimSource from './fast-glob-shim.js?raw';
 
 // --- Types ---
 type AlmostNodeContainer = {
@@ -233,15 +234,9 @@ function injectShims(c: AlmostNodeContainer): void {
     main: 'index.js',
   }));
 
-  // fast-glob shim — @yuaone/tools imports it but we handle glob via our own shim
+  // fast-glob shim — walks VFS via boardVM.fsBridge with a tiny glob matcher
   c.vfs.mkdirSync('/node_modules/fast-glob', { recursive: true });
-  c.vfs.writeFileSync('/node_modules/fast-glob/index.js', [
-    'function fg(p) { return Promise.resolve([]); }',
-    'fg.sync = function() { return []; };',
-    'fg.stream = function() { return { on: function() { return this; } }; };',
-    'module.exports = fg;',
-    'module.exports.default = fg;',
-  ].join('\n'));
+  c.vfs.writeFileSync('/node_modules/fast-glob/index.js', fastGlobShimSource);
   c.vfs.writeFileSync('/node_modules/fast-glob/package.json', JSON.stringify({
     name: 'fast-glob',
     version: '0.0.0-shim',
@@ -309,12 +304,13 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     console.log('[yuan-runner] Fleet tools raw:', fleetDefsRaw.length, 'valid:', fleetDefs.length);
 
     // Merge: Yuan defs first, then Fleet defs (skip duplicates by name)
-    var allDefs = yuanDefs.slice();
-    var seenNames = new Set(yuanToolNames);
+    var _blockedTools = new Set(['shell_exec', 'bash', 'git_ops', 'test_run']);
+    var allDefs = yuanDefs.filter(function(d) { return !_blockedTools.has(d.name); });
+    var seenNames = new Set(allDefs.map(function(d) { return d.name; }));
     for (var fi = 0; fi < fleetDefs.length; fi++) {
       var fd = fleetDefs[fi];
       var fn = fd.name;
-      if (!seenNames.has(fn)) {
+      if (!seenNames.has(fn) && !_blockedTools.has(fn)) {
         allDefs.push(fd);
         seenNames.add(fn);
       }
@@ -330,21 +326,35 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
     var boardVM = globalThis.boardVM;
 
+    // Circuit breaker: detect dead Go WASM runtime and stop retrying
+    var _runtimeDead = false;
+    function isRuntimeDead(err) {
+      return err && (String(err.message || err).indexOf('Go program has already exited') >= 0
+        || String(err.message || err).indexOf('runtime is dead') >= 0);
+    }
+
     // Combined tool executor: Yuan tools → registry, Fleet tools → boardVM.dispatchTool
     // Handles both OpenAI tool_call format ({ function: { name, arguments } }) and flat format
     const toolExecutor = {
       definitions: allDefs,
       execute: async function(call) {
         var startTime = Date.now();
+        var toolName = (call.function && call.function.name) || call.name;
+        // Circuit breaker: if Go runtime is dead, fail immediately with a clear message
+        if (_runtimeDead) {
+          return { tool_call_id: call.id, name: toolName || 'unknown', output: 'FATAL: Go WASM runtime has crashed. All file operations are unavailable. Call task_complete immediately — no further work is possible.', success: false, durationMs: Date.now() - startTime };
+        }
         try {
-          var toolName = (call.function && call.function.name) || call.name;
           var rawArgs = (call.function && call.function.arguments) || call.arguments;
           var args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          console.log('[tool-exec] →', toolName, JSON.stringify(args).substring(0, 200));
 
           // Route Yuan built-in tools to the registry executor
           if (yuanToolNames.has(toolName)) {
             var flatCall = { id: call.id, name: toolName, arguments: args || {} };
             var result = await yuanExecutor.execute(flatCall);
+            var duration = Date.now() - startTime;
+            console.log('[tool-exec] ←', toolName, 'ok:', result.success !== false, 'ms:', duration, 'output:', String(result.output || '').substring(0, 200));
             return result;
           }
 
@@ -354,9 +364,16 @@ function createAgentRunner(c: AlmostNodeContainer): void {
           }
           var fleetResult = await boardVM.dispatchTool(toolName, [args]);
           var output = typeof fleetResult === 'string' ? fleetResult : JSON.stringify(fleetResult);
-          return { tool_call_id: call.id, name: toolName, output: output, success: true, durationMs: Date.now() - startTime };
+          var duration2 = Date.now() - startTime;
+          console.log('[tool-exec] ←', toolName, 'ok: true', 'ms:', duration2, 'output:', String(output).substring(0, 200));
+          return { tool_call_id: call.id, name: toolName, output: output, success: true, durationMs: duration2 };
         } catch (err) {
           var name2 = (call.function && call.function.name) || call.name || 'unknown';
+          if (isRuntimeDead(err)) {
+            _runtimeDead = true;
+            return { tool_call_id: call.id, name: name2, output: 'FATAL: Go WASM runtime has crashed. All file operations are unavailable. Call task_complete immediately — no further work is possible.', success: false, durationMs: Date.now() - startTime };
+          }
+          console.log('[tool-exec] ←', name2, 'ERROR:', err.message);
           return { tool_call_id: call.id, name: name2, output: 'Error: ' + err.message, success: false, durationMs: Date.now() - startTime };
         }
       }
@@ -380,7 +397,17 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         }
       }
 
-      var prompt = 'You are an autonomous coding agent running inside Fleet.\\n\\n';
+      var prompt = 'You are an autonomous coding agent running inside Fleet.\\n';
+      prompt += '**IMPORTANT: Always respond in English only. Never use Korean or any other language.**\\n\\n';
+      prompt += '===== TOOL CALL FORMAT (CRITICAL) =====\\n';
+      prompt += 'each tool_call is:\\n  [tool_call]TOOL_NAME[arg_name]ARG_NAME[/arg_name][arg_value]ARG_VALUE[/arg_value]...[/tool_call]\\nReplace [] with <> when calling tools.\\n';
+      prompt += 'Examples:\\n';
+      prompt += '  [tool_call]glob[arg_name]pattern[/arg_name][arg_value]*[/arg_value][/tool_call]\\n';
+      prompt += '  [tool_call]file_read[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][/tool_call]\\n';
+      prompt += '  [tool_call]file_edit[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][arg_name]old_string[/arg_name][arg_value]foo[/arg_value][arg_name]new_string[/arg_name][arg_value]bar[/arg_value][/tool_call]\\n';
+      prompt += '  [tool_call]task_complete[arg_name]summary[/arg_name][arg_value]done[/arg_value][/tool_call]\\n';
+      prompt += 'One call per block. Do NOT use any other format.\\n';
+      prompt += '=========================================\\n\\n';
       prompt += 'You have THREE categories of tools available:\\n\\n';
 
       prompt += '1. YUAN FILE TOOLS (read/write/search files in /workspace VFS):\\n';
@@ -415,14 +442,11 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       }
       prompt += '\\n';
 
-      prompt += 'Additionally, you have direct access to the Node.js fs module at /workspace:\\n';
-      prompt += '   var fs = require("fs"); // read/write files directly in VFS\\n\\n';
-
       prompt += 'IMPORTANT RULES:\\n';
       prompt += '- Only use tools listed above. Do NOT invent tools.\\n';
       prompt += '- Do NOT use shell_exec, bash, git_ops, or test_run — they are not available yet.\\n';
-      prompt += '- For file operations, prefer file_read/file_write/file_edit over raw fs module.\\n';
-      prompt += '- Always call task_complete(summary) when you finish your task.\\n';
+      prompt += '- For file operations, use file_read/file_write/file_edit.\\n';
+      prompt += '- Always call task_complete({"summary": "..."}) when you finish your task.\\n';
       prompt += '- Think step by step. Use tools to gather information before making changes.\\n';
       prompt += '- If a tool call fails, read the error and try a different approach.';
       return prompt;
@@ -451,6 +475,22 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         governorConfig: { planTier: 'standard', maxIterations: 25, maxTokenBudget: 100000 },
       });
 
+      // Patch contextManager.replaceSystemMessage so our JS format block is always prepended
+      // (criticalInit() calls replaceSystemMessage with buildPrompt output, discarding our instructions)
+      var _jsFormatBlock = '===== TOOL CALL FORMAT (CRITICAL) =====\\n'
+        + 'each tool_call is:\\n  [tool_call]TOOL_NAME[arg_name]ARG_NAME[/arg_name][arg_value]ARG_VALUE[/arg_value]...[/tool_call]\\nReplace [] with <> when calling tools.\\n'
+        + 'Examples:\\n'
+        + '  [tool_call]glob[arg_name]pattern[/arg_name][arg_value]*[/arg_value][/tool_call]\\n'
+        + '  [tool_call]file_read[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][/tool_call]\\n'
+        + '  [tool_call]file_edit[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][arg_name]old_string[/arg_name][arg_value]foo[/arg_value][arg_name]new_string[/arg_name][arg_value]bar[/arg_value][/tool_call]\\n'
+        + '  [tool_call]task_complete[arg_name]summary[/arg_name][arg_value]done[/arg_value][/tool_call]\\n'
+        + 'One call per block. Do NOT use any other format.\\n'
+        + '=========================================\\n\\n';
+      var _origReplace = agent.contextManager.replaceSystemMessage.bind(agent.contextManager);
+      agent.contextManager.replaceSystemMessage = function(content) {
+        _origReplace(_jsFormatBlock + content);
+      };
+
       agent.on('agent:thinking', function(ev) { console.log('[yuan] thinking:', ev.content); });
       agent.on('agent:tool_call', function(ev) { console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200)); });
       agent.on('agent:tool_result', function(ev) { console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200)); });
@@ -476,15 +516,17 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     globalThis._lastLLMText = '';
     var _origSendRequest = globalThis.boardVM.llmfs.sendRequest;
     globalThis.boardVM.llmfs.sendRequest = async function(reqJSON) {
-      console.log('═══════ [yuan-runner] llmfs.sendRequest CALL ═══════');
-      console.log('request:', reqJSON);
+      console.log('[yuan-runner] llmfs.sendRequest →');
       var resp = await _origSendRequest.call(globalThis.boardVM.llmfs, reqJSON);
-      console.log('═══════ [yuan-runner] llmfs.sendRequest RESPONSE ═══════');
-      console.log('response:', resp);
       try {
         var parsed = JSON.parse(resp);
-        if (parsed.choices && parsed.choices[0] && parsed.choices[0].message) {
-          globalThis._lastLLMText = parsed.choices[0].message.content || '';
+        var tc = (parsed.choices && parsed.choices[0] && parsed.choices[0].message && parsed.choices[0].message.tool_calls) || [];
+        console.log('[yuan-runner] llmfs ← content_len:', (parsed.choices?.[0]?.message?.content || '').length, 'tool_calls:', tc.length);
+      } catch(e) {}
+      try {
+        var parsed2 = JSON.parse(resp);
+        if (parsed2.choices && parsed2.choices[0] && parsed2.choices[0].message) {
+          globalThis._lastLLMText = parsed2.choices[0].message.content || '';
         }
       } catch(e) {}
       return resp;

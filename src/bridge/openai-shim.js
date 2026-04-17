@@ -16,13 +16,10 @@ function Completions(client) {
 
 // Extract XML tool calls from LLM text output.
 // Handles patterns like:
-//   <glob{"pattern": "*", "maxResults": 100}        — tag immediately followed by JSON, no closing tag
-//   <bash command="ls -la" />                        — self-closing with attributes
-//   <glob>{"pattern":"*.ts"}</glob>                  — open/close with JSON body
-//   <tool_call name="bash">{"command": "ls"}</tool_call >
+//   [tool_call]bash[arg_name]command[/arg_name][arg_value]ls[/arg_value][/tool_call]
 // Also handles multiline tags. Tools are typically at the end of the response.
 var _callId = 0;
-var _skipTags = ['p','br','hr','div','span','a','img','code','pre','em','strong','b','i','u','li','ul','ol','h1','h2','h3','h4','h5','h6','table','tr','td','th','blockquote','details','summary','section','article','header','footer','nav'];
+var _skipTags = ['p','br','hr','div','span','a','img','code','pre','em','strong','b','i','u','li','ul','ol','h1','h2','h3','h4','h5','h6','table','tr','td','th','blockquote','details','summary','section','article','header','footer','nav','tool_call'];
 
 // Dynamic known tools — updated from agent-bootstrap via setKnownToolNames()
 var _dynamicKnownTools = [];
@@ -35,15 +32,88 @@ function isKnownToolOrDynamic(name) {
   return isKnownTool(name) || _dynamicKnownTools.indexOf(name) >= 0;
 }
 
-function extractXmlToolCalls(text) {
+function extractToolCalls(text) {
   var calls = [];
   var cleaned = text;
 
-  // Pattern 0: <name{JSON} or <name {JSON} — no closing tag, JSON immediately after tag name
-  // Only matches known tool names to avoid false positives on random markdown.
-  // Supports dot-separated names like Artifacts.listArtifacts
-  var bareJsonRe = /<([\w.]+)\s*(\{[^}]*(?:\{[^}]*\}[^}]*)*\})\s*/g;
+  // --- Pass 1: JS function call extraction ---
+  // Matches: toolname({...}) — bare function calls with JSON object args
+  // e.g. glob({"pattern": "**/*"}) or file_read({"path": "src/main.ts"})
+  var allTools = _dynamicKnownTools.length > 0
+    ? _dynamicKnownTools
+    : ['bash', 'glob', 'grep', 'file_read', 'file_write', 'file_edit',
+       'shell_exec', 'git_ops', 'test_run', 'code_search', 'security_scan',
+       'web_search', 'parallel_web_search', 'task_complete', 'spawn_sub_agent'];
+
+  // Build alternation: glob|file_read|file_edit|...
+  var toolAlt = allTools.map(function(n) { return n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|');
+  // Match: toolname({ ... }) with balanced braces
+  var jsCallRe = new RegExp('(' + toolAlt + ')\\s*\\((\\{(?:[^{}]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})*\\})\\s*\\)', 'gm');
   var m;
+  while ((m = jsCallRe.exec(text)) !== null) {
+    var jsName = m[1];
+    var jsJson = m[2];
+    try {
+      var jsArgs = JSON.parse(jsJson);
+      _callId++;
+      calls.push({
+        id: 'call_js_' + _callId,
+        type: 'function',
+        function: { name: jsName, arguments: JSON.stringify(jsArgs) }
+      });
+      cleaned = cleaned.replace(m[0], '');
+    } catch(e) {
+      // Broken JSON — try to fix common issues (trailing commas, unquoted keys)
+      try {
+        var fixed = jsJson.replace(/,\s*}/g, '}').replace(/(\w+)\s*:/g, '"$1":');
+        var jsArgs2 = JSON.parse(fixed);
+        _callId++;
+        calls.push({
+          id: 'call_js_' + _callId,
+          type: 'function',
+          function: { name: jsName, arguments: JSON.stringify(jsArgs2) }
+        });
+        cleaned = cleaned.replace(m[0], '');
+      } catch(e2) {
+        // Really broken — skip
+      }
+    }
+  }
+
+  // --- Pass 1b: [tool_call]NAME[arg_name]ARG[/arg_name][arg_value]VAL[/arg_value]...[/tool_call] ---
+  // Handles both [] and <> bracket types. Name is text content after [tool_call]/<tool_call >.
+  var bracketPairs = [
+    { o: '\\[', c: '\\]', raw: '[', name: 'square' },
+    { o: '<', c: '>', raw: '>', name: 'angle' }
+  ];
+  for (var bp = 0; bp < bracketPairs.length; bp++) {
+    var bo = bracketPairs[bp].o;
+    var bc = bracketPairs[bp].c;
+    // Match: [tool_call]TOOL_NAME[arg_name]ARG[/arg_name][arg_value]VAL[/arg_value]...[/tool_call]
+    var tcRe = new RegExp(bo + 'tool_call' + bc + '\\s*(\\w+)\\s*((?:' + bo + 'arg_name' + bc + '[\\s\\S]*?' + bo + '/arg_name' + bc + bo + 'arg_value' + bc + '[\\s\\S]*?' + bo + '/arg_value' + bc + ')+)\\s*' + bo + '/tool_call' + bc, 'gm');
+    while ((m = tcRe.exec(text)) !== null) {
+      var tcName = m[1];
+      var tcBody = m[2];
+      var tcArgs = {};
+      // Extract arg_name/arg_value pairs
+      var pairRe = new RegExp(bo + 'arg_name' + bc + '([\\s\\S]*?)' + bo + '/arg_name' + bc + bo + 'arg_value' + bc + '([\\s\\S]*?)' + bo + '/arg_value' + bc, 'gm');
+      var pm;
+      while ((pm = pairRe.exec(tcBody)) !== null) {
+        tcArgs[pm[1].trim()] = pm[2].trim();
+      }
+      _callId++;
+      calls.push({
+        id: 'call_tc_' + _callId,
+        type: 'function',
+        function: { name: tcName, arguments: JSON.stringify(tcArgs) }
+      });
+      cleaned = cleaned.replace(m[0], '');
+    }
+  }
+
+  // --- Pass 2: Legacy XML fallback (for LLMs that still produce XML) ---
+  // Pattern 0: <name{JSON} — bare JSON after tag
+  var bareJsonRe = /<([\w.]+)\s*(\{[^}]*(?:\{[^}]*\}[^}]*)*\})\s*>?\s*/g;
   while ((m = bareJsonRe.exec(text)) !== null) {
     var tag0 = m[1];
     var json0 = m[2];
@@ -58,12 +128,10 @@ function extractXmlToolCalls(text) {
         function: { name: tag0, arguments: JSON.stringify(args0) }
       });
       cleaned = cleaned.replace(m[0], '');
-    } catch(e) {
-      // Not valid JSON — skip
-    }
+    } catch(e) {}
   }
 
-  // Pattern 1: self-closing tags with attributes: <name attr1="val1" attr2="val2" />
+  // Pattern 1: self-closing XML: <name attr="val" />
   var selfClosingRe = /<([\w.]+)((?:\s+[^>]*?)*)\s*\/>/gs;
   while ((m = selfClosingRe.exec(text)) !== null) {
     var tagName = m[1];
@@ -81,7 +149,7 @@ function extractXmlToolCalls(text) {
     }
   }
 
-  // Pattern 2: open/close with JSON body: <name>JSON</name> or <name attr="val">JSON</name>
+  // Pattern 2: open/close XML: <name>JSON</name>
   var openCloseRe = /<([\w.]+)((?:\s+[^>]*?)*)>([\s\S]*?)<\/\1\s*>/g;
   while ((m = openCloseRe.exec(text)) !== null) {
     var tagName2 = m[1];
@@ -112,7 +180,7 @@ function extractXmlToolCalls(text) {
     }
   }
 
-  // Pattern 3: <tool_call name="...">JSON</tool_call > (with optional space before >)
+  // Pattern 3: <tool_call name="...">JSON</tool_call >
   var toolCallRe = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/\s*tool_call\s*>/g;
   while ((m = toolCallRe.exec(text)) !== null) {
     var toolName = m[1];
@@ -130,7 +198,17 @@ function extractXmlToolCalls(text) {
     cleaned = cleaned.replace(m[0], '');
   }
 
-  return { calls: calls, cleaned: cleaned.trim() };
+  // Deduplicate: if JS pass already caught a tool, skip XML duplicates for same tool+args
+  var seen = new Set();
+  var dedupedCalls = [];
+  for (var ci = 0; ci < calls.length; ci++) {
+    var sig = calls[ci].function.name + ':' + calls[ci].function.arguments;
+    if (!seen.has(sig)) {
+      seen.add(sig);
+      dedupedCalls.push(calls[ci]);
+    }
+  }
+  return { calls: dedupedCalls, cleaned: cleaned.trim() };
 }
 
 function parseXmlAttrs(str) {
@@ -169,20 +247,8 @@ Completions.prototype.create = async function (params) {
     stream: false,
   };
 
-  // ─── FULL REQUEST LOG ───
-  console.log('═══ [openai-shim] LLM REQUEST ═══');
-  console.log('model:', req.model, 'tools:', (req.tools || []).length, 'messages:', req.messages.length);
-  for (var mi = 0; mi < req.messages.length; mi++) {
-    var msg = req.messages[mi];
-    var contentStr = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-    console.log('  msg[' + mi + '] role=' + msg.role + ' len=' + (contentStr||'').length + (msg.tool_calls ? ' tool_calls=' + msg.tool_calls.length : '') + (msg.tool_call_id ? ' tool_call_id=' + msg.tool_call_id : ''));
-    console.log('    content:', contentStr);
-    if (msg.tool_calls) {
-      for (var ti = 0; ti < msg.tool_calls.length; ti++) {
-        console.log('    tool_call[' + ti + ']:', JSON.stringify(msg.tool_calls[ti]));
-      }
-    }
-  }
+  // ─── REQUEST LOG (compact) ───
+  console.log('[openai-shim] → model:', req.model, 'tools:', (req.tools || []).length, 'msgs:', req.messages.length);
 
   var boardVM = globalThis.boardVM;
   if (!boardVM || !boardVM.llmfs) {
@@ -191,13 +257,10 @@ Completions.prototype.create = async function (params) {
   var resultJSON = await boardVM.llmfs.sendRequest(JSON.stringify(req));
   var result = JSON.parse(resultJSON);
 
-  // ─── FULL RESPONSE LOG ───
-  console.log('═══ [openai-shim] LLM RESPONSE (parsed) ═══');
+  // ─── RESPONSE LOG (compact) ───
   var choice0 = result.choices && result.choices[0];
   if (choice0 && choice0.message) {
-    console.log('finish_reason:', choice0.finish_reason);
-    console.log('content:', choice0.message.content);
-    console.log('tool_calls:', JSON.stringify(choice0.message.tool_calls));
+    console.log('[openai-shim] ← finish:', choice0.finish_reason, 'content_len:', (choice0.message.content || '').length, 'tool_calls:', (choice0.message.tool_calls || []).length);
   }
 
   // Extract XML tool calls from content — always check, even if structured tool_calls exist
@@ -205,7 +268,7 @@ Completions.prototype.create = async function (params) {
   if (choice && choice.message) {
     var content = choice.message.content || '';
     if (content) {
-      var extracted = extractXmlToolCalls(content);
+      var extracted = extractToolCalls(content);
       if (extracted.calls.length > 0) {
         if (!choice.message.tool_calls) choice.message.tool_calls = [];
         // Append XML-extracted calls to any existing structured calls
@@ -213,13 +276,10 @@ Completions.prototype.create = async function (params) {
           choice.message.tool_calls.push(extracted.calls[i]);
         }
         choice.message.content = extracted.cleaned || null;
-        console.log('═══ [openai-shim] XML EXTRACTED ' + extracted.calls.length + ' tool calls ═══');
-        for (var ei = 0; ei < extracted.calls.length; ei++) {
-          console.log('  xml_call[' + ei + ']:', JSON.stringify(extracted.calls[ei]));
-        }
+        console.log('[openai-shim] extracted', extracted.calls.length, 'tool calls from text:', extracted.calls.map(function(c) { return c.function.name; }).join(', '));
       }
     }
-    console.log('═══ [openai-shim] FINAL: content=' + JSON.stringify(choice.message.content?.substring(0, 500)) + ' tool_calls=' + (choice.message.tool_calls?.length || 0) + ' ═══');
+    console.log('[openai-shim] final: tool_calls=' + (choice.message.tool_calls?.length || 0));
   }
 
   // If the caller expects streaming, return async iterable of SSE-style delta chunks.

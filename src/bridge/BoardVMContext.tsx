@@ -48,13 +48,64 @@ function buildToolDefinitions(): Array<{ name: string; description: string; para
 
 function parseXMLToolCalls(content: string, knownTools?: string[]): any[] {
   const calls: any[] = [];
-  const skipTags = new Set(['p','br','hr','div','span','a','img','code','pre','em','strong','b','i','u','li','ul','ol','h1','h2','h3','h4','h5','h6','table','tr','td','th','blockquote','details','summary','section','article','header','footer','nav']);
+  const skipTags = new Set(['p','br','hr','div','span','a','img','code','pre','em','strong','b','i','u','li','ul','ol','h1','h2','h3','h4','h5','h6','table','tr','td','th','blockquote','details','summary','section','article','header','footer','nav','tool_call']);
   let cleaned = content;
   let idx = 0;
+  const knownSet = knownTools ? new Set(knownTools) : null;
 
-  // Pattern 1: <tool_call name="...">JSON</tool_call >
-  const toolCallRe = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/\s*tool_call\s*>/g;
+  // Default tool names when knownTools not provided
+  const defaultTools = ['bash', 'glob', 'grep', 'file_read', 'file_write', 'file_edit',
+    'shell_exec', 'git_ops', 'test_run', 'code_search', 'security_scan',
+    'web_search', 'parallel_web_search', 'task_complete', 'spawn_sub_agent'];
+
+  // Pass 1: JS function call format — toolname({...})
+  // This is the primary format instructed by agent-bootstrap.ts system prompt
+  const allToolNames = (knownTools && knownTools.length > 0) ? knownTools : defaultTools;
+  const toolAlt = allToolNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const jsCallRe = new RegExp('(' + toolAlt + ')\\s*\\(\\s*(\\{(?:[^{}]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})*\\})\\s*\\)', 'gm');
   let match;
+  while ((match = jsCallRe.exec(content)) !== null) {
+    const name = match[1];
+    const json = match[2];
+    try {
+      const args = JSON.parse(json);
+      calls.push({ id: `call_${idx++}`, type: 'function', function: { name, arguments: JSON.stringify(args) } });
+      cleaned = cleaned.replace(match[0], '');
+    } catch {
+      // Try fixing common issues (trailing commas, unquoted keys)
+      try {
+        const fixed = json.replace(/,\s*}/g, '}').replace(/(\w+)\s*:/g, '"$1":');
+        const args = JSON.parse(fixed);
+        calls.push({ id: `call_${idx++}`, type: 'function', function: { name, arguments: JSON.stringify(args) } });
+        cleaned = cleaned.replace(match[0], '');
+      } catch { /* skip unparseable */ }
+    }
+  }
+
+  // Pass 1b: [tool_call]NAME[arg_name]ARG[/arg_name][arg_value]VAL[/arg_value]...[/tool_call]
+  // Handles both [] and <> brackets. Name is text content after opening tag.
+  const bracketPairs = [
+    { o: '\\[', c: '\\]' },
+    { o: '<', c: '>' },
+  ];
+  for (const bp of bracketPairs) {
+    const tcRe = new RegExp(bp.o + 'tool_call' + bp.c + '\\s*(\\w+)\\s*((?:' + bp.o + 'arg_name' + bp.c + '[\\s\\S]*?' + bp.o + '/arg_name' + bp.c + bp.o + 'arg_value' + bp.c + '[\\s\\S]*?' + bp.o + '/arg_value' + bp.c + ')+)\\s*' + bp.o + '/tool_call' + bp.c, 'gm');
+    while ((match = tcRe.exec(content)) !== null) {
+      const tcName = match[1];
+      const tcBody = match[2];
+      const tcArgs: any = {};
+      const pairRe = new RegExp(bp.o + 'arg_name' + bp.c + '([\\s\\S]*?)' + bp.o + '/arg_name' + bp.c + bp.o + 'arg_value' + bp.c + '([\\s\\S]*?)' + bp.o + '/arg_value' + bp.c, 'gm');
+      let pm;
+      while ((pm = pairRe.exec(tcBody)) !== null) {
+        tcArgs[pm[1].trim()] = pm[2].trim();
+      }
+      calls.push({ id: `call_${idx++}`, type: 'function', function: { name: tcName, arguments: JSON.stringify(tcArgs) } });
+      cleaned = cleaned.replace(match[0], '');
+    }
+  }
+
+  // Pass 2: <tool_call name="...">JSON</tool_call >
+  const toolCallRe = /<tool_call\s+name="([^"]+)"\s*>([\s\S]*?)<\/\s*tool_call\s*>/g;
   while ((match = toolCallRe.exec(content)) !== null) {
     const name = match[1];
     let args: any = {};
@@ -63,9 +114,8 @@ function parseXMLToolCalls(content: string, knownTools?: string[]): any[] {
     cleaned = cleaned.replace(match[0], '');
   }
 
-  // Pattern 2: <toolName>JSON</toolName> — arbitrary XML tool tags
+  // Pass 3: <toolName>JSON</toolName> — arbitrary XML tool tags
   const openCloseRe = /<([\w.]+)((?:\s+[^>]*?)*)>([\s\S]*?)<\/\1\s*>/g;
-  const knownSet = knownTools ? new Set(knownTools) : null;
   while ((match = openCloseRe.exec(content)) !== null) {
     const tagName = match[1];
     if (skipTags.has(tagName)) continue;
@@ -275,40 +325,36 @@ export function BoardVMProvider({
               };
               return JSON.stringify(openaiResp);
             } else {
-              // OpenAI-compatible provider — strip tools, inject XML schema
+              // OpenAI-compatible provider — strip tools, inject JS function call schema
               const cleanReq: any = { ...req };
               const tools = cleanReq.tools;
-              let toolSchemaXML = '';
+              let toolSchema = '';
 
               if (tools && tools.length > 0) {
-                const lines = ['\n\n<available_tools>'];
+                const lines = ['\n\n===== AVAILABLE TOOLS (CRITICAL) ====='];
                 for (const t of tools) {
                   const fn = t.function;
-                  lines.push(`  <tool name="${fn.name}">`);
-                  lines.push(`    <description>${fn.description || ''}</description>`);
-                  if (fn.parameters?.properties) {
-                    lines.push('    <parameters>');
-                    for (const [k, v] of Object.entries(fn.parameters.properties)) {
-                      lines.push(`      <param name="${k}" type="${(v as any).type || 'string'}">${(v as any).description || ''}</param>`);
-                    }
-                    lines.push('    </parameters>');
-                  }
-                  lines.push('  </tool>');
+                  const params = fn.parameters?.properties
+                    ? Object.keys(fn.parameters.properties).join(', ')
+                    : '';
+                  lines.push(`- ${fn.name}(${params}): ${fn.description || ''}`);
                 }
-                lines.push('</available_tools>');
-                lines.push('To use a tool, respond with: <tool_name>{"arg": "value"}</tool_name> or <tool_call name="tool_name">{"arg": "value"}</tool_call)');
+                lines.push('To invoke a tool, use JS function call syntax: tool_name({"key": "value"})');
+                lines.push('Examples: glob({"pattern": "**/*.ts"}) or file_read({"path": "src/main.ts"})');
+                lines.push('One call per line. Do NOT use XML tags. This format is MANDATORY.');
                 lines.push('You can make multiple tool calls. After tool results, continue your response.');
-                toolSchemaXML = lines.join('\n');
+                lines.push('========================================');
+                toolSchema = lines.join('\n');
                 delete cleanReq.tools;
                 delete cleanReq.tool_choice;
               }
 
-              if (toolSchemaXML && cleanReq.messages?.length > 0) {
+              if (toolSchema && cleanReq.messages?.length > 0) {
                 const lastMsg = cleanReq.messages[cleanReq.messages.length - 1];
                 if (lastMsg.role === 'user') {
-                  lastMsg.content = (lastMsg.content || '') + toolSchemaXML;
+                  lastMsg.content = (lastMsg.content || '') + toolSchema;
                 } else {
-                  cleanReq.messages.push({ role: 'user', content: toolSchemaXML });
+                  cleanReq.messages.push({ role: 'user', content: toolSchema });
                 }
               }
 
