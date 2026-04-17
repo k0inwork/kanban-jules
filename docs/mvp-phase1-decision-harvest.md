@@ -119,78 +119,51 @@ The commit message is the backup signal — it persists even if the KB call fail
 
 Declarations are source: `agent`. These are **primary signal** — the agent chose to tell us.
 
-### 2.3 External Agents: Event-Driven Commit Harvest
+### 2.3 Two Separate Paths — No Branching Logic
 
-External agents (Jules, Codex, etc.) produce git commits on the remote repo. The browser-based Fleet app has no local git access — but it does have:
+The two agent types use **completely separate mechanisms**. No runtime branching needed:
 
-- **GitHub API access** (`githubToken` in HostConfig) to fetch commits + diffs
-- **JulesPostman** already polling and detecting session completion (`COMPLETED`/`FAILED`)
+| | External (Jules) | Internal (Yuan) |
+|---|---|---|
+| **How decisions enter KB** | Event → dream engine extracts from GitHub commits | Agent calls `recordDecision()` during execution |
+| **When** | After session COMPLETED, event-driven | During execution, inline |
+| **Dream involvement** | Dream engine fetches + extracts + stores | Dream only verifies + classifies later |
+| **Event** | `executor:completed` from JulesPostman | No event — decisions already in KB |
 
-The micro dream engine **listens to events**, not polls git:
+### 2.4 External Path: Event → GitHub Commits → KB
 
-```
-Event flow:
-  1. JulesPostman detects session COMPLETED
-     → emits eventBus.emit('executor:completed', { taskId, executor: 'executor-jules', ... })
-  2. Micro dream handler listens:
-     eventBus.on('executor:completed', async (data) => { ... })
-  3. Handler fetches commits from GitHub API:
-     GET /repos/{owner}/{repo}/commits?sha={branch}&since={taskStartedAt}
-     GET /repos/{owner}/{repo}/commits/{sha} (for full diff)
-  4. Handler runs extraction LLM on commit messages + diffs
-  5. Extracted decisions → KB entries (source: 'dream:micro')
-```
-
-For internal agents (Yuan), the orchestrator already knows when a task finishes. Same listener, different data source:
+JulesPostman already polls and detects session completion. Add one emit:
 
 ```
-  Internal agent completes:
-    → Orchestrator emits eventBus.emit('executor:completed', { taskId, executor: 'executor-local' })
-    → Handler checks KB for agent-declared decisions (source: 'agent')
-    → Runs verify mode instead of extract mode
-```
-
-### 2.4 Micro Dream Handler: Unified Event Listener
-
-```
-eventBus.on('executor:completed', async ({ taskId, executor }) => {
-  const task = await db.tasks.get(taskId);
-  const declared = await db.kbLog.filter(e =>
-    e.tags.includes(taskId) && e.source === 'agent' && e.category === 'decision'
-  ).toArray();
-
-  if (declared.length > 0) {
-    // Internal agent — verify mode
-    await verifyDeclarations(task, declared);
-  } else {
-    // External agent — extract mode
-    const commits = await fetchCommitsFromGitHub(task);
-    if (commits.length > 0) {
-      await extractFromCommits(task, commits);
-    }
+JulesPostman.poll():
+  ...
+  if (currentSession.state === 'COMPLETED') {
+    → emit eventBus.emit('executor:completed', {
+        taskId: task.id,
+        executor: 'executor-jules',
+        sessionName: session.name,
+        startedAt: task.createdAt
+      })
   }
+```
+
+Dream engine listens:
+
+```
+eventBus.on('executor:completed', async ({ taskId, executor, sessionName, startedAt }) => {
+  // Only external executors fire this event — no branching check needed
+  const task = await db.tasks.get(taskId);
+  const commits = await fetchCommitsFromGitHub(task, startedAt);
+  if (commits.length === 0) return;
+
+  const extracted = await extractDecisionsFromCommits(task, commits);
+  // extracted → KB entries, source: 'dream:micro', category: 'decision'
 });
 ```
 
-**verifyDeclarations** (internal agents):
-```
-Input: task, agent-declared decisions from KB
-Process:
-  1. LLM verifies each declaration against task description
-  2. Classify tags: architectural|api|dependency|pattern|local|infra|security
-  3. Flag missed decisions (if any)
-Output: update KB entries with classification tags
-```
+The local executor path has **no event**. Yuan calls `recordDecision()` during execution. Decisions land in KB via the existing tool binding. When micro dream runs its regular consolidation cycle, it picks up these entries and classifies them.
 
-**extractFromCommits** (external agents):
-```
-Input: task, GitHub commits (message + diff)
-Process:
-  1. LLM extracts non-obvious decisions from commit messages + diffs
-  2. Filter: only choices with alternatives (quality signal)
-  3. Classify tags
-Output: new KB entries (source: 'dream:micro', category: 'decision')
-```
+### 2.5 GitHub API for Commit Fetching
 
 ### 2.5 GitHub API for Commit Fetching
 
@@ -519,23 +492,22 @@ interface Task {
 
 ## 6. Implementation Phases
 
-### Phase 1a: Agent Declaration Rule (Internal Agents)
+### Phase 1a: Agent Declaration Rule (Internal — code path, no events)
 
 - [ ] Add decision declaration rule to Yuan system prompt in `agent-bootstrap.ts`
 - [ ] Wire `knowledge-kb.recordDecision` as callable tool in sandbox bindings
 - [ ] Agent records decisions during execution (source: 'agent')
-- [ ] Agent includes reasoning in commit message body as backup signal
+- [ ] No event needed — decisions land in KB directly via tool call
 
-### Phase 1b: Event-Driven Commit Harvest (External Agents)
+### Phase 1b: Event-Driven Commit Harvest (External — Jules fires event)
 
 - [ ] Add `executor:completed` event emission to JulesPostman (on session COMPLETED)
-- [ ] Add `executor:completed` event emission to Orchestrator (on internal agent finish)
+- [ ] Dream engine listens on `executor:completed` event
 - [ ] Implement `fetchCommitsFromGitHub()` using existing `githubToken` + `repoUrl`
-- [ ] Micro dream handler listens on `executor:completed` event
-- [ ] Classify agent type: has KB declarations → internal (verify), none → external (extract)
-- [ ] Extract mode: LLM extracts decisions from GitHub commit messages + patches
-- [ ] Verify mode: LLM verifies internal agent declarations
+- [ ] LLM extracts decisions from GitHub commit messages + patches
+- [ ] Filter: only non-obvious choices with alternatives
 - [ ] Extracted entries: source `dream:micro`, same schema as declared entries
+- [ ] No branching logic — only external executors fire this event
 
 ### Phase 1c: Task Branching (Conditional)
 
