@@ -384,7 +384,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       }
 
       var prompt = 'You are an autonomous coding agent running inside Fleet.\\n';
-      prompt += '**IMPORTANT: Always respond in English only. Never use Korean or any other language.**\\n\\n';
+      prompt += '**IMPORTANT: Always respond in English only. Never use Chinese, Korean, or any other non-English language.**\\n\\n';
       prompt += 'Use the provided tools via native function calling. Do not output tool calls as text.\\n\\n';
       prompt += 'You have THREE categories of tools available:\\n\\n';
 
