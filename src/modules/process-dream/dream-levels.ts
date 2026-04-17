@@ -26,10 +26,10 @@ export async function microDream(taskId: string, context: RequestContext): Promi
   await db.kbLog.add({
     timestamp: Date.now(),
     text: summary,
-    category: 'dream',
+    category: 'insight',
     abstraction: 5,
     layer: ['L0', 'L1'],
-    tags: allTags,
+    tags: [...allTags, 'consolidation'],
     source: 'dream:micro',
     supersedes: entries.map(e => e.id!),
     active: true,
@@ -94,7 +94,7 @@ export async function sessionDream(context: RequestContext): Promise<string> {
 
   for (const p of (parsed.patterns || [])) {
     allNew.push({
-      timestamp: Date.now(), text: p.text, category: 'pattern',
+      timestamp: Date.now(), text: p.text, category: 'insight',
       abstraction: 7, layer: ['L0'], tags: p.tags || [],
       source: 'dream:session', active: true, project: 'target'
     });
@@ -109,7 +109,7 @@ export async function sessionDream(context: RequestContext): Promise<string> {
   for (const s of (parsed.strategies || [])) {
     allNew.push({
       timestamp: Date.now(), text: s.text, category: 'decision',
-      abstraction: 7, layer: ['L0', 'L1'], tags: s.tags || [],
+      abstraction: 7, layer: ['L0', 'L1'], tags: [...(s.tags || []), 'strategy'],
       source: 'dream:session', active: true, project: 'target'
     });
   }
@@ -165,15 +165,39 @@ export async function deepDream(context: RequestContext): Promise<string> {
 
   // Append strategic insights
   await db.kbLog.add({
-    timestamp: Date.now(), text: consolidation, category: 'dream',
-    abstraction: 9, layer: ['L0'], tags: ['deep-dream'],
+    timestamp: Date.now(), text: consolidation, category: 'insight',
+    abstraction: 9, layer: ['L0'], tags: ['deep-dream', 'consolidation'],
     source: 'dream:deep', active: true, project: 'target'
   });
 
-  // Call 2: Gap resolution via external (stubs — no-op Phase 0)
-  for (const source of externalSources) {
-    if (source.available()) {
-      // Future: resolve gaps
+  // Call 2: Gap resolution via external sources
+  const availableSources = externalSources.filter(s => s.available());
+  if (availableSources.length > 0) {
+    const gaps = entries.filter(e => e.tags.includes('gap'));
+    for (const gap of gaps) {
+      for (const source of availableSources) {
+        try {
+          const answer = await source.query(
+            `Resolve this knowledge gap: ${gap.text}`,
+            entryTexts
+          );
+          if (answer && !answer.startsWith('No relevant')) {
+            await db.kbLog.add({
+              timestamp: Date.now(),
+              text: `GAP RESOLVED: ${gap.text} — ${answer}`,
+              category: 'observation',
+              abstraction: 4,
+              layer: ['L0', 'L1'],
+              tags: ['gap-resolved', ...gap.tags.filter(t => t !== 'gap')],
+              source: `external:${source.constructor.name}`,
+              active: true,
+              project: gap.project || 'target',
+            });
+          }
+        } catch {
+          // External source failure should not block dream cycle
+        }
+      }
     }
   }
 
@@ -184,7 +208,7 @@ export async function deepDream(context: RequestContext): Promise<string> {
   if (!amendmentResponse.includes('No amendments needed')) {
     // Write to kb_log for self-knowledge
     await db.kbLog.add({
-      timestamp: Date.now(), text: amendmentResponse, category: 'constitution',
+      timestamp: Date.now(), text: amendmentResponse, category: 'decision',
       abstraction: 8, layer: ['L0'], tags: ['constitution-amendment'],
       source: 'dream:deep', active: true, project: 'self'
     });

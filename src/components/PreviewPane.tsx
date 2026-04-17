@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import { Tab } from './PreviewTabs';
 import Markdown from 'react-markdown';
 import { Plus, X, Zap, Send, BookOpen, Activity } from 'lucide-react';
-import { AgentMessage } from '../services/db';
+import { AgentMessage, KBEntry, KBDoc } from '../services/db';
 import { cn } from '../lib/utils';
 import { parseTasksFromMessage } from '../core/prompt';
+import KBTableView from './KBTableView';
 
 interface PreviewPaneProps {
   activeTab: Tab | null;
   onAcceptProposal?: (message: AgentMessage, options?: { autoStart?: boolean; skipDelete?: boolean }) => void;
   onDeclineProposal?: (messageId: number) => void;
   onReplyToMail?: (message: AgentMessage, replyText: string) => void;
+  onKBEntrySelect?: (entry: KBEntry) => void;
+  onKBDocSelect?: (doc: KBDoc) => void;
   autonomyMode?: 'manual' | 'assisted' | 'full';
   apiProvider?: string;
   geminiModel?: string;
@@ -20,8 +23,8 @@ interface PreviewPaneProps {
   geminiApiKey?: string;
 }
 
-export default function PreviewPane({ 
-  activeTab, onAcceptProposal, onDeclineProposal, onReplyToMail, autonomyMode,
+export default function PreviewPane({
+  activeTab, onAcceptProposal, onDeclineProposal, onReplyToMail, onKBEntrySelect, onKBDocSelect, autonomyMode,
   apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview',
   openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = ''
 }: PreviewPaneProps) {
@@ -163,6 +166,15 @@ export default function PreviewPane({
             </form>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // KB Table view
+  if (activeTab.type === 'kb-table') {
+    return (
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <KBTableView onEntrySelect={onKBEntrySelect} onDocSelect={onKBDocSelect} />
       </div>
     );
   }

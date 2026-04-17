@@ -13,6 +13,7 @@ import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
 import { eventBus } from '../core/event-bus';
 import { agentContext } from '../services/AgentContext';
 import { Orchestrator } from '../core/orchestrator';
+import { FixedKBSource, setExternalSources, externalSources } from '../modules/process-dream/external-kb';
 import { composeProgrammerPrompt } from '../core/prompt';
 import { registry } from '../core/registry';
 import { Task } from '../types';
@@ -108,7 +109,7 @@ describe('Integration: multi-task failure triggers self-healing', () => {
     expect(selfTasks[0].title).toContain('[self]');
 
     // — Session-dream insights preserved
-    const patterns = allEntries.filter(e => e.category === 'pattern' && e.source === 'dream:session');
+    const patterns = allEntries.filter(e => e.category === 'insight' && e.source === 'dream:session');
     expect(patterns).toHaveLength(1);
     expect(patterns[0].tags).toContain('api');
   });
@@ -145,7 +146,7 @@ describe('Integration: dream levels propagate correctly through KB', () => {
 
     // Verify micro-dreams created at abstraction 5, originals deactivated
     const afterMicro = await db.kbLog.filter(e => e.active).toArray();
-    const microDreams = afterMicro.filter(e => e.source === 'dream:micro' && e.category === 'dream');
+    const microDreams = afterMicro.filter(e => e.source === 'dream:micro' && e.category === 'insight');
     expect(microDreams).toHaveLength(2);
     expect(microDreams.every(d => d.abstraction === 5)).toBe(true);
 
@@ -225,7 +226,7 @@ describe('Integration: constitution evolves through deep-dream', () => {
     // Verify amendment was recorded as self-knowledge
     const entries = await db.kbLog.toArray();
     const amendment = entries.find(e =>
-      e.category === 'constitution' && e.tags.includes('constitution-amendment')
+      e.category === 'decision' && e.tags.includes('constitution-amendment')
     );
     expect(amendment).toBeDefined();
     expect(amendment!.project).toBe('self');
@@ -398,7 +399,7 @@ describe('Integration: full agent session lifecycle', () => {
 
     // 2. Micro-dreams were deactivated by sessionDream (observations + micro-dreams superseded)
     const microDreams = await db.kbLog.filter(e =>
-      e.source === 'dream:micro' && e.category === 'dream'
+      e.source === 'dream:micro' && e.category === 'insight'
     ).toArray();
     expect(microDreams).toHaveLength(2);
     expect(microDreams.every(e => !e.active)).toBe(true);
@@ -430,7 +431,7 @@ describe('Integration: full agent session lifecycle', () => {
     const ctx2 = mockContext();
     const dreamChain = await KBHandler.handleRequest('knowledge-kb.queryLog', [{
       source: 'dream:micro',
-      category: 'dream',
+      category: 'insight',
     }], ctx2);
     expect(dreamChain).toHaveLength(2);
 
@@ -513,12 +514,12 @@ describe('Integration: deep-dream prunes old data and evolves constitution', () 
     expect(recent).toBeDefined();
 
     // Strategic insight added
-    const deepInsight = active.find(e => e.source === 'dream:deep' && e.category === 'dream');
+    const deepInsight = active.find(e => e.source === 'dream:deep' && e.category === 'insight');
     expect(deepInsight).toBeDefined();
     expect(deepInsight!.abstraction).toBe(9);
 
     // Amendment proposed in kb_log
-    const amendment = active.find(e => e.category === 'constitution');
+    const amendment = active.find(e => e.category === 'decision' && e.tags.includes('constitution-amendment'));
     expect(amendment).toBeDefined();
     expect(amendment!.project).toBe('self');
 
@@ -699,7 +700,7 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
 
     // Verify micro-dream consolidation at abstraction 5
     const microDreams = await db.kbLog.filter(e =>
-      e.source === 'dream:micro' && e.category === 'dream' && e.active
+      e.source === 'dream:micro' && e.category === 'insight' && e.active
     ).toArray();
     expect(microDreams).toHaveLength(1);
     expect(microDreams[0].abstraction).toBe(5);
@@ -777,14 +778,14 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
 
     // Verify deep-dream strategic insight at abstraction 9
     const deepInsight = await db.kbLog.filter(e =>
-      e.source === 'dream:deep' && e.category === 'dream'
+      e.source === 'dream:deep' && e.category === 'insight'
     ).first();
     expect(deepInsight).toBeDefined();
     expect(deepInsight!.abstraction).toBe(9);
 
     // Amendment proposed in kb_log
     const amendment = await db.kbLog.filter(e =>
-      e.category === 'constitution' && e.tags.includes('constitution-amendment')
+      e.category === 'decision' && e.tags.includes('constitution-amendment')
     ).first();
     expect(amendment).toBeDefined();
     expect(amendment!.project).toBe('self');
@@ -1155,5 +1156,211 @@ describe('Integration: analyze() output forwarded to subsequent steps', () => {
     );
     expect(prompt).toContain('dbSchema');
     expect(prompt).toContain('users(id, name)');
+  });
+});
+
+// ─── Flow 11: F6 Dream → External → KB gap-filling ──────────────
+describe('F6: External KB gap resolution', () => {
+  const originalSources = [...externalSources];
+
+  beforeEach(async () => {
+    await db.kbLog.clear();
+    await db.kbDocs.clear();
+    await db.tasks.clear();
+    await db.projectConfigs.clear();
+    await db.messages.clear();
+    // Restore original sources after each test
+    setExternalSources(originalSources);
+  });
+
+  it('deepDream resolves gaps via FixedKBSource and writes gap-resolved entries', async () => {
+    // Inject a FixedKBSource with known knowledge
+    const fixed = new FixedKBSource({
+      authentication: 'Use JWT tokens with RS256 signing for stateless auth',
+      cors: 'Configure CORS middleware to allow specific origins',
+    });
+    setExternalSources([fixed]);
+
+    // Create gap entries that will be found by deepDream
+    await db.kbLog.add({
+      timestamp: Date.now(),
+      text: 'GAP: Need authentication strategy for API endpoints',
+      category: 'observation',
+      abstraction: 3,
+      layer: ['L0'],
+      tags: ['gap', 'api', 'auth'],
+      source: 'dream:session',
+      active: true,
+      project: 'target',
+    });
+
+    await db.kbLog.add({
+      timestamp: Date.now(),
+      text: 'GAP: CORS configuration missing for frontend',
+      category: 'observation',
+      abstraction: 3,
+      layer: ['L0'],
+      tags: ['gap', 'cors'],
+      source: 'dream:session',
+      active: true,
+      project: 'target',
+    });
+
+    // Add a regular entry so deepDream has context
+    await db.kbLog.add({
+      timestamp: Date.now(),
+      text: 'API endpoint returning 401 errors',
+      category: 'error',
+      abstraction: 2,
+      layer: ['L1'],
+      tags: ['api'],
+      source: 'execution',
+      active: true,
+      project: 'target',
+    });
+
+    const ctx = {
+      taskId: 'test-task',
+      repoUrl: '',
+      repoBranch: 'main',
+      llmCall: vi.fn()
+        .mockResolvedValueOnce('Strategic consolidation: API needs auth and CORS') // consolidation
+        .mockResolvedValueOnce('No amendments needed'), // constitution review
+      moduleConfig: {},
+    };
+
+    await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
+
+    // Verify gap-resolved entries were written
+    const resolved = await db.kbLog.filter(e =>
+      e.tags.includes('gap-resolved')
+    ).toArray();
+
+    expect(resolved.length).toBeGreaterThanOrEqual(1);
+
+    // The authentication gap should be resolved
+    const authResolved = resolved.find(r => r.text.includes('authentication'));
+    expect(authResolved).toBeDefined();
+    expect(authResolved!.text).toContain('JWT');
+    expect(authResolved!.source).toContain('FixedKBSource');
+    expect(authResolved!.abstraction).toBe(4);
+
+    // The CORS gap should be resolved
+    const corsResolved = resolved.find(r => r.text.includes('CORS'));
+    expect(corsResolved).toBeDefined();
+    expect(corsResolved!.text).toContain('Configure CORS');
+  });
+
+  it('deepDream skips gap resolution when no external sources available', async () => {
+    // Default external sources (NotebookLM, WebSearch) both return available()=false
+    setExternalSources(originalSources);
+
+    await db.kbLog.add({
+      timestamp: Date.now(),
+      text: 'GAP: Some unfilled knowledge gap',
+      category: 'observation',
+      abstraction: 3,
+      layer: ['L0'],
+      tags: ['gap'],
+      source: 'dream:session',
+      active: true,
+      project: 'target',
+    });
+
+    const ctx = {
+      taskId: 'test-task',
+      repoUrl: '',
+      repoBranch: 'main',
+      llmCall: vi.fn()
+        .mockResolvedValueOnce('Consolidation result')
+        .mockResolvedValueOnce('No amendments needed'),
+      moduleConfig: {},
+    };
+
+    await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
+
+    const resolved = await db.kbLog.filter(e =>
+      e.tags.includes('gap-resolved')
+    ).toArray();
+
+    expect(resolved).toHaveLength(0);
+  });
+});
+
+// ─── Flow 12: F3 Context narrowing via focus keywords ───────────
+describe('F3: Focus-based context narrowing', () => {
+  beforeEach(async () => {
+    await db.kbLog.clear();
+    await db.kbDocs.clear();
+    await db.tasks.clear();
+    await db.projectConfigs.clear();
+    await db.messages.clear();
+  });
+
+  it('focus keywords boost relevant entries over irrelevant ones', async () => {
+    // Seed KB with entries about different topics
+    await db.kbLog.add({
+      timestamp: Date.now(), text: 'Authentication with JWT tokens works well',
+      category: 'observation', abstraction: 3, layer: ['L0', 'L1', 'L2', 'L3'],
+      tags: ['auth', 'jwt'], source: 'execution', active: true, project: 'target'
+    });
+    await db.kbLog.add({
+      timestamp: Date.now(), text: 'Database migration failed on column rename',
+      category: 'error', abstraction: 3, layer: ['L0', 'L1', 'L2', 'L3'],
+      tags: ['database', 'migration'], source: 'execution', active: true, project: 'target'
+    });
+    await db.kbLog.add({
+      timestamp: Date.now(), text: 'CSS grid layout issues in Safari browser',
+      category: 'observation', abstraction: 2, layer: ['L0', 'L1', 'L2', 'L3'],
+      tags: ['css', 'layout'], source: 'execution', active: true, project: 'target'
+    });
+
+    // Project with focus on auth
+    const result = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'Implement API security',
+      focus: ['auth', 'jwt', 'tokens']
+    });
+
+    // Auth entry should appear (focus-boosted)
+    expect(result).toContain('JWT');
+    // Database and CSS entries may or may not appear, but auth should rank higher
+    const authIdx = result.indexOf('JWT');
+    const dbIdx = result.indexOf('migration');
+    const cssIdx = result.indexOf('Safari');
+    // Auth should come before the others if they appear at all
+    if (dbIdx !== -1) expect(authIdx).toBeLessThan(dbIdx);
+    if (cssIdx !== -1) expect(authIdx).toBeLessThan(cssIdx);
+  });
+
+  it('projector returns different results for different focus sets', async () => {
+    // Seed diverse entries
+    await db.kbLog.add({
+      timestamp: Date.now(), text: 'React component state management patterns',
+      category: 'insight', abstraction: 5, layer: ['L0', 'L1', 'L2', 'L3'],
+      tags: ['react', 'state'], source: 'dream:micro', active: true, project: 'target'
+    });
+    await db.kbLog.add({
+      timestamp: Date.now(), text: 'PostgreSQL query optimization for large datasets',
+      category: 'insight', abstraction: 5, layer: ['L0', 'L1', 'L2', 'L3'],
+      tags: ['database', 'postgres'], source: 'dream:micro', active: true, project: 'target'
+    });
+
+    const reactResult = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'Build UI',
+      focus: ['react', 'state', 'component']
+    });
+
+    const dbResult = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'Optimize queries',
+      focus: ['database', 'postgres', 'query']
+    });
+
+    // React focus should surface React entry
+    expect(reactResult).toContain('React');
+    // DB focus should surface PostgreSQL entry
+    expect(dbResult).toContain('PostgreSQL');
   });
 });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, FileText, Paperclip, Mail, LayoutDashboard, BookOpen, Activity } from 'lucide-react';
+import { X, FileText, Paperclip, Mail, LayoutDashboard, BookOpen, Activity, Database } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 import { AgentMessage, KBEntry, KBDoc } from '../services/db';
@@ -8,7 +8,7 @@ export interface Tab {
   id: string;
   name: string;
   content: string;
-  type: 'file' | 'artifact' | 'constitution' | 'mail' | 'kb-log' | 'kb-doc';
+  type: 'file' | 'artifact' | 'constitution' | 'mail' | 'kb-log' | 'kb-doc' | 'kb-table';
   message?: AgentMessage;
   kbEntry?: KBEntry;
   kbDoc?: KBDoc;
@@ -52,6 +52,7 @@ export default function PreviewTabs({ tabs, activeTabId, onTabSelect, onTabClose
            tab.type === 'artifact' ? <Paperclip className="w-3.5 h-3.5" /> :
            tab.type === 'mail' ? <Mail className="w-3.5 h-3.5 text-blue-400" /> :
            tab.type === 'kb-doc' ? <BookOpen className="w-3.5 h-3.5 text-purple-400" /> :
+           tab.type === 'kb-table' ? <Database className="w-3.5 h-3.5 text-blue-400" /> :
            tab.type === 'kb-log' ? <Activity className="w-3.5 h-3.5 text-cyan-400" /> :
            <FileText className="w-3.5 h-3.5 text-blue-400" />}
           <span className="text-xs font-mono truncate flex-1">{tab.name}</span>

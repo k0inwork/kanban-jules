@@ -507,6 +507,24 @@ export default function App() {
     setIsViewingBoard(false);
   };
 
+  const handleBrowseKB = () => {
+    const tabId = 'kb-table';
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+    const newTab: Tab = {
+      id: tabId,
+      name: 'Knowledge Base',
+      content: '',
+      type: 'kb-table',
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
   const handleDeclineProposal = async (messageId: number) => {
     await db.messages.delete(messageId);
     handleTabClose(`mail-${messageId}`);
@@ -905,8 +923,8 @@ export default function App() {
                 <CollapsiblePane title="Knowledge Base" defaultExpanded={false}>
                   <div className="p-1">
                     <KBBrowser
+                      onBrowseKB={handleBrowseKB}
                       onDocSelect={handleKBDocSelect}
-                      onEntrySelect={handleKBEntrySelect}
                     />
                   </div>
                 </CollapsiblePane>
@@ -980,6 +998,8 @@ export default function App() {
                   onAcceptProposal={handleAcceptProposal}
                   onDeclineProposal={handleDeclineProposal}
                   onReplyToMail={handleReplyToMail}
+                  onKBEntrySelect={handleKBEntrySelect}
+                  onKBDocSelect={handleKBDocSelect}
                   autonomyMode={autonomyMode}
                   apiProvider={apiProvider}
                   geminiModel={geminiModel}

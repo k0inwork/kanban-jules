@@ -88,7 +88,7 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
     "- sendUser(message): Sends a message to the user without waiting for a reply. Use this to report final results.",
     "- analyze(data, options?): Analyzes the provided data using an LLM and adds the summary to the AgentContext. options: { includeContext?: boolean } (default: true). Set includeContext: false for a 'clean' analysis of only the provided data.",
     "- addToContext(key, value): Directly adds a key-value pair to the AgentContext. If only one argument is provided, it directly appends the data to the context without an LLM call.",
-    "- KB_record({ text, category, abstraction, layer, tags, source }): Record an observation in the knowledge base. Use categories: 'error', 'observation', 'pattern'. abstraction: 0=raw, 5=synthesized, 10=strategic. source: 'execution'. layer: ['L0'].",
+    "- KB_record({ text, category, abstraction, layer, tags, source }): Record an observation in the knowledge base. Use categories: 'error', 'observation', 'insight', 'decision', 'correction'. abstraction: 0=raw, 5=synthesized, 10=strategic. source: 'execution'. layer: ['L0'].",
     "- KB_queryLog({ category?, tags?, limit? }): Query the knowledge log for past observations, errors, or patterns.",
     "- KB_queryDocs({ type?, tags?, limit? }): Query knowledge documents (specs, designs, references).",
     "- KB_saveDoc({ title, type, content, summary, tags, layer, source }): Save a document to the knowledge base."
@@ -150,9 +150,11 @@ Output ONLY valid JSON matching this schema:
       "title": "Short title",
       "description": "Detailed instructions",
       "executor": "The Executor ID (e.g., 'executor-local')",
-      "status": "pending"
+      "status": "pending",
+      "focus": ["keyword1", "keyword2"]
     }
   ]
 }
+The "focus" array narrows the knowledge context for each step. Include 3-7 specific keywords relevant to what that step needs to know about (e.g., technologies, modules, concepts, file names). Steps with good focus keywords will receive more relevant experience and documentation from the knowledge base.
   `;
 }

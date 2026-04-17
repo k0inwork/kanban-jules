@@ -21,7 +21,7 @@ export class KBHandler {
 
   // Convenience writers (self-healing §3.3)
   static async recordExecution(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'execution', abstraction: 1, layer: ['L1'], tags, source: 'execution', project });
+    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 1, layer: ['L1'], tags: [...tags, 'execution'], source: 'execution', project });
   }
 
   static async recordObservation(text: string, tags: string[], project?: string): Promise<number> {

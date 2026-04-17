@@ -9,6 +9,7 @@ import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
+import { FixedKBSource } from '../modules/process-dream/external-kb';
 
 // Helper: build a KBEntry
 let nextId = 1;
@@ -415,7 +416,7 @@ describe('DreamHandler', () => {
 
     // Should have added a dream entry and deactivated originals
     const active = await db.kbLog.filter(e => e.active).toArray();
-    const dreams = active.filter(e => e.source === 'dream:micro' && e.category === 'dream');
+    const dreams = active.filter(e => e.source === 'dream:micro' && e.category === 'insight');
     expect(dreams).toHaveLength(1);
     expect(dreams[0].abstraction).toBe(5);
 
@@ -438,7 +439,7 @@ describe('DreamHandler', () => {
     const ctx = mockContext('Consolidated observation');
     await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-55' }], ctx);
 
-    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro' && e.category === 'dream').toArray();
+    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro' && e.category === 'insight').toArray();
     expect(dreams).toHaveLength(1);
     expect(dreams[0].supersedes).toEqual(ids);
   });
@@ -459,9 +460,9 @@ describe('DreamHandler', () => {
     const ctx = mockContext('Consolidated');
     await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-77' }], ctx);
 
-    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro' && e.category === 'dream').toArray();
+    const dreams = await db.kbLog.filter(e => e.source === 'dream:micro' && e.category === 'insight').toArray();
     expect(dreams).toHaveLength(1);
-    expect(dreams[0].tags.sort()).toEqual(['api', 'backend', 'react', 'task-77'].sort());
+    expect(dreams[0].tags.sort()).toEqual(['api', 'backend', 'consolidation', 'react', 'task-77'].sort());
   });
 
   it('microDream executor outcome records error count', async () => {
@@ -514,7 +515,7 @@ describe('DreamHandler', () => {
     }
     await db.kbLog.add(makeEntry({
       text: 'Micro dream summary',
-      category: 'dream',
+      category: 'insight',
       abstraction: 5,
       tags: ['task-1'],
       source: 'dream:micro',
@@ -535,7 +536,7 @@ describe('DreamHandler', () => {
 
     // Check new entries were added
     const entries = await db.kbLog.toArray();
-    const patterns = entries.filter(e => e.category === 'pattern' && e.source === 'dream:session');
+    const patterns = entries.filter(e => e.category === 'insight' && e.source === 'dream:session');
     expect(patterns).toHaveLength(1);
 
     const errors = entries.filter(e => e.category === 'error' && e.source === 'dream:session');
@@ -578,7 +579,7 @@ describe('DreamHandler', () => {
       }));
     }
     await db.kbLog.add(makeEntry({
-      text: 'Micro summary', category: 'dream', abstraction: 5,
+      text: 'Micro summary', category: 'insight', abstraction: 5,
       source: 'dream:micro', tags: ['task-1'],
     }));
 
@@ -650,7 +651,7 @@ describe('DreamHandler', () => {
     // High-abstraction entry (should survive even if old)
     await db.kbLog.add(makeEntry({
       text: 'Strategic insight',
-      category: 'dream',
+      category: 'insight',
       abstraction: 8,
       source: 'dream:deep',
       timestamp: sevenDaysAgo,
@@ -665,7 +666,7 @@ describe('DreamHandler', () => {
 
     // Verify strategic insight was added
     const entries = await db.kbLog.toArray();
-    const deepDreams = entries.filter(e => e.source === 'dream:deep' && e.category === 'dream');
+    const deepDreams = entries.filter(e => e.source === 'dream:deep' && e.category === 'insight');
     expect(deepDreams.length).toBeGreaterThan(0);
 
     // Verify old raw entries were deactivated
@@ -684,7 +685,7 @@ describe('DreamHandler', () => {
     await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
 
     const entries = await db.kbLog.toArray();
-    const amendment = entries.find(e => e.category === 'constitution' && e.tags.includes('constitution-amendment'));
+    const amendment = entries.find(e => e.category === 'decision' && e.tags.includes('constitution-amendment'));
     expect(amendment).toBeDefined();
     expect(amendment!.project).toBe('self');
 
@@ -707,7 +708,7 @@ describe('DreamHandler', () => {
     await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
 
     const entries = await db.kbLog.toArray();
-    const amendment = entries.find(e => e.category === 'constitution' && e.tags.includes('constitution-amendment'));
+    const amendment = entries.find(e => e.category === 'decision' && e.tags.includes('constitution-amendment'));
     expect(amendment).toBeUndefined();
 
     // No proposal message should be created
@@ -827,7 +828,7 @@ describe('KBHandler', () => {
 
   it('queryLog filters by category', async () => {
     await db.kbLog.add(makeEntry({ text: 'Error 1', category: 'error' }));
-    await db.kbLog.add(makeEntry({ text: 'Pattern 1', category: 'pattern' }));
+    await db.kbLog.add(makeEntry({ text: 'Pattern 1', category: 'insight' }));
     await db.kbLog.add(makeEntry({ text: 'Error 2', category: 'error' }));
 
     const ctx = mockContext();
@@ -1106,11 +1107,11 @@ describe('KBHandler convenience writers', () => {
     expect(id).toBeGreaterThan(0);
     const entries = await db.kbLog.toArray();
     expect(entries).toHaveLength(1);
-    expect(entries[0].category).toBe('execution');
+    expect(entries[0].category).toBe('observation');
     expect(entries[0].abstraction).toBe(1);
     expect(entries[0].layer).toEqual(['L1']);
     expect(entries[0].source).toBe('execution');
-    expect(entries[0].tags).toEqual(['task-1']);
+    expect(entries[0].tags).toEqual(['task-1', 'execution']);
     expect(entries[0].project).toBe('target');
     expect(entries[0].active).toBe(true);
   });
@@ -1213,5 +1214,45 @@ describe('scanRepo', () => {
     const result = await scanRepo(files);
     expect(result.docs).toBe(0);
     expect(result.entries).toBe(0);
+  });
+});
+
+// ─── FixedKBSource ───────────────────────────────────────────────
+describe('FixedKBSource', () => {
+  it('available() returns true', () => {
+    const src = new FixedKBSource({});
+    expect(src.available()).toBe(true);
+  });
+
+  it('returns matching knowledge by keyword', async () => {
+    const src = new FixedKBSource({
+      react: 'React is a UI library by Meta',
+      typescript: 'TypeScript adds static types to JavaScript',
+    });
+    const result = await src.query('How do I use react?', '');
+    expect(result).toContain('React is a UI library by Meta');
+  });
+
+  it('returns default response when no keywords match', async () => {
+    const src = new FixedKBSource({ react: 'React info' });
+    const result = await src.query('Tell me about python', '');
+    expect(result).toBe('No relevant knowledge found.');
+  });
+
+  it('returns multiple matches joined by newline', async () => {
+    const src = new FixedKBSource({
+      react: 'React is a UI library',
+      hooks: 'Hooks let you use state in function components',
+    });
+    const result = await src.query('react hooks', '');
+    expect(result).toContain('React is a UI library');
+    expect(result).toContain('Hooks let you use state');
+    expect(result.split('\n').length).toBe(2);
+  });
+
+  it('matches against context as well as prompt', async () => {
+    const src = new FixedKBSource({ api: 'REST API best practices' });
+    const result = await src.query('what should I do?', 'working with api endpoints');
+    expect(result).toContain('REST API best practices');
   });
 });

@@ -69,7 +69,7 @@ export interface KBEntry {
   id?: number;
   timestamp: number;
   text: string;
-  category: string; // 'architecture' | 'decision' | 'error' | 'pattern' | 'executor' | 'constitution' | 'observation' | 'dream' | 'correction' | 'external'
+  category: string; // 'error' | 'observation' | 'insight' | 'decision' | 'correction'
   abstraction: number; // 0=raw, 5=synthesized, 10=strategic
   layer: string[]; // ['L0'] | ['L1'] | ['L2'] | ['L0','L1'] | ...
   tags: string[];
@@ -214,6 +214,35 @@ export class MyDatabase extends Dexie {
       moduleKnowledge: 'id',
       kbLog: '++id, timestamp, category, abstraction, active, source, project',
       kbDocs: '++id, timestamp, title, type, active, source, project'
+    });
+    this.version(22).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project'
+    }).upgrade(tx => {
+      return tx.table('kbLog').toCollection().modify(entry => {
+        const tagSet = new Set(entry.tags || []);
+        if (entry.category === 'dream') {
+          entry.category = 'insight';
+          tagSet.add('consolidation');
+        } else if (entry.category === 'pattern') {
+          entry.category = 'insight';
+        } else if (entry.category === 'constitution') {
+          entry.category = 'decision';
+          tagSet.add('constitution-amendment');
+        } else if (entry.category === 'execution') {
+          entry.category = 'observation';
+          tagSet.add('execution');
+        }
+        entry.tags = [...tagSet];
+      });
     });
   }
 }
