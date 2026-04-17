@@ -17,8 +17,10 @@ export default function YuanChatPanel() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const initedRef = useRef(false);
 
-  // Init xterm + Yuan agent on mount
+  // Init xterm on mount (guard against StrictMode double-mount)
   useEffect(() => {
+    if (xtermRef.current) return; // already initialized
+
     let term: any;
     let fit: any;
 
@@ -78,7 +80,11 @@ export default function YuanChatPanel() {
     return () => {
       window.removeEventListener('resize', onResize);
       ro.disconnect();
-      term?.dispose();
+      if (xtermRef.current === term) {
+        term?.dispose();
+        xtermRef.current = null;
+        fitAddonRef.current = null;
+      }
     };
   }, []);
 
@@ -173,7 +179,16 @@ export default function YuanChatPanel() {
       </div>
 
       {/* xterm.js output */}
-      <div ref={terminalRef} className="flex-1 min-h-0" style={{ padding: '4px 0' }} />
+      <div
+        ref={terminalRef}
+        className="flex-1 min-h-0"
+        style={{ padding: '4px 0' }}
+        onFocus={(e) => {
+          // Prevent xterm from stealing focus — redirect to input
+          e.preventDefault();
+          inputRef.current?.focus();
+        }}
+      />
 
       {/* Input bar */}
       <div className="border-t border-neutral-800 p-3 bg-[#1e1e2e]">
@@ -187,6 +202,7 @@ export default function YuanChatPanel() {
             placeholder={yuanReady ? 'Type a message... (Enter to send)' : 'Yuan is starting up...'}
             disabled={!yuanReady || sending}
             rows={1}
+            autoFocus
             className="flex-1 resize-none bg-transparent border-none outline-none text-sm text-[#cdd6f4] font-mono placeholder-neutral-500 disabled:opacity-50"
             style={{ maxHeight: '200px' }}
           />
