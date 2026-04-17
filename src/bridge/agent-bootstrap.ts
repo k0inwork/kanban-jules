@@ -385,15 +385,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
       var prompt = 'You are an autonomous coding agent running inside Fleet.\\n';
       prompt += '**IMPORTANT: Always respond in English only. Never use Korean or any other language.**\\n\\n';
-      prompt += '===== TOOL CALL FORMAT (CRITICAL) =====\\n';
-      prompt += 'each tool_call is:\\n  [tool_call]TOOL_NAME[arg_name]ARG_NAME[/arg_name][arg_value]ARG_VALUE[/arg_value]...[/tool_call]\\nReplace [] with <> when calling tools.\\n';
-      prompt += 'Examples:\\n';
-      prompt += '  [tool_call]glob[arg_name]pattern[/arg_name][arg_value]*[/arg_value][/tool_call]\\n';
-      prompt += '  [tool_call]file_read[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][/tool_call]\\n';
-      prompt += '  [tool_call]file_edit[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][arg_name]old_string[/arg_name][arg_value]foo[/arg_value][arg_name]new_string[/arg_name][arg_value]bar[/arg_value][/tool_call]\\n';
-      prompt += '  [tool_call]task_complete[arg_name]summary[/arg_name][arg_value]done[/arg_value][/tool_call]\\n';
-      prompt += 'One call per block. Do NOT use any other format.\\n';
-      prompt += '=========================================\\n\\n';
+      prompt += 'Use the provided tools via native function calling. Do not output tool calls as text.\\n\\n';
       prompt += 'You have THREE categories of tools available:\\n\\n';
 
       prompt += '1. YUAN FILE TOOLS (read/write/search files in v86 filesystem):\\n';
@@ -461,27 +453,32 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         governorConfig: { planTier: 'standard', maxIterations: 25, maxTokenBudget: 100000 },
       });
 
-      // Patch contextManager.replaceSystemMessage so our JS format block is always prepended
-      // (criticalInit() calls replaceSystemMessage with buildPrompt output, discarding our instructions)
-      var _jsFormatBlock = '===== TOOL CALL FORMAT (CRITICAL) =====\\n'
-        + 'each tool_call is:\\n  [tool_call]TOOL_NAME[arg_name]ARG_NAME[/arg_name][arg_value]ARG_VALUE[/arg_value]...[/tool_call]\\nReplace [] with <> when calling tools.\\n'
-        + 'Examples:\\n'
-        + '  [tool_call]glob[arg_name]pattern[/arg_name][arg_value]*[/arg_value][/tool_call]\\n'
-        + '  [tool_call]file_read[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][/tool_call]\\n'
-        + '  [tool_call]file_edit[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][arg_name]old_string[/arg_name][arg_value]foo[/arg_value][arg_name]new_string[/arg_name][arg_value]bar[/arg_value][/tool_call]\\n'
-        + '  [tool_call]task_complete[arg_name]summary[/arg_name][arg_value]done[/arg_value][/tool_call]\\n'
-        + 'One call per block. Do NOT use any other format.\\n'
-        + '=========================================\\n\\n';
-      var _origReplace = agent.contextManager.replaceSystemMessage.bind(agent.contextManager);
-      agent.contextManager.replaceSystemMessage = function(content) {
-        _origReplace(_jsFormatBlock + content);
-      };
+      // Native function calling — no text-format injection needed
 
-      agent.on('agent:thinking', function(ev) { console.log('[yuan] thinking:', ev.content); });
-      agent.on('agent:tool_call', function(ev) { console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200)); });
-      agent.on('agent:tool_result', function(ev) { console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200)); });
-      agent.on('agent:completed', function(ev) { console.log('[yuan] completed:', ev.summary); });
-      agent.on('agent:error', function(ev) { console.error('[yuan] error:', ev.message); });
+      // AgentLoop.emitEvent() does this.emit("event", {kind, ...}), so we listen on "event"
+      agent.on('event', function(ev) {
+        if (!ev || !ev.kind) return;
+        switch (ev.kind) {
+          case 'agent:thinking':
+            console.log('[yuan] thinking:', ev.content);
+            break;
+          case 'agent:tool_call':
+            console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200));
+            break;
+          case 'agent:tool_result':
+            console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200));
+            break;
+          case 'agent:completed':
+            console.log('[yuan] completed:', ev.summary);
+            break;
+          case 'agent:error':
+            console.error('[yuan] error:', ev.message);
+            break;
+          case 'agent:start':
+            console.log('[yuan] start:', ev.goal);
+            break;
+        }
+      });
 
       globalThis._yuanAgent = agent;
       globalThis._yuanReady = true;
@@ -518,8 +515,8 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       return resp;
     };
 
-    // Callback-based runner: result goes through boardVM.yuan._onResult since
-    // globalThis is not shared between browser and almostnode worker.
+    // Callback-based runner: result goes through boardVM.yuan._onResult.
+    // almostnode Runtime shares the browser's globalThis, so boardVM.yuan._onResult is reachable.
     globalThis._yuanRunWithCallback = function(message) {
       if (!globalThis._yuanAgent) {
         var cb = globalThis.boardVM && globalThis.boardVM.yuan;
@@ -529,7 +526,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       // Clear context history so each message starts fresh (no accumulation)
       try {
         globalThis._yuanAgent.contextManager.clear();
-        // Re-add system prompt (clear() removes it, and run() doesn't re-add it)
+        // Re-add system prompt (clear() removes it; run() will replaceSystemMessage via criticalInit)
         globalThis._yuanAgent.contextManager.addMessage({
           role: 'system',
           content: globalThis._yuanAgent.config.loop.systemPrompt
@@ -538,7 +535,22 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       console.log('═══════ [yuan-runner] INCOMING MESSAGE ═══════');
       console.log(message);
       console.log('═══════ [yuan-runner] END INCOMING ═══════');
-      globalThis._yuanAgent.run(message).then(function(result) {
+
+      // Run with a 2-minute timeout so the UI never hangs forever
+      var _runTimeout = setTimeout(function() {
+        console.error('[yuan-runner] TIMEOUT — aborting agent after 120s');
+        try { globalThis._yuanAgent.abort(); } catch(e) {}
+        var cbt = globalThis.boardVM && globalThis.boardVM.yuan;
+        var fallbackText = globalThis._lastLLMText || 'Agent timed out after 120 seconds.';
+        if (cbt && cbt._onResult) cbt._onResult(fallbackText);
+      }, 120000);
+
+      Promise.race([
+        globalThis._yuanAgent.run(message),
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 125000); })
+      ]).then(function(result) {
+        console.log('═══════ [yuan-runner] RUN RESULT ═══════');
+        clearTimeout(_runTimeout);
         console.log('═══════ [yuan-runner] RUN RESULT ═══════');
         console.log('reason:', result && result.reason);
         console.log('summary:', result && result.summary);
@@ -550,6 +562,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         var cb = globalThis.boardVM && globalThis.boardVM.yuan;
         if (cb && cb._onResult) cb._onResult(text || 'completed');
       }).catch(function(err) {
+        clearTimeout(_runTimeout);
         console.error('═══════ [yuan-runner] RUN ERROR ═══════');
         console.error('message:', err.message);
         console.error('stack:', err.stack);

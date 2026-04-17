@@ -81,22 +81,22 @@ function extractToolCalls(text) {
   }
 
   // --- Pass 1b: [tool_call]NAME[arg_name]ARG[/arg_name][arg_value]VAL[/arg_value]...[/tool_call] ---
-  // Handles both [] and <> bracket types. Name is text content after [tool_call]/<tool_call >.
+  // Handles both [] and <> bracket types, mixed brackets in args, arg_name/arg_key, dots in tool names.
+  var _ao = '(?:\\\\[|<)';   // matches [ or <
+  var _ac = '(?:\\\\]|>)';   // matches ] or >
   var bracketPairs = [
-    { o: '\\[', c: '\\]', raw: '[', name: 'square' },
-    { o: '<', c: '>', raw: '>', name: 'angle' }
+    { o: '\\[', c: '\\]' },
+    { o: '<', c: '>' }
   ];
   for (var bp = 0; bp < bracketPairs.length; bp++) {
     var bo = bracketPairs[bp].o;
     var bc = bracketPairs[bp].c;
-    // Match: [tool_call]TOOL_NAME[arg_name]ARG[/arg_name][arg_value]VAL[/arg_value]...[/tool_call]
-    var tcRe = new RegExp(bo + 'tool_call' + bc + '\\s*(\\w+)\\s*((?:' + bo + 'arg_name' + bc + '[\\s\\S]*?' + bo + '/arg_name' + bc + bo + 'arg_value' + bc + '[\\s\\S]*?' + bo + '/arg_value' + bc + ')+)\\s*' + bo + '/tool_call' + bc, 'gm');
+    var tcRe = new RegExp(bo + 'tool_call' + bc + '\\s*([\\w.]+)\\s*((?:' + _ao + 'arg_\\w+' + _ac + '[\\s\\S]*?' + _ao + '/arg_\\w+' + _ac + _ao + 'arg_value' + _ac + '[\\s\\S]*?' + _ao + '/arg_value' + _ac + ')+)\\s*' + bo + '/tool_call' + bc, 'gm');
     while ((m = tcRe.exec(text)) !== null) {
       var tcName = m[1];
       var tcBody = m[2];
       var tcArgs = {};
-      // Extract arg_name/arg_value pairs
-      var pairRe = new RegExp(bo + 'arg_name' + bc + '([\\s\\S]*?)' + bo + '/arg_name' + bc + bo + 'arg_value' + bc + '([\\s\\S]*?)' + bo + '/arg_value' + bc, 'gm');
+      var pairRe = new RegExp(_ao + 'arg_(\\w+)' + _ac + '([\\s\\S]*?)' + _ao + '/arg_\\w+' + _ac + _ao + 'arg_value' + _ac + '([\\s\\S]*?)' + _ao + '/arg_value' + _ac, 'gm');
       var pm;
       while ((pm = pairRe.exec(tcBody)) !== null) {
         tcArgs[pm[1].trim()] = pm[2].trim();
@@ -106,6 +106,30 @@ function extractToolCalls(text) {
         id: 'call_tc_' + _callId,
         type: 'function',
         function: { name: tcName, arguments: JSON.stringify(tcArgs) }
+      });
+      cleaned = cleaned.replace(m[0], '');
+    }
+  }
+
+  // --- Pass 1c: [toolname][arg_name]ARG[/arg_name][arg_value]VAL[/arg_value][/toolname] ---
+  // Bare tool-name-as-tag with [] brackets (LLM follows [] example literally)
+  var bareBrRe = /\[(\w+)((?:\[arg_name\][\s\S]*?\[\/arg_name\]\[arg_value\][\s\S]*?\[\/arg_value\])+)\[\/\1\]/gm;
+  while ((m = bareBrRe.exec(text)) !== null) {
+    var bbName = m[1];
+    var bbBody = m[2];
+    if (_skipTags.indexOf(bbName) >= 0) continue;
+    var bbArgs = {};
+    var bbPairRe = /\[arg_name\]([\s\S]*?)\[\/arg_name\]\[arg_value\]([\s\S]*?)\[\/arg_value\]/gm;
+    var bbm;
+    while ((bbm = bbPairRe.exec(bbBody)) !== null) {
+      bbArgs[bbm[1].trim()] = bbm[2].trim();
+    }
+    if (Object.keys(bbArgs).length > 0 || isKnownToolOrDynamic(bbName)) {
+      _callId++;
+      calls.push({
+        id: 'call_bb_' + _callId,
+        type: 'function',
+        function: { name: bbName, arguments: JSON.stringify(bbArgs) }
       });
       cleaned = cleaned.replace(m[0], '');
     }
@@ -249,6 +273,10 @@ Completions.prototype.create = async function (params) {
 
   // ─── REQUEST LOG (compact) ───
   console.log('[openai-shim] → model:', req.model, 'tools:', (req.tools || []).length, 'msgs:', req.messages.length);
+  if (req.tools && req.tools.length > 0) {
+    var _g = req.tools.find(function(t) { return t.function && t.function.name === 'glob'; });
+    if (_g) console.log('[openai-shim] glob schema:', JSON.stringify(_g.function.parameters).substring(0, 500));
+  }
 
   var boardVM = globalThis.boardVM;
   if (!boardVM || !boardVM.llmfs) {
@@ -261,6 +289,12 @@ Completions.prototype.create = async function (params) {
   var choice0 = result.choices && result.choices[0];
   if (choice0 && choice0.message) {
     console.log('[openai-shim] ← finish:', choice0.finish_reason, 'content_len:', (choice0.message.content || '').length, 'tool_calls:', (choice0.message.tool_calls || []).length);
+    if (choice0.message.tool_calls && choice0.message.tool_calls.length > 0) {
+      for (var _tci = 0; _tci < choice0.message.tool_calls.length; _tci++) {
+        var _tc = choice0.message.tool_calls[_tci];
+        console.log('[openai-shim] tool_call:', _tc.function && _tc.function.name, 'args:', (_tc.function && _tc.function.arguments) || '(none)');
+      }
+    }
   }
 
   // Extract XML tool calls from content — always check, even if structured tool_calls exist
