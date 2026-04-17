@@ -74,17 +74,24 @@ Exception: git merge conflicts still block (can't auto-merge). These escalate im
 
 ---
 
-## 2. Decision Declaration, Not Extraction
+## 2. Dual-Source Decision Capture
 
-### 2.1 The Core Problem with LLM Extraction
+### 2.1 Two Agent Types, Two Signals
 
-LLMs infer "decisions" from implementation details that may be habit, cargo-culting, or default choices. The diff shows *what* changed, not *why*. Task descriptions are vague. Commit messages are terse. The actual reasoning lives in the agent's chain-of-thought, which is discarded.
+The fleet runs two kinds of agents:
 
-Triangulating from three sources (task desc + diff + commit messages) produces noise — entries that look like decisions but are just implementation details the agent never thought about.
+| | Internal (Yuan) | External (Jules, etc.) |
+|---|---|---|
+| **Environment** | almostnode sandbox, our tool bindings | Remote service, no tool access |
+| **Can call KB API** | Yes — `recordDecision()` available | No — we don't control their tools |
+| **Decision source** | Explicit API declaration + commit messages | Commit messages only |
+| **Dream role** | Verify + classify | Extract + classify |
 
-### 2.2 Solution: Agents Declare Decisions Intentionally
+Internal agents can declare decisions via the KB API during execution. External agents can't — but they write **git commit messages** that often capture the what and why. Commit messages are the universal decision medium.
 
-The agent's system prompt includes a rule:
+### 2.2 Internal Agents: Declare + Commit
+
+Yuan's system prompt includes:
 
 ```
 RULE: When you make a non-obvious choice with alternatives (library, pattern,
@@ -105,35 +112,106 @@ Examples of NON-decisions (do NOT record):
   - Using the same naming convention as surrounding code
   - Following an established pattern already in the codebase
   - Default parameter values
+
+ALSO: include the reasoning in your git commit message body.
+The commit message is the backup signal — it persists even if the KB call fails.
 ```
 
-### 2.3 Dual Signal: Declare + Verify
+Declarations are source: `agent`. These are **primary signal** — the agent chose to tell us.
 
-Dream doesn't extract decisions from scratch — it **verifies and enriches** what the agent declared:
+### 2.3 External Agents: Commit Messages as Declarations
+
+External agents (Jules, Codex, etc.) produce git commits. Their commit messages are often meaningful:
+
+```
+feat: add rate limiting with sliding window algorithm
+
+Using sliding window over fixed window to avoid burst artifacts
+at window boundaries. Chose express-rate-limit for simplicity —
+no need for Redis-backed at our scale.
+```
+
+This is a decision declaration, just in a different format. The dream engine treats commit messages from external agents as **implicit declarations** and extracts from them.
+
+### 2.4 Micro Dream: Extract from Commits, Verify Internal Declarations
+
+Micro dream runs post-merge. It handles both agent types:
 
 ```
 Micro dream:
-  1. Read: agent-declared decisions from KB (source: 'agent', active)
-  2. Read: git diff for this task
-  3. LLM prompt:
-     "The agent declared these decisions during execution:
-      [list declared decisions]
+  Input:
+    - Git log for this task's commits (author, message, diff)
+    - Agent-declared decisions from KB, if any (source: 'agent')
+    - Task description (from board)
 
-      Here is the actual code diff:
-      [diff]
+  Process:
+    1. Classify agent type:
+       - Has KB declarations? → Internal agent → verify mode
+       - No KB declarations? → External agent → extract mode
 
-      For each declared decision:
-       - Does the code match the declaration?
-       - Classify: architectural|api|dependency|pattern|local|infra|security
-       - Is anything missing? Did the agent make choices it didn't declare?
+    2. Extract mode (external agents):
+       LLM prompt:
+        "This task was executed by an external agent.
+         Here are the commit messages:
+         [commit messages with author]
 
-      Output only high-confidence classifications and missed decisions."
+         Here are the diffs:
+         [diffs]
 
-  4. Update declared entries with classification tags
-  5. Add any missed decisions the LLM found (flagged source: 'dream:micro')
+         Here is the task description:
+         [task desc]
+
+         Extract NON-OBVIOUS decisions with alternatives.
+         A decision must have: what was chosen + why (or at minimum a clear
+         choice between alternatives).
+
+         Do NOT extract: style choices, following existing patterns,
+         default values, obvious implementations.
+
+         For each decision:
+          - What was chosen
+          - Why (from commit message or inferred from diff context)
+          - Classify: architectural|api|dependency|pattern|local|infra|security
+          - Confidence: high|medium|low"
+
+    3. Verify mode (internal agents):
+       LLM prompt:
+        "The agent declared these decisions:
+         [list declared decisions]
+
+         Here are the commit messages and diffs:
+         [commits + diffs]
+
+         For each declared decision:
+          - Does the code match the declaration?
+          - Classify: architectural|api|dependency|pattern|local|infra|security
+          - Is anything missing? Did the agent make choices it didn't declare?"
+
+  Output:
+    - Extracted decisions (external) → new KB entries (source: 'dream:micro')
+    - Verified declarations (internal) → update tags, add missed (source: 'dream:micro')
+    - All entries: category 'decision', abstraction 4, layer ['L0', 'L1']
 ```
 
-This keeps the signal intentional (agent declares) while catching gaps (dream verifies).
+### 2.5 Commit Message Quality Signal
+
+Not all commit messages contain decisions. The extraction prompt filters:
+
+```
+Genuine decision (extract):
+  "Using JWT over session cookies — need stateless auth for WASM"
+  → Has what + why + implied alternative
+
+Implementation detail (skip):
+  "Add logging to handler"
+  → No alternative considered, no architectural weight
+
+Follows existing pattern (skip):
+  "Add error handling consistent with module pattern"
+  → Explicitly following existing convention
+```
+
+External agents that write poor commit messages produce fewer extracted decisions. This is acceptable — the signal quality matches the effort. If an external agent makes an important architectural choice with a terse commit like "fix stuff", the deep dream (daily) can catch it at a higher level when reviewing patterns across tasks.
 
 ### 2.4 Classification Taxonomy
 
@@ -408,13 +486,22 @@ interface Task {
 
 ## 6. Implementation Phases
 
-### Phase 1a: Agent Declaration Rule
+### Phase 1a: Agent Declaration Rule (Internal Agents)
 
 - [ ] Add decision declaration rule to Yuan system prompt in `agent-bootstrap.ts`
 - [ ] Wire `knowledge-kb.recordDecision` as callable tool in sandbox bindings
 - [ ] Agent records decisions during execution (source: 'agent')
+- [ ] Agent includes reasoning in commit message body as backup signal
 
-### Phase 1b: Task Branching (Conditional)
+### Phase 1b: Commit-Based Extraction (External Agents)
+
+- [ ] Micro dream reads git log for task commits (author, message, diff)
+- [ ] Classify agent type: has KB declarations → internal (verify), none → external (extract)
+- [ ] LLM extracts decisions from external agent commit messages + diffs
+- [ ] Filter: only extract non-obvious choices with alternatives (quality signal)
+- [ ] Extracted entries: source `dream:micro`, same schema as declared entries
+
+### Phase 1c: Task Branching (Conditional)
 
 - [ ] Add `branch` field to Task model
 - [ ] On task start: evaluate branch condition → create `task/{id}` if qualifying
@@ -422,7 +509,7 @@ interface Task {
 - [ ] On task failure: leave branch for retry
 - [ ] Simple tasks commit directly (no branch)
 
-### Phase 1c: Micro Dream Verification
+### Phase 1d: Micro Dream Verification (Unifies Both Sources)
 
 - [ ] After merge: read agent-declared decisions + git diff
 - [ ] LLM verifies + classifies declared decisions
@@ -430,7 +517,7 @@ interface Task {
 - [ ] Update entries with classification tags
 - [ ] Wire into `microDream()` in `dream-levels.ts`
 
-### Phase 1d: Superseded Tracing
+### Phase 1e: Superseded Tracing
 
 - [ ] Chain flattening: inherit full supersedes array on new entry
 - [ ] Validation: only supersede ≤ own abstraction
@@ -438,7 +525,7 @@ interface Task {
 - [ ] Query helper: `traceDecisionChain(entryId)`
 - [ ] KB browser: show decision history as timeline
 
-### Phase 1e: Session Conflict Detection + Escalation
+### Phase 1f: Session Conflict Detection + Escalation
 
 - [ ] Compare decisions across tasks (severity filter: only direct contradictions)
 - [ ] Create escalation AgentMessage for conflicts
@@ -446,14 +533,14 @@ interface Task {
 - [ ] Block merge on ESCALATE-severity conflicts
 - [ ] Wire into `sessionDream()` in `dream-levels.ts`
 
-### Phase 1f: Resolution Feedback Loop
+### Phase 1g: Resolution Feedback Loop
 
 - [ ] On user resolution: create superseding entry
 - [ ] If generalizable: propose as constitution rule
 - [ ] User-approved resolutions → appended to constitution
 - [ ] Future tasks see resolution in L0 projection
 
-### Phase 1g: Deep Decision Log
+### Phase 1h: Deep Decision Log
 
 - [ ] Generate decision-log document from full superseded graph
 - [ ] Supersede previous decision-log docs
