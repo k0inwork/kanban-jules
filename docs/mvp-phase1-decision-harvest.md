@@ -507,18 +507,18 @@ interface Task {
 
 ### Phase 1d: Micro Dream Verification (Unifies Both Sources)
 
-- [ ] After merge: read agent-declared decisions + git diff
-- [ ] LLM verifies + classifies declared decisions
-- [ ] LLM flags missed decisions (low confidence)
-- [ ] Update entries with classification tags
-- [ ] Wire into `microDream()` in `dream-levels.ts`
+- [x] After merge: read agent-declared decisions + git diff
+- [x] LLM verifies + classifies declared decisions
+- [x] LLM flags missed decisions (low confidence)
+- [x] Update entries with classification tags
+- [x] Wire into `microDream()` in `dream-levels.ts`
 
 ### Phase 1e: Superseded Tracing
 
-- [ ] Chain flattening: inherit full supersedes array on new entry
-- [ ] Validation: only supersede ≤ own abstraction
-- [ ] Auto-deactivate superseded entries
-- [ ] Query helper: `traceDecisionChain(entryId)`
+- [x] Chain flattening: inherit full supersedes array on new entry
+- [x] Validation: only supersede ≤ own abstraction
+- [x] Auto-deactivate superseded entries
+- [x] Query helper: `traceDecisionChain(entryId)`
 - [ ] KB browser: show decision history as timeline
 
 ### Phase 1f: Session Conflict Detection + Escalation

@@ -8,9 +8,12 @@ export async function microDream(taskId: string, context: RequestContext): Promi
   let entries = await db.kbLog.filter(e => e.active).toArray();
   entries = entries.filter(e => e.tags.includes(taskId) && e.abstraction <= 2);
 
+  // Phase 1d: Decision verification — classify + verify harvested decisions
+  const verifiedCount = await verifyDecisions(taskId, context);
+
   if (entries.length < 3) {
     // Not enough to consolidate — just record executor outcome
-    return `Micro-dream: only ${entries.length} raw entries for task ${taskId}, skipping consolidation.`;
+    return `Micro-dream: only ${entries.length} raw entries for task ${taskId}, skipping consolidation. Verified ${verifiedCount} decisions.`;
   }
 
   // LLM call to summarize
@@ -56,7 +59,85 @@ export async function microDream(taskId: string, context: RequestContext): Promi
     project: entries[0]?.project || 'target',
   });
 
-  return `Micro-dream: consolidated ${entries.length} entries for task ${taskId}.`;
+  return `Micro-dream: consolidated ${entries.length} entries, verified ${verifiedCount} decisions for task ${taskId}.`;
+}
+
+/**
+ * Phase 1d: Verify + classify decision entries harvested for this task.
+ * Reads unverified decisions (source: 'dream:micro', no 'verified' tag),
+ * asks LLM to confirm classification + find missed decisions.
+ * Returns number of decisions verified.
+ */
+async function verifyDecisions(taskId: string, context: RequestContext): Promise<number> {
+  // Find harvested decisions for this task that haven't been verified yet
+  const harvested = await db.kbLog
+    .filter(e => e.active && e.category === 'decision' && e.source === 'dream:micro' && e.tags.includes(taskId) && !e.tags.includes('verified'))
+    .toArray();
+
+  if (harvested.length === 0) return 0;
+
+  const decisionTexts = harvested.map(e =>
+    `[id:${e.id}] ${e.text} (tags: ${e.tags.filter(t => t !== taskId).join(', ') || 'none'})`
+  ).join('\n');
+
+  const prompt = `Verify these ${harvested.length} extracted decisions for task ${taskId}.
+For each decision:
+1. Confirm the classification tag is correct (architectural, api, dependency, pattern, local, infra, security)
+2. If the tag is wrong, provide the correct one
+3. If any decisions were missed (obvious from context), add them
+
+Decisions:
+${decisionTexts}
+
+Output JSON array:
+[{
+  "id": <entry_id>,
+  "action": "confirm" | "reclassify",
+  "tags": ["correct_classification"],
+  "confidence": "high" | "medium"
+}]
+
+If no changes needed, output: []
+
+Output ONLY the JSON array.`;
+
+  try {
+    const response = await context.llmCall(prompt, true);
+    const jsonMatch = response.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return 0;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed)) return 0;
+
+    let verified = 0;
+    for (const item of parsed) {
+      if (!item.id) continue;
+      const entry = await db.kbLog.get(item.id);
+      if (!entry) continue;
+
+      const updates: Partial<KBEntry> = { tags: [...entry.tags] };
+      // Add verified tag
+      if (!updates.tags!.includes('verified')) {
+        updates.tags!.push('verified');
+      }
+
+      // Reclassify if action is reclassify and tags provided
+      if (item.action === 'reclassify' && Array.isArray(item.tags) && item.tags.length > 0) {
+        // Remove old classification tags, keep non-classification ones
+        const classifications = ['architectural', 'api', 'dependency', 'pattern', 'local', 'infra', 'security'];
+        updates.tags = entry.tags.filter(t => !classifications.includes(t));
+        updates.tags.push(...item.tags);
+        if (!updates.tags.includes('verified')) updates.tags.push('verified');
+      }
+
+      await db.kbLog.update(item.id, updates);
+      verified++;
+    }
+
+    return verified;
+  } catch {
+    return 0;
+  }
 }
 
 export async function sessionDream(context: RequestContext): Promise<string> {

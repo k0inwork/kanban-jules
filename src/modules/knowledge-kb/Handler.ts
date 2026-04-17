@@ -18,6 +18,10 @@ export class KBHandler {
         return KBHandler.updateDocument(args[0]);
       case 'knowledge-kb.deleteDocument':
         return KBHandler.deleteDocument(args[0]);
+      case 'knowledge-kb.supersedeEntries':
+        return KBHandler.supersedeEntries(args[0]);
+      case 'knowledge-kb.traceDecisionChain':
+        return KBHandler.traceDecisionChain(args[0]);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
@@ -38,6 +42,106 @@ export class KBHandler {
 
   static async recordError(text: string, tags: string[], project?: string): Promise<number> {
     return KBHandler.recordEntry({ text, category: 'error', abstraction: 2, layer: ['L0', 'L1'], tags, source: 'execution', project });
+  }
+
+  /**
+   * Phase 1e: Supersede entries with chain flattening + abstraction validation.
+   * Creates a new entry that replaces the specified entry IDs.
+   * - Inherits full supersedes chain from all targets (flattening)
+   * - Validates that targets have abstraction <= new entry's abstraction
+   * - Deactivates all superseded entries
+   */
+  static async supersedeEntries(params: {
+    text: string;
+    category: string;
+    abstraction: number;
+    layer: string[];
+    tags: string[];
+    source: string;
+    supersedes: number[];
+    project?: string;
+  }): Promise<{ id: number; deactivated: number }> {
+    const { supersedes: targetIds, ...entryParams } = params;
+
+    if (!targetIds || targetIds.length === 0) {
+      throw new Error('supersedes must contain at least one entry ID');
+    }
+
+    // Fetch all target entries
+    const targets = await db.kbLog.bulkGet(targetIds);
+    const missingIdx = targets.findIndex(t => t === undefined);
+    if (missingIdx !== -1) {
+      throw new Error(`Entry ${targetIds[missingIdx]} not found`);
+    }
+
+    // Abstraction validation: targets must have abstraction <= new entry
+    const validTargets = targets as KBEntry[];
+    for (const t of validTargets) {
+      if (t.abstraction > params.abstraction) {
+        throw new Error(
+          `Cannot supersede entry ${t.id} (abstraction ${t.abstraction}) with lower abstraction (${params.abstraction})`
+        );
+      }
+    }
+
+    // Chain flattening: inherit full supersedes chains from all targets
+    const inheritedChains = new Set<number>();
+    for (const t of validTargets) {
+      if (t.id) inheritedChains.add(t.id);
+      if (t.supersedes) {
+        for (const sid of t.supersedes) {
+          inheritedChains.add(sid);
+        }
+      }
+    }
+
+    // Create the new entry with flattened chain
+    const newId = await db.kbLog.add({
+      timestamp: Date.now(),
+      text: entryParams.text,
+      category: entryParams.category,
+      abstraction: entryParams.abstraction,
+      layer: entryParams.layer,
+      tags: entryParams.tags || [],
+      source: entryParams.source,
+      supersedes: [...inheritedChains],
+      active: true,
+      project: entryParams.project || 'target',
+    });
+
+    // Deactivate all superseded entries (direct targets + chain)
+    const allDeactivatable = [...inheritedChains];
+    if (allDeactivatable.length > 0) {
+      await db.kbLog.bulkPut(
+        (await db.kbLog.bulkGet(allDeactivatable))
+          .filter((e): e is KBEntry => e !== undefined)
+          .map(e => ({ ...e, active: false }))
+      );
+    }
+
+    return { id: newId, deactivated: allDeactivatable.length };
+  }
+
+  /**
+   * Phase 1e: Trace the full decision chain for an entry.
+   * Returns entries ordered from most recent to oldest.
+   */
+  static async traceDecisionChain(entryId: number): Promise<KBEntry[]> {
+    const entry = await db.kbLog.get(entryId);
+    if (!entry) return [];
+
+    const chain: KBEntry[] = [entry];
+    if (!entry.supersedes || entry.supersedes.length === 0) return chain;
+
+    // Follow supersedes links — already flattened so one hop gets the full chain
+    const ancestors = (await db.kbLog.bulkGet(entry.supersedes))
+      .filter((e): e is KBEntry => e !== undefined);
+
+    // Sort ancestors by abstraction descending (most abstract/recent first)
+    ancestors.sort((a, b) => b.abstraction - a.abstraction || b.timestamp - a.timestamp);
+    chain.push(...ancestors);
+
+    return chain;
   }
 
   private static async recordEntry(params: any): Promise<number> {

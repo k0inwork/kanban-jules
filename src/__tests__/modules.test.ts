@@ -1842,3 +1842,263 @@ describe('EventBus: executor:completed event', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 });
+
+// ─── Phase 1e: Superseded Tracing ──────────────────────────────
+describe('Phase 1e: Superseded Tracing', () => {
+  beforeEach(async () => {
+    await db.kbLog.clear();
+  });
+
+  it('supersedeEntries creates new entry and deactivates targets', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1: Use REST', category: 'decision', abstraction: 4 }));
+    const id2 = await db.kbLog.add(makeEntry({ text: 'D2: Use gRPC', category: 'decision', abstraction: 4 }));
+
+    const result = await KBHandler.supersedeEntries({
+      text: 'D3: REST for external, events internally',
+      category: 'decision',
+      abstraction: 7,
+      layer: ['L0', 'L1'],
+      tags: ['architectural'],
+      source: 'dream:session',
+      supersedes: [id1, id2],
+    });
+
+    expect(result.deactivated).toBe(2);
+
+    const newEntry = await db.kbLog.get(result.id);
+    expect(newEntry?.text).toBe('D3: REST for external, events internally');
+    expect(newEntry?.supersedes).toContain(id1);
+    expect(newEntry?.supersedes).toContain(id2);
+
+    expect((await db.kbLog.get(id1))?.active).toBe(false);
+    expect((await db.kbLog.get(id2))?.active).toBe(false);
+  });
+
+  it('supersedeEntries flattens chains from targets', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1', category: 'decision', abstraction: 4 }));
+
+    // D2 supersedes D1
+    const r1 = await KBHandler.supersedeEntries({
+      text: 'D2', category: 'decision', abstraction: 7,
+      layer: ['L0'], tags: [], source: 'dream:session',
+      supersedes: [id1],
+    });
+
+    // D3 supersedes D2 — should inherit D1 from D2's chain
+    const r2 = await KBHandler.supersedeEntries({
+      text: 'D3', category: 'decision', abstraction: 9,
+      layer: ['L0'], tags: [], source: 'dream:deep',
+      supersedes: [r1.id],
+    });
+
+    const d3 = await db.kbLog.get(r2.id);
+    expect(d3?.supersedes).toContain(r1.id);
+    expect(d3?.supersedes).toContain(id1);
+    expect(r2.deactivated).toBe(2); // D2 + D1
+  });
+
+  it('supersedeEntries rejects lower abstraction superseding higher', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1', category: 'decision', abstraction: 7 }));
+
+    await expect(KBHandler.supersedeEntries({
+      text: 'D2', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: [], source: 'dream:micro',
+      supersedes: [id1],
+    })).rejects.toThrow(/lower abstraction/);
+  });
+
+  it('supersedeEntries rejects missing target', async () => {
+    await expect(KBHandler.supersedeEntries({
+      text: 'D', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: [], source: 'dream:micro',
+      supersedes: [999],
+    })).rejects.toThrow(/not found/);
+  });
+
+  it('supersedeEntries rejects empty supersedes array', async () => {
+    await expect(KBHandler.supersedeEntries({
+      text: 'D', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: [], source: 'dream:micro',
+      supersedes: [],
+    })).rejects.toThrow(/at least one/);
+  });
+
+  it('supersedeEntries allows same abstraction', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1', category: 'decision', abstraction: 4 }));
+    const result = await KBHandler.supersedeEntries({
+      text: 'D2', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: [], source: 'dream:micro',
+      supersedes: [id1],
+    });
+    expect(result.id).toBeDefined();
+    expect(result.deactivated).toBe(1);
+  });
+
+  it('traceDecisionChain returns entry + flattened ancestors', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1', category: 'decision', abstraction: 4 }));
+
+    const r1 = await KBHandler.supersedeEntries({
+      text: 'D2', category: 'decision', abstraction: 7,
+      layer: ['L0'], tags: [], source: 'dream:session',
+      supersedes: [id1],
+    });
+
+    const r2 = await KBHandler.supersedeEntries({
+      text: 'D3', category: 'decision', abstraction: 9,
+      layer: ['L0'], tags: [], source: 'dream:deep',
+      supersedes: [r1.id],
+    });
+
+    const chain = await KBHandler.traceDecisionChain(r2.id);
+    expect(chain).toHaveLength(3);
+    expect(chain[0].id).toBe(r2.id);
+    // Ancestors sorted by abstraction desc
+    expect(chain[1].abstraction).toBeGreaterThanOrEqual(chain[2].abstraction);
+  });
+
+  it('traceDecisionChain returns single entry when no supersedes', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1', category: 'decision', abstraction: 4 }));
+    const chain = await KBHandler.traceDecisionChain(id1);
+    expect(chain).toHaveLength(1);
+    expect(chain[0].id).toBe(id1);
+  });
+
+  it('traceDecisionChain returns empty for missing entry', async () => {
+    const chain = await KBHandler.traceDecisionChain(999);
+    expect(chain).toHaveLength(0);
+  });
+
+  it('handleRequest routes supersedeEntries', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1', category: 'decision', abstraction: 4 }));
+    const result = await KBHandler.handleRequest('knowledge-kb.supersedeEntries', [{
+      text: 'D2', category: 'decision', abstraction: 7,
+      layer: ['L0'], tags: [], source: 'dream:session',
+      supersedes: [id1],
+    }], mockContext());
+    expect(result.id).toBeDefined();
+    expect(result.deactivated).toBe(1);
+  });
+
+  it('handleRequest routes traceDecisionChain', async () => {
+    const id1 = await db.kbLog.add(makeEntry({ text: 'D1', category: 'decision', abstraction: 4 }));
+    const chain = await KBHandler.handleRequest('knowledge-kb.traceDecisionChain', [id1], mockContext());
+    expect(chain).toHaveLength(1);
+  });
+});
+
+// ─── Phase 1d: Micro Dream Verification ────────────────────────
+describe('Phase 1d: Micro Dream Verification', () => {
+  beforeEach(async () => {
+    await db.kbLog.clear();
+  });
+
+  it('verifies harvested decisions and adds verified tag', async () => {
+    // Seed raw entries to trigger consolidation
+    for (let i = 0; i < 3; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Obs ${i}`, category: 'observation', abstraction: 1,
+        tags: ['task-v1'], source: 'execution',
+      }));
+    }
+    // Seed an unverified harvested decision
+    await db.kbLog.add(makeEntry({
+      text: 'Using JWT for auth', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'task-v1'], source: 'dream:micro',
+    }));
+
+    // LLM returns: first call = verify (confirm), second call = consolidate summary
+    const ctx = trackingContext([
+      JSON.stringify([{ id: nextId - 1, action: 'confirm', tags: ['api', 'auth'], confidence: 'high' }]),
+      'Consolidated: observations are fine',
+    ]);
+    await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-v1' }], ctx);
+
+    // Decision should now have 'verified' tag
+    const decisions = await db.kbLog.filter(e => e.category === 'decision' && e.source === 'dream:micro').toArray();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].tags).toContain('verified');
+  });
+
+  it('reclassifies decision tags when LLM says so', async () => {
+    for (let i = 0; i < 3; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Obs ${i}`, category: 'observation', abstraction: 1,
+        tags: ['task-v2'], source: 'execution',
+      }));
+    }
+    const decisionId = await db.kbLog.add(makeEntry({
+      text: 'Switched to gRPC', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['local', 'task-v2'], source: 'dream:micro',
+    }));
+
+    const ctx = trackingContext([
+      JSON.stringify([{ id: decisionId, action: 'reclassify', tags: ['architectural'], confidence: 'high' }]),
+      'Consolidated summary',
+    ]);
+    await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-v2' }], ctx);
+
+    const decision = await db.kbLog.get(decisionId);
+    expect(decision?.tags).toContain('architectural');
+    expect(decision?.tags).toContain('verified');
+    expect(decision?.tags).not.toContain('local');
+  });
+
+  it('skips verification when no harvested decisions exist', async () => {
+    for (let i = 0; i < 3; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Obs ${i}`, category: 'observation', abstraction: 1,
+        tags: ['task-v3'], source: 'execution',
+      }));
+    }
+    const ctx = trackingContext(['Consolidated summary']);
+    const result = await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-v3' }], ctx);
+
+    // Only the consolidation LLM call should have been made (1 call)
+    expect(ctx.llmCall).toHaveBeenCalledTimes(1);
+    expect(result).toContain('verified 0 decisions');
+  });
+
+  it('gracefully handles malformed verification response', async () => {
+    for (let i = 0; i < 3; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Obs ${i}`, category: 'observation', abstraction: 1,
+        tags: ['task-v4'], source: 'execution',
+      }));
+    }
+    await db.kbLog.add(makeEntry({
+      text: 'A decision', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['task-v4'], source: 'dream:micro',
+    }));
+
+    // First call returns garbage, second call is consolidation
+    const ctx = trackingContext(['not valid json at all', 'Consolidated']);
+    const result = await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-v4' }], ctx);
+
+    // Should not throw, just skip verification
+    expect(result).toContain('verified 0 decisions');
+    // Decision should still exist, unmodified
+    const decisions = await db.kbLog.filter(e => e.category === 'decision').toArray();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].tags).not.toContain('verified');
+  });
+
+  it('skips already-verified decisions', async () => {
+    for (let i = 0; i < 3; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Obs ${i}`, category: 'observation', abstraction: 1,
+        tags: ['task-v5'], source: 'execution',
+      }));
+    }
+    await db.kbLog.add(makeEntry({
+      text: 'Already done', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['task-v5', 'verified'], source: 'dream:micro',
+    }));
+
+    // Only consolidation LLM call (no verify call needed)
+    const ctx = trackingContext(['Consolidated']);
+    const result = await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-v5' }], ctx);
+
+    expect(ctx.llmCall).toHaveBeenCalledTimes(1);
+    expect(result).toContain('verified 0 decisions');
+  });
+});
