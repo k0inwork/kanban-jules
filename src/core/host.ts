@@ -18,6 +18,7 @@ import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
+import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -189,6 +190,9 @@ export class ModuleHost {
       }
     }
 
+    // Initialize commit harvest listener (dream engine extracts decisions from Jules commits)
+    initCommitHarvest(config, this.llmCall.bind(this));
+
     // Instantiate and register handlers
     const julesConfig = config.moduleConfigs['executor-jules'] || {};
     const julesHandler = new JulesHandler({ 
@@ -223,6 +227,7 @@ export class ModuleHost {
   }
 
   stop() {
+    destroyCommitHarvest();
     const modules = registry.getEnabled();
     for (const module of modules) {
       if (module.destroy) {

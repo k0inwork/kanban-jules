@@ -4,7 +4,8 @@ export type SystemEvent =
   | { type: 'task:manual-trigger', data: { taskId: string } }
   | { type: 'user:reply', data: { taskId: string, content: string, messageId?: number } }
   | { type: 'module:request', data: { requestId: string, taskId: string, toolName: string, args: any[] } }
-  | { type: 'module:response', data: { requestId: string, result: any, error?: string } };
+  | { type: 'module:response', data: { requestId: string, result: any, error?: string } }
+  | { type: 'executor:completed', data: { taskId: string, executor: string, sessionName?: string, startedAt?: number } };
 
 export type EventCallback<T = any> = (data: T) => void;
 
