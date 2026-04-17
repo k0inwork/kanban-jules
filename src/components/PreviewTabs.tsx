@@ -12,6 +12,7 @@ export interface Tab {
   message?: AgentMessage;
   kbEntry?: KBEntry;
   kbDoc?: KBDoc;
+  scrollToSection?: string;
 }
 
 interface PreviewTabsProps {

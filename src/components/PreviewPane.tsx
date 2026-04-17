@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Tab } from './PreviewTabs';
 import Markdown from 'react-markdown';
 import { Plus, X, Zap, Send, BookOpen, Activity } from 'lucide-react';
@@ -13,7 +13,7 @@ interface PreviewPaneProps {
   onDeclineProposal?: (messageId: number) => void;
   onReplyToMail?: (message: AgentMessage, replyText: string) => void;
   onKBEntrySelect?: (entry: KBEntry) => void;
-  onKBDocSelect?: (doc: KBDoc) => void;
+  onKBDocSelect?: (doc: KBDoc, section?: string) => void;
   autonomyMode?: 'manual' | 'assisted' | 'full';
   apiProvider?: string;
   geminiModel?: string;
@@ -30,6 +30,23 @@ export default function PreviewPane({
 }: PreviewPaneProps) {
   const [replyText, setReplyText] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
+  const docRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeTab?.type === 'kb-doc' && activeTab.scrollToSection && docRef.current) {
+      // Section may be "Parent > Child" — match the heading after ">"
+      const sectionName = activeTab.scrollToSection.includes('>')
+        ? activeTab.scrollToSection.split('>').pop()!.trim()
+        : activeTab.scrollToSection;
+      const headings = docRef.current.querySelectorAll('h1, h2, h3');
+      for (const h of headings) {
+        if (h.textContent?.trim() === sectionName) {
+          h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          break;
+        }
+      }
+    }
+  }, [activeTab?.scrollToSection, activeTab?.id]);
 
   if (!activeTab) {
     return (
@@ -182,8 +199,9 @@ export default function PreviewPane({
   // KB Document view
   if (activeTab.type === 'kb-doc' && activeTab.kbDoc) {
     const doc = activeTab.kbDoc;
+
     return (
-      <div className="flex-1 overflow-y-auto bg-[#0d1117] custom-scrollbar p-6">
+      <div ref={docRef} className="flex-1 overflow-y-auto bg-[#0d1117] custom-scrollbar p-6">
         <div className="max-w-3xl mx-auto">
           <div className="flex items-center gap-2 mb-4">
             <BookOpen className="w-5 h-5 text-purple-400" />

@@ -14,6 +14,10 @@ export class KBHandler {
         return KBHandler.saveDocument(args[0]);
       case 'knowledge-kb.queryDocs':
         return KBHandler.queryDocs(args[0]);
+      case 'knowledge-kb.updateDocument':
+        return KBHandler.updateDocument(args[0]);
+      case 'knowledge-kb.deleteDocument':
+        return KBHandler.deleteDocument(args[0]);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
@@ -82,6 +86,10 @@ export class KBHandler {
   }
 
   private static async saveDocument(params: any): Promise<number> {
+    // Content is required — documents must have markdown content for chunking
+    if (!params.content || typeof params.content !== 'string' || params.content.trim().length === 0) {
+      throw new Error('Document content is required and must be non-empty markdown');
+    }
     const existing = await db.kbDocs
       .where('title').equals(params.title)
       .and(d => d.project === (params.project || 'target') && d.active)
@@ -112,6 +120,21 @@ export class KBHandler {
     });
   }
 
+  private static async updateDocument(params: any): Promise<void> {
+    const { id, changes } = params;
+    const existing = await db.kbDocs.get(id);
+    if (!existing) throw new Error(`Document ${id} not found`);
+    await db.kbDocs.update(id, {
+      ...changes,
+      version: (existing.version || 1) + 1,
+    });
+  }
+
+  private static async deleteDocument(params: any): Promise<void> {
+    const { id } = params;
+    await db.kbDocs.update(id, { active: false });
+  }
+
   private static async queryDocs(params: any): Promise<KBDoc[]> {
     let results = await db.kbDocs.filter(d => d.active).toArray();
     if (params.project) results = results.filter(d => d.project === params.project);
@@ -120,6 +143,15 @@ export class KBHandler {
     if (params.layer) results = results.filter(d => d.layer.includes(params.layer));
     if (params.tags && params.tags.length > 0) {
       results = results.filter(d => params.tags.some((t: string) => d.tags.includes(t)));
+    }
+    // Full-text search across title, summary, and content
+    if (params.search) {
+      const q = params.search.toLowerCase();
+      results = results.filter(d =>
+        d.title.toLowerCase().includes(q) ||
+        d.summary.toLowerCase().includes(q) ||
+        d.content.toLowerCase().includes(q)
+      );
     }
     results.sort((a, b) => b.timestamp - a.timestamp);
     if (params.limit) results = results.slice(0, params.limit);

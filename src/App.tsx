@@ -514,9 +514,14 @@ export default function App() {
     setIsViewingBoard(false);
   };
 
-  const handleKBDocSelect = (doc: any) => {
+  const handleKBDocSelect = (doc: any, section?: string) => {
     const tabId = `kb-doc-${doc.id}`;
-    if (tabs.find(t => t.id === tabId)) {
+    const existing = tabs.find(t => t.id === tabId);
+    if (existing) {
+      // Update scrollToSection on existing tab and reactivate
+      if (section) {
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, scrollToSection: section } : t));
+      }
       setActiveTabId(tabId);
       setIsViewingBoard(false);
       return;
@@ -527,7 +532,8 @@ export default function App() {
       name: doc.title,
       content: doc.content,
       type: 'kb-doc',
-      kbDoc: doc
+      kbDoc: doc,
+      scrollToSection: section,
     };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(tabId);
@@ -1019,7 +1025,7 @@ export default function App() {
               onSave={() => setIsConstitutionOpen(false)}
             />
           ) : (
-            <div className="flex-1 min-h-0 relative">
+            <div className="flex-1 min-h-0 relative flex flex-col">
               {/* Workspace: Yuan Chat + Terminal in a tabbed view */}
               <div
                 className="absolute inset-0"

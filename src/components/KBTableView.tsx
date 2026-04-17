@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, KBEntry, KBDoc } from '../services/db';
-import { Search, X, Hash, ArrowUpDown, FileText, BookOpen } from 'lucide-react';
+import { Search, X, Hash, ArrowUpDown, FileText, BookOpen, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { chunkDoc, extractKeywords, scoreChunk, DocChunk } from '../modules/knowledge-projector/Handler';
 
 interface KBTableViewProps {
   onEntrySelect?: (entry: KBEntry) => void;
-  onDocSelect?: (doc: KBDoc) => void;
+  onDocSelect?: (doc: KBDoc, section?: string) => void;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -91,12 +92,28 @@ export default function KBTableView({ onEntrySelect, onDocSelect }: KBTableViewP
     });
   }, [projectEntries, categoryFilter, tagFilter, searchQuery, sortKey, sortDir]);
 
-  const filteredDocs = useMemo(() => {
-    if (!searchQuery) return projectDocs;
-    const q = searchQuery.toLowerCase();
-    return projectDocs.filter(d =>
-      d.title.toLowerCase().includes(q) || d.summary.toLowerCase().includes(q)
-    );
+  // RAG-style doc search: chunk docs, score per-chunk, return ranked chunks
+  const filteredDocChunks = useMemo(() => {
+    if (!searchQuery) return projectDocs.map(d => ({ doc: d, chunk: null, score: 0 }));
+    const keywords = extractKeywords(searchQuery);
+    const results: { doc: KBDoc; chunk: DocChunk | null; score: number }[] = [];
+    for (const doc of projectDocs) {
+      const chunks = chunkDoc(doc);
+      let bestScore = 0;
+      let bestChunk: DocChunk | null = null;
+      for (const chunk of chunks) {
+        const s = scoreChunk(chunk, keywords);
+        if (s > bestScore) {
+          bestScore = s;
+          bestChunk = chunk;
+        }
+      }
+      if (bestScore > 0) {
+        results.push({ doc, chunk: bestChunk, score: bestScore });
+      }
+    }
+    results.sort((a, b) => b.score - a.score);
+    return results;
   }, [projectDocs, searchQuery]);
 
   const toggleSort = (key: SortKey) => {
@@ -142,7 +159,7 @@ export default function KBTableView({ onEntrySelect, onDocSelect }: KBTableViewP
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search text, tags, source, category..."
+            placeholder="Search text, tags, source, doc content..."
             className="bg-transparent text-[10px] text-neutral-300 placeholder-neutral-600 outline-none w-full"
           />
           {searchQuery && (
@@ -301,16 +318,17 @@ export default function KBTableView({ onEntrySelect, onDocSelect }: KBTableViewP
               <tr className="text-[9px] font-mono text-neutral-500 uppercase">
                 <th className="px-3 py-1.5 font-normal w-20">type</th>
                 <th className="px-3 py-1.5 font-normal">title</th>
-                <th className="px-3 py-1.5 font-normal">summary</th>
+                <th className="px-3 py-1.5 font-normal">matched section</th>
                 <th className="px-3 py-1.5 font-normal w-20">source</th>
                 <th className="px-3 py-1.5 font-normal w-8">proj</th>
+                <th className="px-3 py-1.5 font-normal w-8"></th>
               </tr>
             </thead>
             <tbody>
-              {filteredDocs.map(doc => (
+              {filteredDocChunks.map(({ doc, chunk }) => (
                 <tr
-                  key={doc.id}
-                  onClick={() => onDocSelect?.(doc)}
+                  key={`${doc.id}-${chunk?.section || 'full'}`}
+                  onClick={() => onDocSelect?.(doc, chunk?.section)}
                   className="hover:bg-neutral-800/50 cursor-pointer transition-colors border-t border-neutral-800/30"
                 >
                   <td className="px-3 py-1.5">
@@ -322,7 +340,16 @@ export default function KBTableView({ onEntrySelect, onDocSelect }: KBTableViewP
                     <span className="text-[11px] text-neutral-300">{doc.title}</span>
                   </td>
                   <td className="px-3 py-1.5 max-w-[300px]">
-                    <span className="text-[10px] text-neutral-500 truncate block">{doc.summary}</span>
+                    {searchQuery && chunk ? (
+                      <>
+                        <span className="text-[9px] font-mono text-blue-400">{chunk.section}</span>
+                        <p className="text-[10px] text-neutral-400 truncate mt-0.5">
+                          {chunk.text.slice(0, 120)}{chunk.text.length > 120 ? '...' : ''}
+                        </p>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-neutral-500 truncate block">{doc.summary}</span>
+                    )}
                   </td>
                   <td className="px-3 py-1.5">
                     <span className="text-[8px] font-mono text-neutral-600">{doc.source}</span>
@@ -332,13 +359,22 @@ export default function KBTableView({ onEntrySelect, onDocSelect }: KBTableViewP
                       <span className="text-[7px] font-mono bg-fuchsia-500/20 text-fuchsia-400 px-1 rounded">self</span>
                     )}
                   </td>
+                  <td className="px-3 py-1.5">
+                    <button
+                      onClick={e => { e.stopPropagation(); db.kbDocs.update(doc.id!, { active: false }); }}
+                      className="text-neutral-600 hover:text-red-400 transition-colors"
+                      title="Delete document"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
 
-        {filteredEntries.length === 0 && filteredDocs.length === 0 && (
+        {filteredEntries.length === 0 && filteredDocChunks.length === 0 && (
           <div className="p-8 text-[11px] text-neutral-600 font-mono text-center">
             {searchQuery || tagFilter || categoryFilter ? 'No matching results' : 'Knowledge base is empty'}
           </div>
@@ -348,7 +384,7 @@ export default function KBTableView({ onEntrySelect, onDocSelect }: KBTableViewP
       {/* Footer stats */}
       <div className="px-3 py-1 border-t border-neutral-800 shrink-0 flex items-center gap-3">
         <span className="text-[9px] font-mono text-neutral-600">
-          {subView === 'entries' ? `${filteredEntries.length} of ${projectEntries.length} entries` : `${filteredDocs.length} of ${projectDocs.length} docs`}
+          {subView === 'entries' ? `${filteredEntries.length} of ${projectEntries.length} entries` : `${filteredDocChunks.length} of ${projectDocs.length} docs`}
         </span>
         {tagFilter && <span className="text-[9px] font-mono text-blue-400">#{tagFilter}</span>}
         {categoryFilter && <span className={cn("text-[9px] font-mono capitalize", CATEGORY_COLORS[categoryFilter])}>{categoryFilter}</span>}

@@ -1,6 +1,6 @@
 # Test Suite vs MVP Proposals — Coverage Gap Analysis
 
-Compares the 85 tests in `src/__tests__/modules.test.ts` (71 unit) and `src/__tests__/integration.test.ts` (14 integration) against:
+Compares the 94 tests in `src/__tests__/modules.test.ts` (76 unit) and `src/__tests__/integration.test.ts` (18 integration) against:
 - `docs/self-healing-agent.md` — 4 module specs
 - `docs/mvp-phase0-kb-context.md` — 10 implementation steps + 7 data flows
 - `docs/modules-testing.md` — per-module-type test strategy
@@ -73,12 +73,12 @@ Compares the 85 tests in `src/__tests__/modules.test.ts` (71 unit) and `src/__te
 | `deepDream` — pruning old raw entries | self-healing §5.3 Phase 5 | **Yes** | 1 test |
 | `deepDream` — constitution amendment (positive) | self-healing §5.3 Phase 4 | **Yes** | 1 test (+ AgentMessage proposal) |
 | `deepDream` — constitution amendment (negative) | self-healing §5.3 Phase 4 | **Yes** | 1 test (no AgentMessage created) |
-| `deepDream` — gap resolution via external | self-healing §5.3 Phase 3 | **No** | Stubs return available()=false |
+| `deepDream` — gap resolution via external | self-healing §5.3 Phase 3 | **Yes** | Integration test (FixedKBSource → gap-resolved entries) |
 | `deepDream` — preserves high-abstraction old entries | self-healing §5.3 | **Yes** | Verified in pruning test |
-| External KB stubs (available/query) | self-healing §5.4 | **No** | Trivial no-ops |
+| External KB stubs (available/query) | self-healing §5.4 | **Yes** | 5 unit tests (FixedKBSource: available, keyword match, default, multiple matches, context match) |
 | Background triggers (onTaskComplete, onBoardIdle) | self-healing §5.5 | **Yes** | Implemented: onTaskComplete→microDream in orchestrator.ts, onBoardIdle→sessionDream in host.ts |
 
-**Coverage: 19/21 tested (90%)**
+**Coverage: 21/21 tested (100%)**
 
 ### process-reflection (1 tool + 5 rules)
 
@@ -115,7 +115,7 @@ Compares the 85 tests in `src/__tests__/modules.test.ts` (71 unit) and `src/__te
 
 ## Integration Test Coverage
 
-File: `src/__tests__/integration.test.ts` — 14 tests exercising full cross-module pipelines.
+File: `src/__tests__/integration.test.ts` — 18 tests exercising full cross-module pipelines.
 
 | Flow | What it tests | Data Flow |
 |---|---|---|
@@ -133,6 +133,10 @@ File: `src/__tests__/integration.test.ts` — 14 tests exercising full cross-mod
 | Analyze forwarding (step 1→2) | host.analyze output → task.analysis → appears in step 2 prompt | F3 partial |
 | Analyze accumulation (multiple calls) | Multiple analyze() calls accumulate → all visible in step 3 prompt | F3 partial |
 | addToContext passthrough | addToContext key-value → persisted to agentContext → visible in next step prompt | Orchestrator context flow |
+| F6 gap resolution (FixedKBSource) | Gap entries + FixedKBSource → deepDream → gap-resolved entries with external answers | F6 |
+| F6 no external available | Default stubs (available()=false) → deepDream → no gap-resolved entries written | F6 negative |
+| F3 focus narrowing (auth) | KB with mixed entries + focus=['auth','jwt'] → projector surfaces auth entry first | F3 |
+| F3 focus narrowing (different focus sets) | Same KB + react focus vs DB focus → different entries surfaced | F3 |
 
 ---
 
@@ -151,7 +155,7 @@ From `mvp-phase0-kb-context.md` §7:
 | 7 | Deep-dream | **Yes** | **Yes** (3 tests + integration) |
 | 8 | Document manager | **Yes** (in KBHandler) | **Yes** (6 tests: create, upsert, isolation, source, layer, limit) |
 | 9 | Repo scanner | **Yes** | **Yes** (6 tests: tech detection, README docs, package.json parsing, dedup docs, dedup entries, empty files) |
-| 10 | External KB stubs | **Yes** | Not tested (trivial) |
+| 10 | External KB stubs | **Yes** | **Yes** (5 unit tests + 2 integration) |
 
 ---
 
@@ -163,10 +167,10 @@ From `mvp-phase0-kb-context.md` §2.2:
 |---|---|---|
 | F1 | Execution → kb_log (recording) | **Yes** — integration tests record via KBHandler |
 | F2 | kb_log → Yuan L0 projection | **Yes** — e2e projector suite |
-| F3 | Yuan → Architect → Executor (narrowing) | **No** — orchestrator integration not tested |
+| F3 | Yuan → Architect → Executor (narrowing) | **Yes** — focus keywords boost relevant entries in projector |
 | F4 | kb_docs → Projection (doc injection) | **Yes** — e2e projector suite |
 | F5 | Dream → kb_log (consolidation) | **Yes** — modules.test.ts + integration tests |
-| F6 | Dream → External → kb (gap-filling) | **No** — stubs, not testable yet |
+| F6 | Dream → External → kb (gap-filling) | **Yes** — FixedKBSource + integration tests (gap-resolved entries) |
 | F7 | External → Dream (background research) | **No** — not implemented |
 
 ---
@@ -197,15 +201,15 @@ From the testing strategy doc §15:
 |---|---|---|---|
 | **knowledge-kb** | 20 | 0 | **100%** |
 | **knowledge-projector** | — | — | **Separate suite** (46 assertions) |
-| **process-dream** | 19 | 2 (external KB stubs) | **90%** |
+| **process-dream** | 21 | 0 | **100%** |
 | **process-reflection** | 24 | 0 | **100%** |
-| **Implementation steps** | 9/10 | 1 (External KB) | **90%** |
-| **Data flows** | 5/7 | 2 (narrowing, background research) | **71%** |
-| **Integration tests** | 14 | 0 (all MVP flows covered) | **100%** |
+| **Implementation steps** | 10/10 | 0 | **100%** |
+| **Data flows** | 6/7 | 1 (background research) | **86%** |
+| **Integration tests** | 18 | 0 (all MVP flows covered) | **100%** |
 
 ### Remaining gaps (not testable yet):
 
-1. **External KB integration** — stubs return `available()=false`
+1. **F7: Background research** — not implemented (requires async external polling)
 
 ---
 
@@ -249,3 +253,11 @@ From the testing strategy doc §15:
 | Aspect | Proposal | Implementation | Deviation |
 |---|---|---|---|
 | Counting | Not specified | `reclassifiedIds` checked for `includes(id)` before push | **Bug fix**: when Rule 1 + Rule 3 both fire on same entries, entries were double-counted |
+
+### F3: Context narrowing via focus keywords
+
+| Aspect | Proposal | Implementation | Deviation |
+|---|---|---|---|
+| Narrowing mechanism | Yuan output constrains lower-level context | `focus?: string[]` on TaskStep, passed to projector for 3x scoring weight | **Simpler**: architect declares focus per step instead of Yuan actively scoping — achieves same narrowing with less coupling |
+| Focus source | Yuan writes scoping entry, orchestrator passes down | Architect prompt instructs focus per step, stored in protocol JSON | **Practical**: architect already knows step intent, no extra Yuan→orchestrator communication needed |
+| Filtering | Hard filter (only matching entries shown) | Soft boost (focus keywords get 3x weight in scoring) | **Safer**: hard filter could exclude critical context; soft boost surfaces relevant entries while keeping fallback access |

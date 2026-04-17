@@ -69,8 +69,41 @@
       }
     },
     {
+      "name": "knowledge-kb.updateDocument",
+      "description": "Update a document by ID. Increments version automatically.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "number" },
+          "changes": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "type": { "type": "string" },
+              "content": { "type": "string" },
+              "summary": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "layer": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "required": ["id", "changes"]
+      }
+    },
+    {
+      "name": "knowledge-kb.deleteDocument",
+      "description": "Soft-delete a document (sets active=false).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "number" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
       "name": "knowledge-kb.queryDocs",
-      "description": "Query kb_docs with filters.",
+      "description": "Query kb_docs with filters. Supports full-text search across title, summary, and content.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -79,6 +112,7 @@
           "tags": { "type": "array", "items": { "type": "string" } },
           "layer": { "type": "string" },
           "active": { "type": "boolean" },
+          "search": { "type": "string", "description": "Full-text search across title, summary, and content" },
           "limit": { "type": "number" }
         }
       }
@@ -88,6 +122,8 @@
     "KB.record": "knowledge-kb.recordEntry",
     "KB.queryLog": "knowledge-kb.queryLog",
     "KB.saveDoc": "knowledge-kb.saveDocument",
+    "KB.updateDoc": "knowledge-kb.updateDocument",
+    "KB.deleteDoc": "knowledge-kb.deleteDocument",
     "KB.queryDocs": "knowledge-kb.queryDocs"
   },
   "permissions": ["storage"],

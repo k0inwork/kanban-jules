@@ -1098,6 +1098,83 @@ describe('KBHandler', () => {
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe('Active');
   });
+
+  it('queryDocs full-text search matches title, summary, and content', async () => {
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'React Patterns', type: 'spec',
+      content: 'Use hooks for state management', summary: 'Common React patterns',
+      tags: [], layer: ['L0'], source: 'upload', active: true, version: 1, project: 'target',
+    });
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Database Design', type: 'reference',
+      content: 'Normalization and indexing strategies', summary: 'SQL best practices',
+      tags: [], layer: ['L0'], source: 'upload', active: true, version: 1, project: 'target',
+    });
+
+    const ctx = mockContext();
+    // Search by title keyword
+    const byTitle = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ search: 'React' }], ctx);
+    expect(byTitle).toHaveLength(1);
+    expect(byTitle[0].title).toBe('React Patterns');
+
+    // Search by content keyword
+    const byContent = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ search: 'hooks' }], ctx);
+    expect(byContent).toHaveLength(1);
+    expect(byContent[0].title).toBe('React Patterns');
+
+    // Search by summary keyword
+    const bySummary = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ search: 'SQL' }], ctx);
+    expect(bySummary).toHaveLength(1);
+    expect(bySummary[0].title).toBe('Database Design');
+
+    // Search that matches nothing
+    const noMatch = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ search: 'webpack' }], ctx);
+    expect(noMatch).toHaveLength(0);
+  });
+
+  it('updateDocument — updates fields and increments version', async () => {
+    const id = await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Old Title', type: 'spec', content: 'old',
+      summary: 'old summary', tags: ['a'], layer: ['L0'], source: 'upload',
+      active: true, version: 1, project: 'target',
+    });
+
+    const ctx = mockContext();
+    await KBHandler.handleRequest('knowledge-kb.updateDocument', [{
+      id, changes: { title: 'New Title', content: 'new content', tags: ['a', 'b'] }
+    }], ctx);
+
+    const doc = await db.kbDocs.get(id);
+    expect(doc!.title).toBe('New Title');
+    expect(doc!.content).toBe('new content');
+    expect(doc!.tags).toEqual(['a', 'b']);
+    expect(doc!.version).toBe(2);
+  });
+
+  it('updateDocument — throws on missing id', async () => {
+    const ctx = mockContext();
+    await expect(
+      KBHandler.handleRequest('knowledge-kb.updateDocument', [{ id: 9999, changes: { title: 'x' } }], ctx)
+    ).rejects.toThrow('Document 9999 not found');
+  });
+
+  it('deleteDocument — soft-deletes (active=false)', async () => {
+    const id = await db.kbDocs.add({
+      timestamp: Date.now(), title: 'To Delete', type: 'reference', content: '',
+      summary: '', tags: [], layer: ['L0'], source: 'upload',
+      active: true, version: 1, project: 'target',
+    });
+
+    const ctx = mockContext();
+    await KBHandler.handleRequest('knowledge-kb.deleteDocument', [{ id }], ctx);
+
+    const doc = await db.kbDocs.get(id);
+    expect(doc!.active).toBe(false);
+
+    // queryDocs should not return it
+    const results = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{}], ctx);
+    expect(results.find((d: any) => d.id === id)).toBeUndefined();
+  });
 });
 
 // ─── KB Writer Convenience Functions ───────────────────────────
@@ -1254,5 +1331,118 @@ describe('FixedKBSource', () => {
     const src = new FixedKBSource({ api: 'REST API best practices' });
     const result = await src.query('what should I do?', 'working with api endpoints');
     expect(result).toContain('REST API best practices');
+  });
+});
+
+// ─── Doc RAG: content validation + projector chunking ──────────
+describe('Doc RAG: markdown validation + projector chunking', () => {
+  const ctx = {} as any;
+
+  it('saveDocument rejects empty content', async () => {
+    await expect(
+      KBHandler.handleRequest('knowledge-kb.saveDocument', [{
+        title: 'Empty', type: 'spec', content: '', summary: 'x',
+        tags: [], layer: ['L0'], source: 'test'
+      }], ctx)
+    ).rejects.toThrow('content is required');
+  });
+
+  it('saveDocument rejects missing content', async () => {
+    await expect(
+      KBHandler.handleRequest('knowledge-kb.saveDocument', [{
+        title: 'No Content', type: 'spec', summary: 'x',
+        tags: [], layer: ['L0'], source: 'test'
+      }], ctx)
+    ).rejects.toThrow('content is required');
+  });
+
+  it('saveDocument accepts markdown with headers', async () => {
+    const id = await KBHandler.handleRequest('knowledge-kb.saveDocument', [{
+      title: 'Has Headers', type: 'spec',
+      content: '# Title\n\n## Section\n\nSome text here',
+      summary: 'doc with headers', tags: [], layer: ['L0', 'L1', 'L2', 'L3'], source: 'test'
+    }], ctx);
+    expect(id).toBeTypeOf('number');
+  });
+
+  it('saveDocument accepts markdown with paragraphs (no headers)', async () => {
+    const id = await KBHandler.handleRequest('knowledge-kb.saveDocument', [{
+      title: 'Para Only', type: 'reference',
+      content: 'First paragraph.\n\nSecond paragraph.',
+      summary: 'doc with paragraphs', tags: [], layer: ['L0', 'L1', 'L2', 'L3'], source: 'test'
+    }], ctx);
+    expect(id).toBeTypeOf('number');
+  });
+});
+
+import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
+
+describe('Projector: doc chunking in RAG', () => {
+  it('chunks doc by h2 headers and returns matching section', async () => {
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Architecture Guide', type: 'spec',
+      content: '# Architecture\n\nSystem overview.\n\n## Frontend\n\nReact with TypeScript components.\n\n## Backend\n\nNode.js with Express API.',
+      summary: 'Architecture guide', tags: ['architecture'],
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+    });
+
+    const result = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'frontend React components'
+    });
+
+    expect(result).toContain('Frontend');
+    expect(result).toContain('React');
+  });
+
+  it('h2 chunks inherit h1 parent as section prefix', async () => {
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Ops Manual', type: 'reference',
+      content: '# Deployment\n\nDeploy info.\n\n## Staging\n\nStaging deploy steps.\n\n## Production\n\nProd deploy steps.',
+      summary: 'Ops manual', tags: ['ops'],
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+    });
+
+    const result = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'staging deployment'
+    });
+
+    // h2 "Staging" should be labeled as "Deployment > Staging"
+    expect(result).toContain('Deployment > Staging');
+  });
+
+  it('chunks doc by paragraphs when no headers exist', async () => {
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Notes', type: 'report',
+      content: 'Authentication uses JWT tokens for stateless sessions.\n\nDatabase migrations are managed by Drizzle ORM toolkit.',
+      summary: 'Various notes', tags: ['notes'],
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+    });
+
+    const result = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'JWT authentication tokens'
+    });
+
+    expect(result).toContain('JWT');
+  });
+
+  it('tag boost ranks tagged chunks higher', async () => {
+    await db.kbDocs.add({
+      timestamp: Date.now(), title: 'Guide', type: 'spec',
+      content: '## Auth\n\nLogin flow with OAuth.\n\n## UI\n\nButton styles and colors.',
+      summary: 'Guide', tags: ['auth'],
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+    });
+
+    const result = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'implement login',
+      tags: ['auth'],
+      focus: ['auth', 'oauth']
+    });
+
+    expect(result).toContain('Auth');
   });
 });
