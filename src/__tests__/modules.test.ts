@@ -2102,3 +2102,231 @@ describe('Phase 1d: Micro Dream Verification', () => {
     expect(result).toContain('verified 0 decisions');
   });
 });
+
+// ─── Phase 1f: Session Conflict Detection ──────────────────────
+describe('Phase 1f: Session Conflict Detection', () => {
+  beforeEach(async () => {
+    await db.kbLog.clear();
+    await db.messages.clear();
+    await db.tasks.clear();
+  });
+
+  it('escalates conflicting decisions via AgentMessage', async () => {
+    // Create two verified decisions that contradict
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use REST for all internal APIs', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['architectural', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use gRPC for all internal APIs', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['architectural', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+
+    // Seed entries for session dream to process
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    // LLM responses: 1) pattern analysis, 2) conflict detection
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [{ text: 'API pattern', tags: ['api'] }], failures: [], strategies: [], docGaps: [] }),
+      JSON.stringify([{
+        id1: d1Id, id2: d2Id,
+        concern: 'Internal API protocol',
+        d1_choice: 'Use REST for all internal APIs',
+        d2_choice: 'Use gRPC for all internal APIs',
+        severity: 'ESCALATE',
+        suggestion: 'REST for external, gRPC for internal',
+      }]),
+    ]);
+
+    const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    // Should have created an escalation message
+    const msgs = await db.messages.toArray();
+    expect(msgs.length).toBeGreaterThanOrEqual(1);
+    expect(msgs.some(m => m.type === 'alert' && m.content.includes('Conflict'))).toBe(true);
+
+    // Should have created a conflict KB entry
+    const conflicts = await db.kbLog.filter(e => e.tags.includes('conflict')).toArray();
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].text).toContain('CONFLICT');
+  });
+
+  it('does not escalate when no conflicts found', async () => {
+    await db.kbLog.add(makeEntry({
+      text: 'Use REST for external APIs', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Use events for internal modules', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['architectural', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      '[]', // no conflicts
+    ]);
+
+    const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+    expect(result.dream).toContain('0 conflicts escalated');
+
+    const msgs = await db.messages.toArray();
+    expect(msgs.filter(m => m.type === 'alert')).toHaveLength(0);
+  });
+
+  it('skips conflict detection with fewer than 2 verified decisions', async () => {
+    await db.kbLog.add(makeEntry({
+      text: 'Only decision', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['verified', 'task-a'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+    ]);
+
+    const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+    expect(result.dream).toContain('0 conflicts escalated');
+    // Only 1 LLM call (pattern analysis, no conflict call)
+    expect(ctx.llmCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles malformed conflict response gracefully', async () => {
+    await db.kbLog.add(makeEntry({
+      text: 'D1', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['verified', 'task-a'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'D2', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      'not valid json',
+    ]);
+
+    const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+    expect(result.dream).toContain('0 conflicts escalated');
+  });
+});
+
+// ─── Phase 1h: Deep Decision Log ───────────────────────────────
+describe('Phase 1h: Deep Decision Log', () => {
+  beforeEach(async () => {
+    await db.kbLog.clear();
+    await db.kbDocs.clear();
+    await db.tasks.clear();
+    await db.projectConfigs.clear();
+    await db.messages.clear();
+  });
+
+  it('generates decision-log doc with grouped decisions', async () => {
+    // Seed some decisions
+    await db.kbLog.add(makeEntry({
+      text: 'JWT for auth', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['security', 'verified'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Dexie for storage', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['dependency', 'verified'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Event bus pattern', category: 'decision', abstraction: 7,
+      layer: ['L0'], tags: ['architectural', 'verified'], source: 'dream:session',
+    }));
+
+    // Mock: consolidation, constitution review (no amendments)
+    const ctx = trackingContext([
+      'Strategic insight: project is healthy',
+      'No amendments needed.',
+    ]);
+
+    await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
+
+    // Should have created a decision-log doc
+    const docs = await db.kbDocs.filter(d => d.type === 'decision-log').toArray();
+    expect(docs).toHaveLength(1);
+    expect(docs[0].title).toContain('Decision Log');
+    expect(docs[0].content).toContain('JWT for auth');
+    expect(docs[0].content).toContain('Dexie for storage');
+    expect(docs[0].content).toContain('Event bus pattern');
+    expect(docs[0].content).toContain('## Security');
+    expect(docs[0].content).toContain('## Dependency');
+    expect(docs[0].content).toContain('## Architectural');
+  });
+
+  it('decision log includes superseded history', async () => {
+    const id1 = await db.kbLog.add(makeEntry({
+      text: 'Use REST for all APIs', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'verified'], source: 'dream:micro',
+    }));
+
+    // Supersede D1 with a session-level decision
+    await KBHandler.supersedeEntries({
+      text: 'REST for external, events internally', category: 'decision', abstraction: 7,
+      layer: ['L0', 'L1'], tags: ['api', 'architectural', 'verified'], source: 'dream:session',
+      supersedes: [id1],
+    });
+
+    const ctx = trackingContext([
+      'Strategic insight',
+      'No amendments needed.',
+    ]);
+
+    await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
+
+    const docs = await db.kbDocs.filter(d => d.type === 'decision-log').toArray();
+    expect(docs).toHaveLength(1);
+    // Should show the superseded history
+    expect(docs[0].content).toContain('Supersedes');
+    expect(docs[0].content).toContain('Use REST for all APIs');
+  });
+
+  it('skips decision log when no decisions exist', async () => {
+    const ctx = trackingContext([
+      'No entries to analyze',
+      'No amendments needed.',
+    ]);
+
+    const result = await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
+    expect(result).toContain('No decisions for log');
+
+    const docs = await db.kbDocs.filter(d => d.type === 'decision-log').toArray();
+    expect(docs).toHaveLength(0);
+  });
+
+  it('upserts decision-log on repeated deep dreams', async () => {
+    await db.kbLog.add(makeEntry({
+      text: 'A decision', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'verified'], source: 'dream:micro',
+    }));
+
+    // First deep dream
+    await DreamHandler.handleRequest('process-dream.deepDream', [], trackingContext([
+      'Insight 1', 'No amendments needed.',
+    ]));
+
+    // Second deep dream same day
+    await DreamHandler.handleRequest('process-dream.deepDream', [], trackingContext([
+      'Insight 2', 'No amendments needed.',
+    ]));
+
+    const docs = await db.kbDocs.filter(d => d.type === 'decision-log').toArray();
+    expect(docs).toHaveLength(1); // upserted, not duplicated
+    expect(docs[0].version).toBe(2);
+  });
+});

@@ -523,11 +523,11 @@ interface Task {
 
 ### Phase 1f: Session Conflict Detection + Escalation
 
-- [ ] Compare decisions across tasks (severity filter: only direct contradictions)
-- [ ] Create escalation AgentMessage for conflicts
-- [ ] Present three options to user (pick D5, pick D6, merged rule)
+- [x] Compare decisions across tasks (severity filter: only direct contradictions)
+- [x] Create escalation AgentMessage for conflicts
+- [x] Present three options to user (pick D5, pick D6, merged rule)
 - [ ] Block merge on ESCALATE-severity conflicts
-- [ ] Wire into `sessionDream()` in `dream-levels.ts`
+- [x] Wire into `sessionDream()` in `dream-levels.ts`
 
 ### Phase 1g: Resolution Feedback Loop
 
@@ -538,9 +538,9 @@ interface Task {
 
 ### Phase 1h: Deep Decision Log
 
-- [ ] Generate decision-log document from full superseded graph
-- [ ] Supersede previous decision-log docs
-- [ ] Wire into `deepDream()` in `dream-levels.ts`
+- [x] Generate decision-log document from full superseded graph
+- [x] Supersede previous decision-log docs
+- [x] Wire into `deepDream()` in `dream-levels.ts`
 
 ---
 

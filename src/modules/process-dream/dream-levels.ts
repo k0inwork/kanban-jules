@@ -2,6 +2,7 @@ import { db, KBEntry } from '../../services/db';
 import { externalSources } from './external-kb';
 import { RequestContext } from '../../core/types';
 import { eventBus } from '../../core/event-bus';
+import { KBHandler } from '../knowledge-kb/Handler';
 
 export async function microDream(taskId: string, context: RequestContext): Promise<string> {
   // Gather raw entries for this task
@@ -208,6 +209,9 @@ export async function sessionDream(context: RequestContext): Promise<string> {
     await db.kbLog.bulkAdd(allNew);
   }
 
+  // Phase 1f: Conflict detection — must run BEFORE Phase 4b deactivation
+  const conflictsEscalated = await detectConflicts(context);
+
   // Phase 4b: Deactivate superseded entries (observations + micro-dreams only).
   // Errors are NOT deactivated here — they must survive for process-reflection
   // to analyze and potentially reclassify. Once reflection runs (Phase 3 in the
@@ -228,7 +232,103 @@ export async function sessionDream(context: RequestContext): Promise<string> {
     }
   }
 
-  return `Session-dream: ${allNew.length} insights from ${entries.length} entries.`;
+  return `Session-dream: ${allNew.length} insights from ${entries.length} entries. ${conflictsEscalated} conflicts escalated.`;
+}
+
+/**
+ * Phase 1f: Compare verified decisions across tasks for contradictions.
+ * Only flags ESCALATE-severity conflicts (direct contradictions on same scope).
+ * Creates escalation AgentMessages for user resolution.
+ * Returns number of conflicts escalated.
+ */
+async function detectConflicts(context: RequestContext): Promise<number> {
+  // Gather all verified active decisions
+  const decisions = await db.kbLog
+    .filter(e => e.active && e.category === 'decision' && e.tags.includes('verified'))
+    .toArray();
+
+  if (decisions.length < 2) return 0;
+
+  const decisionTexts = decisions.map(d =>
+    `[id:${d.id}] ${d.text} (tags: ${d.tags.filter(t => t !== 'verified').join(', ') || 'none'})`
+  ).join('\n');
+
+  const prompt = `Compare these ${decisions.length} verified decisions across tasks.
+Find ONLY direct contradictions: same concern, same scope, different choices.
+Similar but compatible approaches are NOT conflicts.
+
+Decisions:
+${decisionTexts}
+
+For each conflict found, output:
+[{
+  "id1": <entry_id>,
+  "id2": <entry_id>,
+  "concern": "what the conflict is about",
+  "d1_choice": "summary of first decision",
+  "d2_choice": "summary of second decision",
+  "severity": "ESCALATE",
+  "suggestion": "merged rule that covers both"
+}]
+
+Severity filter rules:
+- ESCALATE: two decisions directly contradict on the SAME scope
+- NOT a conflict: same approach reached independently (confirmation)
+- NOT a conflict: different patterns for different contexts
+- NOT a conflict: one decision extends another
+
+If no conflicts, output: []
+
+Output ONLY the JSON array.`;
+
+  try {
+    const response = await context.llmCall(prompt, true);
+    const jsonMatch = response.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return 0;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed)) return 0;
+
+    const escalateConflicts = parsed.filter((c: any) => c.severity === 'ESCALATE');
+    if (escalateConflicts.length === 0) return 0;
+
+    // Create escalation AgentMessages
+    for (const conflict of escalateConflicts) {
+      const d1 = decisions.find(d => d.id === conflict.id1);
+      const d2 = decisions.find(d => d.id === conflict.id2);
+      if (!d1 || !d2) continue;
+
+      await db.messages.add({
+        sender: 'dream:session',
+        type: 'alert',
+        content: `Conflict between decisions:\n\nD${d1.id}: ${conflict.d1_choice}\nD${d2.id}: ${conflict.d2_choice}\n\nConcern: ${conflict.concern}\n\nOptions:\n(a) Choose D${d1.id}\n(b) Choose D${d2.id}\n(c) Both are right — describe the merged rule\n\nSuggested: (c) ${conflict.suggestion}`,
+        category: 'SIGNAL',
+        status: 'unread',
+        timestamp: Date.now(),
+        proposedTask: {
+          title: `[decision] Resolve: ${conflict.concern}`,
+          description: `D${d1.id}: ${conflict.d1_choice}\nD${d2.id}: ${conflict.d2_choice}\n\nSuggested resolution: ${conflict.suggestion}`,
+        },
+      });
+
+      // Also create a conflict KB entry
+      await db.kbLog.add({
+        timestamp: Date.now(),
+        text: `CONFLICT: ${conflict.concern} — D${d1.id} vs D${d2.id}`,
+        category: 'decision',
+        abstraction: 7,
+        layer: ['L0', 'L1'],
+        tags: ['conflict', ...(d1.tags.filter(t => t !== 'verified')), ...(d2.tags.filter(t => t !== 'verified'))],
+        source: 'dream:session',
+        active: true,
+        project: 'target',
+      });
+    }
+
+    return escalateConflicts.length;
+  } catch {
+    return 0;
+  }
 }
 
 export async function deepDream(context: RequestContext): Promise<string> {
@@ -344,5 +444,72 @@ export async function deepDream(context: RequestContext): Promise<string> {
     );
   }
 
-  return `Deep-dream: ${consolidation.length} chars strategic insight, ${prunable.length} entries pruned.`;
+  // Phase 1h: Generate decision log document from full superseded graph
+  const logResult = await generateDecisionLog();
+
+  return `Deep-dream: ${consolidation.length} chars strategic insight, ${prunable.length} entries pruned. ${logResult}`;
+}
+
+/**
+ * Phase 1h: Generate a decision-log document from the full superseded graph.
+ * Groups active decisions by classification, traces superseded history,
+ * and saves as a KB doc. Supersedes any previous decision-log doc.
+ */
+async function generateDecisionLog(): Promise<string> {
+  // Gather all active decisions (verified)
+  const decisions = await db.kbLog
+    .filter(e => e.active && e.category === 'decision')
+    .toArray();
+
+  if (decisions.length === 0) return 'No decisions for log.';
+
+  const classifications = ['architectural', 'api', 'dependency', 'pattern', 'local', 'infra', 'security'];
+
+  // Build log content grouped by classification
+  let content = `# Decision Log\n\nGenerated: ${new Date().toISOString()}\nActive decisions: ${decisions.length}\n\n`;
+
+  for (const cls of classifications) {
+    const group = decisions.filter(d => d.tags.includes(cls));
+    if (group.length === 0) continue;
+
+    content += `## ${cls.charAt(0).toUpperCase() + cls.slice(1)}\n\n`;
+    for (const d of group) {
+      content += `- **D${d.id}**: ${d.text}\n`;
+      content += `  - Source: ${d.source} | Abstraction: ${d.abstraction} | Tags: ${d.tags.filter(t => t !== cls && t !== 'verified').join(', ') || 'none'}\n`;
+
+      // Trace superseded history
+      if (d.supersedes && d.supersedes.length > 0) {
+        const ancestors = await KBHandler.traceDecisionChain(d.id);
+        const history = ancestors.filter(a => a.id !== d.id);
+        if (history.length > 0) {
+          content += `  - Supersedes: ${history.map(a => `D${a.id} (${a.text.substring(0, 60)}${a.text.length > 60 ? '...' : ''})`).join(' → ')}\n`;
+        }
+      }
+      content += '\n';
+    }
+  }
+
+  // Also include unclassified decisions
+  const unclassified = decisions.filter(d => !classifications.some(c => d.tags.includes(c)));
+  if (unclassified.length > 0) {
+    content += `## Uncategorized\n\n`;
+    for (const d of unclassified) {
+      content += `- **D${d.id}**: ${d.text}\n  Source: ${d.source}\n\n`;
+    }
+  }
+
+  // Save as KB doc (upsert — replaces previous decision-log)
+  const today = new Date().toISOString().split('T')[0];
+  await KBHandler.handleRequest('knowledge-kb.saveDocument', [{
+    title: `Decision Log — ${today}`,
+    type: 'decision-log',
+    content,
+    summary: `${decisions.length} active decisions across ${classifications.filter(c => decisions.some(d => d.tags.includes(c))).length} categories`,
+    tags: ['decision-log', 'auto-generated'],
+    layer: 'L0',
+    source: 'dream:deep',
+    project: 'target',
+  }], {} as any);
+
+  return `Decision log generated (${decisions.length} decisions).`;
 }
