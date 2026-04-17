@@ -119,81 +119,114 @@ The commit message is the backup signal — it persists even if the KB call fail
 
 Declarations are source: `agent`. These are **primary signal** — the agent chose to tell us.
 
-### 2.3 External Agents: Commit Messages as Declarations
+### 2.3 External Agents: Event-Driven Commit Harvest
 
-External agents (Jules, Codex, etc.) produce git commits. Their commit messages are often meaningful:
+External agents (Jules, Codex, etc.) produce git commits on the remote repo. The browser-based Fleet app has no local git access — but it does have:
 
-```
-feat: add rate limiting with sliding window algorithm
+- **GitHub API access** (`githubToken` in HostConfig) to fetch commits + diffs
+- **JulesPostman** already polling and detecting session completion (`COMPLETED`/`FAILED`)
 
-Using sliding window over fixed window to avoid burst artifacts
-at window boundaries. Chose express-rate-limit for simplicity —
-no need for Redis-backed at our scale.
-```
-
-This is a decision declaration, just in a different format. The dream engine treats commit messages from external agents as **implicit declarations** and extracts from them.
-
-### 2.4 Micro Dream: Extract from Commits, Verify Internal Declarations
-
-Micro dream runs post-merge. It handles both agent types:
+The micro dream engine **listens to events**, not polls git:
 
 ```
-Micro dream:
-  Input:
-    - Git log for this task's commits (author, message, diff)
-    - Agent-declared decisions from KB, if any (source: 'agent')
-    - Task description (from board)
-
-  Process:
-    1. Classify agent type:
-       - Has KB declarations? → Internal agent → verify mode
-       - No KB declarations? → External agent → extract mode
-
-    2. Extract mode (external agents):
-       LLM prompt:
-        "This task was executed by an external agent.
-         Here are the commit messages:
-         [commit messages with author]
-
-         Here are the diffs:
-         [diffs]
-
-         Here is the task description:
-         [task desc]
-
-         Extract NON-OBVIOUS decisions with alternatives.
-         A decision must have: what was chosen + why (or at minimum a clear
-         choice between alternatives).
-
-         Do NOT extract: style choices, following existing patterns,
-         default values, obvious implementations.
-
-         For each decision:
-          - What was chosen
-          - Why (from commit message or inferred from diff context)
-          - Classify: architectural|api|dependency|pattern|local|infra|security
-          - Confidence: high|medium|low"
-
-    3. Verify mode (internal agents):
-       LLM prompt:
-        "The agent declared these decisions:
-         [list declared decisions]
-
-         Here are the commit messages and diffs:
-         [commits + diffs]
-
-         For each declared decision:
-          - Does the code match the declaration?
-          - Classify: architectural|api|dependency|pattern|local|infra|security
-          - Is anything missing? Did the agent make choices it didn't declare?"
-
-  Output:
-    - Extracted decisions (external) → new KB entries (source: 'dream:micro')
-    - Verified declarations (internal) → update tags, add missed (source: 'dream:micro')
-    - All entries: category 'decision', abstraction 4, layer ['L0', 'L1']
+Event flow:
+  1. JulesPostman detects session COMPLETED
+     → emits eventBus.emit('executor:completed', { taskId, executor: 'executor-jules', ... })
+  2. Micro dream handler listens:
+     eventBus.on('executor:completed', async (data) => { ... })
+  3. Handler fetches commits from GitHub API:
+     GET /repos/{owner}/{repo}/commits?sha={branch}&since={taskStartedAt}
+     GET /repos/{owner}/{repo}/commits/{sha} (for full diff)
+  4. Handler runs extraction LLM on commit messages + diffs
+  5. Extracted decisions → KB entries (source: 'dream:micro')
 ```
 
-### 2.5 Commit Message Quality Signal
+For internal agents (Yuan), the orchestrator already knows when a task finishes. Same listener, different data source:
+
+```
+  Internal agent completes:
+    → Orchestrator emits eventBus.emit('executor:completed', { taskId, executor: 'executor-local' })
+    → Handler checks KB for agent-declared decisions (source: 'agent')
+    → Runs verify mode instead of extract mode
+```
+
+### 2.4 Micro Dream Handler: Unified Event Listener
+
+```
+eventBus.on('executor:completed', async ({ taskId, executor }) => {
+  const task = await db.tasks.get(taskId);
+  const declared = await db.kbLog.filter(e =>
+    e.tags.includes(taskId) && e.source === 'agent' && e.category === 'decision'
+  ).toArray();
+
+  if (declared.length > 0) {
+    // Internal agent — verify mode
+    await verifyDeclarations(task, declared);
+  } else {
+    // External agent — extract mode
+    const commits = await fetchCommitsFromGitHub(task);
+    if (commits.length > 0) {
+      await extractFromCommits(task, commits);
+    }
+  }
+});
+```
+
+**verifyDeclarations** (internal agents):
+```
+Input: task, agent-declared decisions from KB
+Process:
+  1. LLM verifies each declaration against task description
+  2. Classify tags: architectural|api|dependency|pattern|local|infra|security
+  3. Flag missed decisions (if any)
+Output: update KB entries with classification tags
+```
+
+**extractFromCommits** (external agents):
+```
+Input: task, GitHub commits (message + diff)
+Process:
+  1. LLM extracts non-obvious decisions from commit messages + diffs
+  2. Filter: only choices with alternatives (quality signal)
+  3. Classify tags
+Output: new KB entries (source: 'dream:micro', category: 'decision')
+```
+
+### 2.5 GitHub API for Commit Fetching
+
+The system already has `githubToken` and `repoUrl`/`repoBranch` in HostConfig. The commit fetch is a simple REST call:
+
+```typescript
+async function fetchCommitsFromGitHub(task: Task): Promise<CommitData[]> {
+  const token = hostConfig.githubToken;
+  const [owner, repo] = parseRepoUrl(hostConfig.repoUrl);
+  const since = new Date(task.createdAt).toISOString();
+  
+  // List commits on the task branch since task started
+  const url = `https://api.github.com/repos/${owner}/${repo}/commits`
+    + `?sha=${hostConfig.repoBranch}&since=${since}&per_page=50`;
+  
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' }
+  });
+  const commits = await resp.json();
+  
+  // Fetch full diff for each commit (patch format)
+  const results = [];
+  for (const c of commits.slice(0, 20)) {  // cap at 20 to avoid rate limits
+    const detail = await fetch(c.url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.patch' }
+    });
+    const patch = await detail.text();
+    results.push({ sha: c.sha, message: c.commit.message, author: c.commit.author?.name, patch });
+  }
+  return results;
+}
+```
+
+Rate limit consideration: GitHub API allows 5000 requests/hour for authenticated users. With ~20 commits per task and reasonable task throughput, this is well within limits. Batch and cap if needed.
+
+### 2.6 Commit Message Quality Signal
 
 Not all commit messages contain decisions. The extraction prompt filters:
 
@@ -493,12 +526,15 @@ interface Task {
 - [ ] Agent records decisions during execution (source: 'agent')
 - [ ] Agent includes reasoning in commit message body as backup signal
 
-### Phase 1b: Commit-Based Extraction (External Agents)
+### Phase 1b: Event-Driven Commit Harvest (External Agents)
 
-- [ ] Micro dream reads git log for task commits (author, message, diff)
+- [ ] Add `executor:completed` event emission to JulesPostman (on session COMPLETED)
+- [ ] Add `executor:completed` event emission to Orchestrator (on internal agent finish)
+- [ ] Implement `fetchCommitsFromGitHub()` using existing `githubToken` + `repoUrl`
+- [ ] Micro dream handler listens on `executor:completed` event
 - [ ] Classify agent type: has KB declarations → internal (verify), none → external (extract)
-- [ ] LLM extracts decisions from external agent commit messages + diffs
-- [ ] Filter: only extract non-obvious choices with alternatives (quality signal)
+- [ ] Extract mode: LLM extracts decisions from GitHub commit messages + patches
+- [ ] Verify mode: LLM verifies internal agent declarations
 - [ ] Extracted entries: source `dream:micro`, same schema as declared entries
 
 ### Phase 1c: Task Branching (Conditional)
