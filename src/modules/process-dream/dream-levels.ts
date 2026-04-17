@@ -266,7 +266,7 @@ async function detectConflicts(context: RequestContext): Promise<number> {
   if (decisions.length < 2) return 0;
 
   const decisionTexts = decisions.map(d =>
-    `[id:${d.id}] ${d.text} (tags: ${d.tags.filter(t => t !== 'verified').join(', ') || 'none'})`
+    `[id:${d.id}] ${d.text} (abs:${d.abstraction}, src:${d.source}, tags: ${d.tags.filter(t => t !== 'verified').join(', ') || 'none'})`
   ).join('\n');
 
   const prompt = `Compare these ${decisions.length} verified decisions across tasks.
@@ -308,7 +308,9 @@ Output ONLY the JSON array.`;
     const escalateConflicts = parsed.filter((c: any) => c.severity === 'ESCALATE');
     if (escalateConflicts.length === 0) return 0;
 
-    // Create escalation AgentMessages + tag conflicting decisions as pending
+    let autoResolved = 0;
+    let escalated = 0;
+
     for (const conflict of escalateConflicts) {
       const d1 = decisions.find(d => d.id === conflict.id1);
       const d2 = decisions.find(d => d.id === conflict.id2);
@@ -318,40 +320,249 @@ Output ONLY the JSON array.`;
       await db.kbLog.update(d1.id, { tags: [...d1.tags, 'conflict-pending'] });
       await db.kbLog.update(d2.id, { tags: [...d2.tags, 'conflict-pending'] });
 
-      const msgId = await db.messages.add({
-        sender: 'dream:session',
-        type: 'alert',
-        content: `Conflict between decisions:\n\nD${d1.id}: ${conflict.d1_choice}\nD${d2.id}: ${conflict.d2_choice}\n\nConcern: ${conflict.concern}\n\nOptions:\n(a) Choose D${d1.id}\n(b) Choose D${d2.id}\n(c) Both are right — describe the merged rule\n\nSuggested: (c) ${conflict.suggestion}`,
-        category: 'SIGNAL',
-        status: 'unread',
-        timestamp: Date.now(),
-        proposedTask: {
-          title: `[decision] Resolve: ${conflict.concern}`,
-          description: `D${d1.id}: ${conflict.d1_choice}\nD${d2.id}: ${conflict.d2_choice}\n\nSuggested resolution: ${conflict.suggestion}`,
-        },
-      });
+      const conflictType = await classifyConflict(d1, d2);
 
-      // Also create a conflict KB entry
-      await db.kbLog.add({
-        timestamp: Date.now(),
-        text: `CONFLICT: ${conflict.concern} — D${d1.id} vs D${d2.id}`,
-        category: 'decision',
-        abstraction: 7,
-        layer: ['L0', 'L1'],
-        tags: ['conflict', ...(d1.tags.filter(t => t !== 'verified' && t !== 'conflict-pending')), ...(d2.tags.filter(t => t !== 'verified' && t !== 'conflict-pending'))],
-        source: 'dream:session',
-        active: true,
-        project: 'target',
-      });
-
-      // Listen for user resolution
-      registerConflictResolutionHandler(msgId, d1.id, d2.id, conflict.suggestion);
+      if (conflictType === 'constitutional-override') {
+        await resolveConstitutional(d1, d2);
+        autoResolved++;
+      } else if (conflictType === 'guiding') {
+        await resolveGuiding(d1, d2);
+        autoResolved++;
+      } else {
+        // Self-correcting or doubtful — escalate to user
+        const msgId = await createEscalationMessage(d1, d2, conflict, conflictType);
+        registerConflictResolutionHandler(msgId, d1.id, d2.id, conflict.suggestion, conflictType);
+        escalated++;
+      }
     }
 
-    return escalateConflicts.length;
+    return escalated;
   } catch {
     return 0;
   }
+}
+
+// ─── Evidence Scoring ──────────────────────────────────────────────
+
+const PROVENANCE_SCORES: Record<string, number> = {
+  user: 5,
+  execution: 4,
+  'dream:micro': 3,
+  'dream:session': 2,
+  'dream:deep': 1,
+};
+
+function evidenceScore(entry: KBEntry): number {
+  let score = 0;
+
+  // Source provenance
+  score += PROVENANCE_SCORES[entry.source] ?? 0;
+
+  // Duration standing (days, capped at 5)
+  const daysStanding = (Date.now() - entry.timestamp) / (1000 * 60 * 60 * 24);
+  score += Math.min(Math.floor(daysStanding), 5);
+
+  // Verification
+  if (entry.tags.includes('verified')) score += 3;
+
+  // Conflict survivor
+  if (entry.tags.includes('conflict-resolved')) score += 2;
+
+  // Supersession breadth
+  if (entry.supersedes) score += Math.min(Math.floor(entry.supersedes.length / 2), 3);
+
+  // Constitutional — absolute authority
+  if (entry.tags.includes('constitution')) score += 10;
+
+  return score;
+}
+
+async function corroborationScore(entry: KBEntry): Promise<number> {
+  const executionEntries = await db.kbLog
+    .filter(e => e.active && e.source === 'execution' && e.timestamp > entry.timestamp)
+    .toArray();
+
+  const overlapping = executionEntries.filter(e =>
+    e.tags.some(t => entry.tags.includes(t))
+  );
+
+  return Math.min(overlapping.length, 5);
+}
+
+async function fullEvidenceScore(entry: KBEntry): Promise<number> {
+  return evidenceScore(entry) + await corroborationScore(entry);
+}
+
+// ─── Conflict Classification ───────────────────────────────────────
+
+type ConflictType = 'constitutional-override' | 'constitutional-amendment' | 'guiding' | 'self-correcting' | 'doubtful';
+
+async function classifyConflict(d1: KBEntry, d2: KBEntry): Promise<ConflictType> {
+  const d1Const = d1.tags.includes('constitution');
+  const d2Const = d2.tags.includes('constitution');
+
+  if (d1Const && d2Const) return 'constitutional-amendment';
+  if (d1Const || d2Const) return 'constitutional-override';
+
+  const score1 = await fullEvidenceScore(d1);
+  const score2 = await fullEvidenceScore(d2);
+
+  const lower = d1.abstraction >= d2.abstraction ? d2 : d1;
+  const higherScore = d1.abstraction >= d2.abstraction ? score1 : score2;
+  const lowerScore = d1.abstraction >= d2.abstraction ? score2 : score1;
+
+  const absGap = Math.abs(d1.abstraction - d2.abstraction);
+
+  // Same level — always doubtful
+  if (absGap === 0) return 'doubtful';
+
+  // Cross-level with strong lower evidence — self-correcting
+  const lowerHasExecution = lower.source === 'execution' || lower.source === 'user';
+  const lowerCorroboration = await corroborationScore(lower);
+
+  if (lowerScore >= higherScore && (lowerHasExecution || lowerCorroboration >= 3)) {
+    return 'self-correcting';
+  }
+
+  // Cross-level with weak lower evidence — guiding
+  if (absGap >= 2 && (higherScore - lowerScore) >= 4 && lowerCorroboration < 2) {
+    return 'guiding';
+  }
+
+  // Default to user judgment
+  return 'doubtful';
+}
+
+// ─── Resolution Audit Entry ────────────────────────────────────────
+
+async function writeResolutionEntry(
+  type: ConflictType,
+  method: string,
+  d1: KBEntry,
+  d2: KBEntry,
+  winnerId: number | undefined,
+): Promise<void> {
+  const d1Score = await fullEvidenceScore(d1);
+  const d2Score = await fullEvidenceScore(d2);
+  const d1Corroboration = await corroborationScore(d1);
+  const d2Corroboration = await corroborationScore(d2);
+
+  const d1Days = Math.floor((Date.now() - d1.timestamp) / (1000 * 60 * 60 * 24));
+  const d2Days = Math.floor((Date.now() - d2.timestamp) / (1000 * 60 * 60 * 24));
+
+  const prefix = method === 'auto' ? '[AUTO' : '[USER';
+  const winnerLabel = winnerId === d1.id ? 'D1' : winnerId === d2.id ? 'D2' : 'MERGED';
+
+  const text = [
+    `${prefix}:${type}]`,
+    `D1 (#${d1.id}): "${d1.text}" (abs ${d1.abstraction}, evidence ${d1Score})`,
+    `  src=${d1.source} | standing=${d1Days}d | ${d1.tags.includes('verified') ? 'verified' : 'unverified'} | supersedes ${d1.supersedes?.length ?? 0} | corroboration ${d1Corroboration}`,
+    `D2 (#${d2.id}): "${d2.text}" (abs ${d2.abstraction}, evidence ${d2Score})`,
+    `  src=${d2.source} | standing=${d2Days}d | ${d2.tags.includes('verified') ? 'verified' : 'unverified'} | supersedes ${d2.supersedes?.length ?? 0} | corroboration ${d2Corroboration}`,
+    `\u2192 ${winnerLabel}.`,
+  ].join('\n');
+
+  const cascadeLayers = [...new Set([...d1.layer, ...d2.layer])];
+
+  await db.kbLog.add({
+    timestamp: Date.now(),
+    text,
+    category: 'resolution',
+    abstraction: Math.max(d1.abstraction, d2.abstraction) + 1,
+    layer: cascadeLayers,
+    tags: [
+      'conflict-resolved',
+      `type:${type}`,
+      `method:${method}`,
+      ...(winnerId ? [`winner:${winnerId}`] : []),
+    ],
+    source: 'conflict-resolution',
+    supersedes: [d1.id!, d2.id!].filter(Boolean),
+    active: true,
+    project: d1.project || 'target',
+  });
+}
+
+// ─── Auto-Resolvers ────────────────────────────────────────────────
+
+async function resolveConstitutional(d1: KBEntry, d2: KBEntry): Promise<void> {
+  const winner = d1.tags.includes('constitution') ? d1 : d2;
+  const loser = winner === d1 ? d2 : d1;
+  const loserId = loser.id!;
+
+  await db.kbLog.update(loserId, { active: false });
+  await db.kbLog.update(winner.id!, {
+    tags: winner.tags.filter(t => t !== 'conflict-pending').concat('conflict-resolved'),
+  });
+
+  await writeResolutionEntry('constitutional-override', 'auto', d1, d2, winner.id);
+}
+
+async function resolveGuiding(d1: KBEntry, d2: KBEntry): Promise<void> {
+  const higher = d1.abstraction >= d2.abstraction ? d1 : d2;
+  const lower = d1.abstraction >= d2.abstraction ? d2 : d1;
+
+  await db.kbLog.update(lower.id!, { active: false });
+  await db.kbLog.update(higher.id!, {
+    tags: higher.tags.filter(t => t !== 'conflict-pending').concat('conflict-resolved'),
+  });
+
+  await writeResolutionEntry('guiding', 'auto', d1, d2, higher.id);
+}
+
+// ─── User Escalation ───────────────────────────────────────────────
+
+async function createEscalationMessage(
+  d1: KBEntry,
+  d2: KBEntry,
+  conflict: any,
+  conflictType: ConflictType,
+): Promise<number> {
+  const d1Score = await fullEvidenceScore(d1);
+  const d2Score = await fullEvidenceScore(d2);
+  const d1Corroboration = await corroborationScore(d1);
+  const d2Corroboration = await corroborationScore(d2);
+
+  const isSelfCorrecting = conflictType === 'self-correcting';
+  const recommendation = isSelfCorrecting
+    ? `\n\n\u26a0 Recommendation: Adopt the entry with stronger evidence (higher evidence score).`
+    : '';
+
+  const evidenceBreakdown = [
+    `D${d1.id} (abs ${d1.abstraction}, evidence ${d1Score}): ${conflict.d1_choice}`,
+    `  src=${d1.source} | corroboration=${d1Corroboration} | ${d1.tags.includes('verified') ? 'verified' : 'unverified'}`,
+    `D${d2.id} (abs ${d2.abstraction}, evidence ${d2Score}): ${conflict.d2_choice}`,
+    `  src=${d2.source} | corroboration=${d2Corroboration} | ${d2.tags.includes('verified') ? 'verified' : 'unverified'}`,
+  ].join('\n');
+
+  const typeLabel = isSelfCorrecting ? 'Self-correcting insight vs. strategic assumption'
+    : 'Conflicting approaches';
+
+  // Create conflict KB entry (preserving existing behavior)
+  await db.kbLog.add({
+    timestamp: Date.now(),
+    text: `CONFLICT: ${conflict.concern} \u2014 D${d1.id} vs D${d2.id}`,
+    category: 'decision',
+    abstraction: 7,
+    layer: ['L0', 'L1'],
+    tags: ['conflict', ...(d1.tags.filter(t => t !== 'verified' && t !== 'conflict-pending')), ...(d2.tags.filter(t => t !== 'verified' && t !== 'conflict-pending'))],
+    source: 'dream:session',
+    active: true,
+    project: 'target',
+  });
+
+  return db.messages.add({
+    sender: 'dream:session',
+    type: 'alert',
+    content: `CONFLICT DETECTED: ${typeLabel}\n\n${evidenceBreakdown}\n\nConcern: ${conflict.concern}\n\nOptions:\n(a) Choose D${d1.id}\n(b) Choose D${d2.id}\n(c) Both are right \u2014 describe the merged rule\n\nSuggested: (c) ${conflict.suggestion}${recommendation}`,
+    category: 'SIGNAL',
+    status: 'unread',
+    timestamp: Date.now(),
+    proposedTask: {
+      title: `[decision] Resolve: ${conflict.concern}`,
+      description: `D${d1.id}: ${conflict.d1_choice}\nD${d2.id}: ${conflict.d2_choice}\n\nSuggested resolution: ${conflict.suggestion}`,
+    },
+  });
 }
 
 /**
@@ -360,13 +571,14 @@ Output ONLY the JSON array.`;
  *   (a) → deactivate d2, mark d1 conflict-resolved
  *   (b) → deactivate d1, mark d2 conflict-resolved
  *   (c) → merge: deactivate both, create new merged decision entry
- * Any response marks the message as read and removes conflict-pending tags.
+ * Any response marks the message as read and writes a resolution audit entry.
  */
 function registerConflictResolutionHandler(
   msgId: number,
   d1Id: number,
   d2Id: number,
   suggestion: string,
+  conflictType: ConflictType,
 ) {
   const handler = async (data: { taskId: string; content: string; messageId?: number }) => {
     if (data.messageId !== msgId) return;
@@ -377,18 +589,25 @@ function registerConflictResolutionHandler(
     const d2 = await db.kbLog.get(d2Id);
     if (!d1 || !d2) return;
 
+    // Union of both decisions' layers — resolutions must cascade to all levels involved
+    const cascadeLayers = [...new Set([...d1.layer, ...d2.layer])];
+
     if (content.startsWith('(a)') || content.startsWith('a)') || /^(a|choose d1|first)/.test(content)) {
-      // Choose D1: deactivate D2, resolve D1
+      // Choose D1: deactivate D2, resolve D1 with cascading layers
       await db.kbLog.update(d2Id, { active: false });
       await db.kbLog.update(d1Id, {
+        layer: cascadeLayers,
         tags: d1.tags.filter(t => t !== 'conflict-pending').concat('conflict-resolved'),
       });
+      await writeResolutionEntry(conflictType, 'user:pick-a', d1, d2, d1Id);
     } else if (content.startsWith('(b)') || content.startsWith('b)') || /^(b|choose d2|second)/.test(content)) {
-      // Choose D2: deactivate D1, resolve D2
+      // Choose D2: deactivate D1, resolve D2 with cascading layers
       await db.kbLog.update(d1Id, { active: false });
       await db.kbLog.update(d2Id, {
+        layer: cascadeLayers,
         tags: d2.tags.filter(t => t !== 'conflict-pending').concat('conflict-resolved'),
       });
+      await writeResolutionEntry(conflictType, 'user:pick-b', d1, d2, d2Id);
     } else {
       // Option (c) or any other response: merge both into a new decision
       const mergedText = content.replace(/^\(c\)\s*/i, '').trim() || suggestion;
@@ -408,13 +627,14 @@ function registerConflictResolutionHandler(
         text: `MERGED: ${mergedText}`,
         category: 'decision',
         abstraction: Math.max(d1.abstraction, d2.abstraction),
-        layer: [...new Set([...d1.layer, ...d2.layer])],
+        layer: cascadeLayers,
         tags: allTags,
         source: 'dream:session',
         supersedes: [d1Id, d2Id],
         active: true,
         project: d1.project || 'target',
       });
+      await writeResolutionEntry(conflictType, 'user:merge', d1, d2, undefined);
     }
 
     await db.messages.update(msgId, { status: 'read' });

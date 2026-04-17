@@ -2370,6 +2370,10 @@ describe('Phase 1f: Session Conflict Detection', () => {
 
     expect(d2!.active).toBe(false);
 
+    // Cascade: D1 should now have union of both layers
+    expect(d1!.layer).toContain('L0');
+    expect(d1!.layer).toContain('L1');
+
     // Message should be marked read
     const updatedMsg = await db.messages.get(alert!.id);
     expect(updatedMsg!.status).toBe('read');
@@ -2428,6 +2432,301 @@ describe('Phase 1f: Session Conflict Detection', () => {
     expect(merged!.tags).toContain('verified');
     expect(merged!.supersedes).toContain(d1Id);
     expect(merged!.supersedes).toContain(d2Id);
+
+    // Cascade: merged decision should have union of both layers
+    expect(merged!.layer).toContain('L0');
+    expect(merged!.layer).toContain('L1');
+  });
+});
+
+// ─── Evidence Scoring & Conflict Classification ─────────────────
+describe('Evidence Scoring & Conflict Classification', () => {
+  beforeEach(async () => {
+    await db.kbLog.clear();
+    await db.kbDocs.clear();
+    await db.tasks.clear();
+    await db.projectConfigs.clear();
+    await db.messages.clear();
+  });
+
+  it('guiding conflict — auto-resolves when higher has strong evidence, lower weak', async () => {
+    // Higher: verified, standing 6 days, supersedes 4 entries
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'All API calls through gateway', category: 'decision', abstraction: 7,
+      layer: ['L0', 'L1'], tags: ['api', 'verified'],
+      source: 'dream:session',
+      timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000,
+      supersedes: [100, 101, 102, 103],
+    }));
+    // Lower: fresh, unverified, no corroboration
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Call service directly', category: 'decision', abstraction: 4,
+      layer: ['L1'], tags: ['api', 'verified'],
+      source: 'dream:micro',
+      timestamp: Date.now(),
+    }));
+    // Seed an execution entry so the LLM has something to find
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'API routing', d1_choice: 'Gateway', d2_choice: 'Direct',
+      severity: 'ESCALATE', suggestion: 'Use gateway for external',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    // Guiding auto-resolve: higher should win, lower deactivated
+    const d1 = await db.kbLog.get(d1Id);
+    const d2 = await db.kbLog.get(d2Id);
+    expect(d1!.active).toBe(true);
+    expect(d1!.tags).toContain('conflict-resolved');
+    expect(d2!.active).toBe(false);
+
+    // Resolution audit entry should exist
+    const all = await db.kbLog.toArray();
+    const resolution = all.find(e => e.category === 'resolution');
+    expect(resolution).toBeDefined();
+    expect(resolution!.tags).toContain('type:guiding');
+    expect(resolution!.tags).toContain('method:auto');
+    expect(resolution!.text).toContain(`#${d1Id}`);
+    expect(resolution!.text).toContain(`#${d2Id}`);
+    expect(resolution!.active).toBe(true);
+  });
+
+  it('constitutional override — auto-resolves, constitution always wins', async () => {
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'No raw SQL queries', category: 'decision', abstraction: 7,
+      layer: ['L0', 'L1', 'L2'], tags: ['db', 'verified', 'constitution'],
+      source: 'user',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use raw SQL for performance', category: 'decision', abstraction: 4,
+      layer: ['L1'], tags: ['db', 'verified'],
+      source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'SQL usage', d1_choice: 'No raw SQL', d2_choice: 'Raw SQL for perf',
+      severity: 'ESCALATE', suggestion: 'Use ORM always',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    const d1 = await db.kbLog.get(d1Id);
+    const d2 = await db.kbLog.get(d2Id);
+    expect(d1!.active).toBe(true);
+    expect(d1!.tags).toContain('conflict-resolved');
+    expect(d2!.active).toBe(false);
+
+    const all = await db.kbLog.toArray();
+    const resolution = all.find(e => e.category === 'resolution');
+    expect(resolution!.tags).toContain('type:constitutional-override');
+    expect(resolution!.tags).toContain('method:auto');
+  });
+
+  it('self-correcting — escalates to user with recommendation when lower has execution evidence', async () => {
+    // Higher: session dream, moderate evidence
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use PostgreSQL for everything', category: 'decision', abstraction: 7,
+      layer: ['L0', 'L1'], tags: ['db', 'verified'],
+      source: 'dream:session',
+      timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000,
+    }));
+    // Lower: execution source, old, corroborated by tasks
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'PostgreSQL pool exhausted, use Redis cache', category: 'decision', abstraction: 3,
+      layer: ['L1'], tags: ['db', 'verified', 'task-1', 'task-2'],
+      source: 'execution',
+      timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000,
+      supersedes: [200, 201],
+    }));
+    // Add execution entries that corroborate d2
+    await db.kbLog.add(makeEntry({
+      text: 'Task 3 completed with Redis', category: 'observation', abstraction: 1,
+      tags: ['db', 'task-3'], source: 'execution',
+      timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000,
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Task 4 completed with Redis', category: 'observation', abstraction: 1,
+      tags: ['db', 'task-4'], source: 'execution',
+      timestamp: Date.now() - 1 * 24 * 60 * 60 * 1000,
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Task 5 completed with Redis', category: 'observation', abstraction: 1,
+      tags: ['db', 'task-5'], source: 'execution',
+      timestamp: Date.now() - 0.5 * 24 * 60 * 60 * 1000,
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'Data storage', d1_choice: 'PostgreSQL only', d2_choice: 'Redis cache layer',
+      severity: 'ESCALATE', suggestion: 'PostgreSQL + Redis cache',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    // Should have been escalated (not auto-resolved) — check for alert message
+    const messages = await db.messages.toArray();
+    const alert = messages.find(m => m.type === 'alert' && m.sender === 'dream:session');
+    expect(alert).toBeDefined();
+    // Self-correcting prompts include recommendation
+    expect(alert!.content).toContain('Recommendation');
+    // Both decisions should still be active (pending user choice)
+    const d1 = await db.kbLog.get(d1Id);
+    const d2 = await db.kbLog.get(d2Id);
+    expect(d1!.tags).toContain('conflict-pending');
+    expect(d2!.tags).toContain('conflict-pending');
+  });
+
+  it('doubtful — same level, neutral escalation', async () => {
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use REST', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: ['api', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use GraphQL', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: ['api', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'API style', d1_choice: 'REST', d2_choice: 'GraphQL',
+      severity: 'ESCALATE', suggestion: 'REST for external, GraphQL for internal',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    const messages = await db.messages.toArray();
+    const alert = messages.find(m => m.type === 'alert' && m.sender === 'dream:session');
+    expect(alert).toBeDefined();
+    // Doubtful prompts should NOT have recommendation
+    expect(alert!.content).not.toContain('Recommendation');
+  });
+
+  it('resolution audit entry is written on user resolution (pick)', async () => {
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use REST', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: ['api', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use GraphQL', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: ['api', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'API style', d1_choice: 'REST', d2_choice: 'GraphQL',
+      severity: 'ESCALATE', suggestion: 'REST for external',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    const messages = await db.messages.toArray();
+    const alert = messages.find(m => m.type === 'alert' && m.sender === 'dream:session');
+
+    // User picks (a)
+    eventBus.emit('user:reply', {
+      taskId: 'test',
+      content: '(a) REST is better',
+      messageId: alert!.id,
+    });
+    await new Promise(r => setTimeout(r, 50));
+
+    // Resolution audit entry
+    const all = await db.kbLog.toArray();
+    const resolution = all.find(e => e.category === 'resolution');
+    expect(resolution).toBeDefined();
+    expect(resolution!.tags).toContain('type:doubtful');
+    expect(resolution!.tags).toContain('method:user:pick-a');
+    expect(resolution!.tags).toContain(`winner:${d1Id}`);
+    expect(resolution!.text).toContain(`#${d1Id}`);
+    expect(resolution!.text).toContain(`#${d2Id}`);
+    expect(resolution!.text).toContain('evidence');
+    expect(resolution!.abstraction).toBe(5); // max(4,4) + 1
+    expect(resolution!.layer).toContain('L0');
+  });
+
+  it('resolution audit entry is written on user merge', async () => {
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use REST', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: ['api', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use GraphQL', category: 'decision', abstraction: 5,
+      layer: ['L0', 'L1'], tags: ['api', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'API style', d1_choice: 'REST', d2_choice: 'GraphQL',
+      severity: 'ESCALATE', suggestion: 'Hybrid approach',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    const messages = await db.messages.toArray();
+    const alert = messages.find(m => m.type === 'alert' && m.sender === 'dream:session');
+
+    // User merges
+    eventBus.emit('user:reply', {
+      taskId: 'test',
+      content: '(c) REST for public, GraphQL for internal',
+      messageId: alert!.id,
+    });
+    await new Promise(r => setTimeout(r, 50));
+
+    const all = await db.kbLog.toArray();
+    const resolution = all.find(e => e.category === 'resolution');
+    expect(resolution).toBeDefined();
+    expect(resolution!.tags).toContain('method:user:merge');
+    expect(resolution!.abstraction).toBe(6); // max(4,5) + 1
+    // No winner tag on merges
+    expect(resolution!.tags.find(t => t.startsWith('winner:'))).toBeUndefined();
   });
 });
 

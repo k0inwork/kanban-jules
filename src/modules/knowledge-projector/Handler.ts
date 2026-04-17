@@ -248,8 +248,9 @@ export class ProjectorHandler {
     });
 
     // L3/L2: operational needs concrete info — cap abstraction
+    // But conflict-resolved decisions bypass the cap: they are settled truths that must cascade
     if (layer === 'L2' || layer === 'L3') {
-      entries = entries.filter(e => e.abstraction <= 5);
+      entries = entries.filter(e => e.abstraction <= 5 || e.tags.includes('conflict-resolved'));
     }
 
     // Score by keyword relevance, then sort by score + recency

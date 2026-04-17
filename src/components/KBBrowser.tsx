@@ -15,6 +15,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   insight: 'text-blue-400 bg-blue-500/15',
   decision: 'text-amber-400 bg-amber-500/15',
   correction: 'text-rose-400 bg-rose-500/15',
+  resolution: 'text-emerald-400 bg-emerald-500/15',
 };
 
 export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
