@@ -41,17 +41,21 @@ func asyncFunc(fn func(this js.Value, args []js.Value) (any, error)) js.Func {
 // All methods return JS Promises because the underlying IDB operations are async
 // and must not block the JS event loop (Go WASM deadlock prevention).
 func RegisterFSBridge(cfg js.Value, ns *nsWrapper, vmID string) {
-	// resolvePath translates /home/* and /workspace/* -> vm/{vmID}/fsys/*
-	// so the agent sees the v86 root filesystem as its workspace.
+	// resolvePath: /home maps 1:1 to v86 /home, /workspace maps to v86 root (legacy).
 	resolvePath := func(p string) string {
-		for _, prefix := range []string{"/workspace/", "/home/"} {
-			bare := prefix[:len(prefix)-1]
-			if p == bare || p == prefix {
-				return fmt.Sprintf("vm/%s/fsys", vmID)
-			}
-			if len(p) > len(prefix) && p[:len(prefix)] == prefix {
-				return fmt.Sprintf("vm/%s/fsys/%s", vmID, p[len(prefix):])
-			}
+		// /workspace -> v86 root (legacy)
+		if p == "/workspace" || p == "/workspace/" {
+			return fmt.Sprintf("vm/%s/fsys", vmID)
+		}
+		if len(p) > len("/workspace/") && p[:len("/workspace/")] == "/workspace/" {
+			return fmt.Sprintf("vm/%s/fsys/%s", vmID, p[len("/workspace/"):])
+		}
+		// /home -> v86 /home (1:1)
+		if p == "/home" || p == "/home/" {
+			return fmt.Sprintf("vm/%s/fsys/home", vmID)
+		}
+		if len(p) > len("/home/") && p[:len("/home/")] == "/home/" {
+			return fmt.Sprintf("vm/%s/fsys/home/%s", vmID, p[len("/home/"):])
 		}
 		return p
 	}
