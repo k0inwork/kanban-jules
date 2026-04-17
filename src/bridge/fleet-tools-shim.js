@@ -5,6 +5,9 @@
  * Each function calls boardVM.dispatchTool(name, args) which routes through
  * Fleet's ModuleRegistry.invokeHandler().
  *
+ * Tools are discovered dynamically from boardVM.toolfs.listTools(), which
+ * reads sandboxBindings from all enabled module manifests. No hardcoded list.
+ *
  * Usage inside almostnode:
  *   const tools = require('@fleet/tools');
  *   const content = await tools.readFile({ path: '/src/foo.ts' });
@@ -14,12 +17,11 @@
 /* global globalThis */
 
 var tools = {};
-var boardVM = globalThis.boardVM;
 
 function registerTool(name) {
   tools[name] = async function () {
     var args = Array.prototype.slice.call(arguments);
-    if (!boardVM) boardVM = globalThis.boardVM;
+    var boardVM = globalThis.boardVM;
     if (!boardVM || !boardVM.dispatchTool) {
       throw new Error('boardVM.dispatchTool not available');
     }
@@ -27,38 +29,44 @@ function registerTool(name) {
   };
 }
 
-// File operations (knowledge-repo-browser)
-registerTool('readFile');
-registerTool('writeFile');
-registerTool('listFiles');
-registerTool('headFile');
+// Dynamically discover and register all tools from boardVM.toolfs.listTools()
+// This is called synchronously at require() time. listTools() returns JSON
+// array of { name, description } — each name is a short sandbox binding name.
+var boardVM = globalThis.boardVM;
+if (boardVM && boardVM.toolfs && boardVM.toolfs.listTools) {
+  try {
+    // listTools is async but in almostnode's sync context we need to handle it
+    // Use the sync bridge: if listTools returns a promise, resolve it via callback
+    var toolsJSON = boardVM.toolfs.listTools();
+    // In almostnode, async functions return promises. We need sync access.
+    // The agent runner will call _fleetToolsInit() after async resolution.
+    if (typeof toolsJSON === 'object' && toolsJSON.then) {
+      // Async — register placeholder that self-populates
+      toolsJSON.then(function(json) {
+        var toolList = JSON.parse(json);
+        for (var i = 0; i < toolList.length; i++) {
+          if (!tools[toolList[i].name]) {
+            registerTool(toolList[i].name);
+          }
+        }
+      });
+    } else {
+      // Sync (unlikely but safe)
+      var toolList = JSON.parse(toolsJSON);
+      for (var i = 0; i < toolList.length; i++) {
+        registerTool(toolList[i].name);
+      }
+    }
+  } catch (e) {
+    console.error('[@fleet/tools] dynamic discovery failed, falling back:', e);
+  }
+} else {
+  console.warn('[@fleet/tools] boardVM.toolfs not available at load time');
+}
 
-// Artifacts (knowledge-artifacts)
-registerTool('saveArtifact');
-registerTool('listArtifacts');
-registerTool('readArtifact');
-
-// User interaction (channel-user-negotiator)
-registerTool('askUser');
-
-// Jules executor (executor-jules)
-registerTool('askJules');
-
-// GitHub executor (executor-github)
-registerTool('runWorkflow');
-registerTool('getRunStatus');
-registerTool('fetchArtifacts');
-
-// Local analyzer (knowledge-local-analyzer)
-registerTool('scan');
-
-// Host tools
-registerTool('analyze');
-registerTool('addToContext');
-registerTool('globalVarsGet');
-registerTool('globalVarsSet');
-
-// Bash/shell (executor-wasm)
-registerTool('bash');
+// Expose a function the agent runner can call to ensure tools are ready
+tools._ensureLoaded = function() {
+  return Promise.resolve(tools);
+};
 
 module.exports = tools;

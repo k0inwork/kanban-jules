@@ -234,24 +234,30 @@ func main() {
 		fmt.Sprintf("export BOARD_MODE=%s", mode),
 		"export REPO_PATH=/repo",
 	}
-	// Terminal size from xterm.js (use minimum 80x24)
+	// Terminal size from xterm.js (minimum 80x24, default 120x40)
+	termCols, termRows := 120, 40
 	if !cfg.Get("termCols").IsUndefined() {
 		cols := cfg.Get("termCols").Int()
-		if cols < 80 {
-			cols = 80
+		if cols >= 80 {
+			termCols = cols
 		}
-		profile = append(profile, fmt.Sprintf("export COLUMNS=%d", cols))
 	}
 	if !cfg.Get("termRows").IsUndefined() {
 		rows := cfg.Get("termRows").Int()
-		if rows < 24 {
-			rows = 24
+		if rows >= 24 {
+			termRows = rows
 		}
-		profile = append(profile, fmt.Sprintf("export LINES=%d", rows))
 	}
+	profile = append(profile, fmt.Sprintf("export COLUMNS=%d", termCols))
+	profile = append(profile, fmt.Sprintf("export LINES=%d", termRows))
 	profile = append(profile, "")
 	if err := fs.WriteFile(root.Namespace(), "#env/etc/profile.d/board-vm.sh", []byte(strings.Join(profile, "\n")), 0644); err != nil {
 		log.Printf("warning: could not write board-vm.sh profile: %v", err)
+	}
+	// Also write /etc/term-size for init-terminal to read
+	termSize := fmt.Sprintf("cols=%d\nrows=%d\n", termCols, termRows)
+	if err := fs.WriteFile(root.Namespace(), "#env/etc/term-size", []byte(termSize), 0644); err != nil {
+		log.Printf("warning: could not write term-size: %v", err)
 	}
 
 	cmdline := []string{

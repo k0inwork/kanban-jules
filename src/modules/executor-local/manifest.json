@@ -27,6 +27,7 @@
     "writeFile": "knowledge-repo-browser.writeFile",
     "saveArtifact": "knowledge-artifacts.saveArtifact",
     "listArtifacts": "knowledge-artifacts.listArtifacts",
+    "readArtifact": "knowledge-artifacts.readArtifact",
     "askUser": "channel-user-negotiator.askUser",
     "sendUser": "channel-user-negotiator.sendUser",
     "KB_record": "knowledge-kb.recordEntry",

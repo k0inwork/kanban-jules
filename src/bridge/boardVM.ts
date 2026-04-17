@@ -22,28 +22,31 @@ import { eventBus } from '../core/event-bus';
 import { db } from '../services/db';
 import type { RequestContext } from '../core/types';
 
-// --- Tool name mapping: short agent names → qualified Fleet handler names ---
+// --- Tool name mapping: built dynamically from module sandboxBindings ---
 
-const TOOL_MAP: Record<string, string> = {
-  readFile:       'knowledge-repo-browser.readFile',
-  writeFile:      'knowledge-repo-browser.writeFile',
-  listFiles:      'knowledge-repo-browser.listFiles',
-  headFile:       'knowledge-repo-browser.headFile',
-  saveArtifact:   'knowledge-artifacts.saveArtifact',
-  listArtifacts:  'knowledge-artifacts.listArtifacts',
-  readArtifact:   'knowledge-artifacts.readArtifact',
-  askUser:        'channel-user-negotiator.askUser',
-  askJules:       'executor-jules.execute',
-  runWorkflow:    'executor-github.runWorkflow',
-  getRunStatus:   'executor-github.getRunStatus',
-  fetchArtifacts: 'executor-github.fetchArtifacts',
-  scan:           'knowledge-local-analyzer.scan',
-  analyze:        'host.analyze',
-  addToContext:   'host.addToContext',
-  globalVarsGet:  'host.agentContextGet',
-  globalVarsSet:  'host.agentContextSet',
-  bash:           'executor-wasm.execute',
-};
+/**
+ * Build a short-name → qualified-name mapping from all enabled modules' sandboxBindings.
+ * Modules declare sandboxBindings in their manifest.json, e.g.:
+ *   "sandboxBindings": { "askJules": "executor-jules.execute" }
+ * This is the single source of truth — no hardcoded TOOL_MAP needed.
+ */
+function buildSandboxBindingsMap(): Record<string, string> {
+  const map: Record<string, string> = {};
+  const modules = registry.getEnabled();
+  for (const mod of modules) {
+    if (mod.sandboxBindings) {
+      for (const [shortName, qualifiedName] of Object.entries(mod.sandboxBindings)) {
+        map[shortName] = qualifiedName;
+      }
+    }
+  }
+  return map;
+}
+
+function getQualifiedName(shortName: string): string {
+  const map = buildSandboxBindingsMap();
+  return map[shortName] || shortName;
+}
 
 // --- LLM call function (injected by host.init) ---
 
@@ -222,12 +225,16 @@ export const boardVM = {
   toolfs: {
     async listTools(): Promise<string> {
       const modules = registry.getEnabled();
+      const bindings = buildSandboxBindingsMap();
       const tools: Array<{ name: string; description: string }> = [];
+      // Only expose tools that have sandboxBindings (i.e. are agent-accessible)
+      const qualifiedNames = new Set(Object.values(bindings));
       for (const mod of modules) {
         if (mod.tools && Array.isArray(mod.tools)) {
           for (const tool of mod.tools) {
-            // Use short name for the agent
-            const shortName = Object.entries(TOOL_MAP).find(([, v]) => v === tool.name)?.[0] || tool.name;
+            if (!qualifiedNames.has(tool.name)) continue;
+            // Find the short name for this qualified tool name
+            const shortName = Object.entries(bindings).find(([, v]) => v === tool.name)?.[0] || tool.name;
             tools.push({ name: shortName, description: tool.description || '' });
           }
         }
@@ -236,7 +243,7 @@ export const boardVM = {
     },
 
     async callTool(name: string, paramsJSON: string): Promise<string> {
-      const qualifiedName = TOOL_MAP[name] || name;
+      const qualifiedName = getQualifiedName(name);
       try {
         const params = JSON.parse(paramsJSON || '{}');
         const context = makeContext();
@@ -250,7 +257,7 @@ export const boardVM = {
 
   // Shorthand tool dispatch
   async dispatchTool(name: string, args: any[]): Promise<any> {
-    const qualifiedName = TOOL_MAP[name] || name;
+    const qualifiedName = getQualifiedName(name);
     const context = makeContext();
     return registry.invokeHandler(qualifiedName, args, context);
   },

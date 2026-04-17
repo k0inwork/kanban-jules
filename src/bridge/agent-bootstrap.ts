@@ -18,6 +18,7 @@
 // Shim source files (imported as raw text for VFS injection)
 import openaiShimSource from './openai-shim.js?raw';
 import fleetToolsShimSource from './fleet-tools-shim.js?raw';
+import fsBridgeShimSource from './fs-bridge-shim.js?raw';
 
 // --- Types ---
 type AlmostNodeContainer = {
@@ -59,11 +60,48 @@ async function createAlmostnodeContainer(): Promise<AlmostNodeContainer> {
 // --- Install packages into VFS ---
 
 async function installPackages(c: AlmostNodeContainer): Promise<void> {
-  console.log('[yuan-bootstrap] installing @yuaone/core...');
-  await c.npm.install('@yuaone/core');
+  console.log('[yuan-bootstrap] installing @yuaone/core + @yuaone/tools from local bundle...');
 
-  // @yuaone/tools has native deps (node-pty, playwright) — skip for browser
-  // The agent will use Fleet tools via the @fleet/tools shim instead
+  // Instead of hitting npm registry, load pre-built bundles from public assets.
+  // The bundles are created by `npm run bundle:yuaone` which packs the dist/ files
+  // into self-contained JSON blobs that we write into VFS.
+  const bundleBase = '/assets/wasm/yuaone-bundles';
+
+  for (const [pkg, main] of [
+    ['@yuaone/core', 'dist/agent-loop.js, dist/llm-client.js, dist/types.js, dist/constants.js, dist/errors.js, dist/debug-logger.js, dist/index.js, dist/context-manager.js, dist/token-budget.js, dist/prompt-defense.js, dist/budget-governor.js, dist/cost-optimizer.js, dist/skill-loader.js, dist/vision-intent.js, dist/reasoning-aggregator.js, dist/reasoning-tree.js'],
+    ['@yuaone/tools', 'dist/index.js, dist/registry.js, dist/base-tool.js, dist/file-read.js, dist/file-write.js, dist/file-edit.js, dist/glob-tool.js, dist/grep-tool.js, dist/code-search.js, dist/web-search.js, dist/task-complete.js'],
+  ]) {
+    try {
+      const resp = await fetch(`${bundleBase}/${pkg.replace('/', '_')}.json`);
+      if (resp.ok) {
+        const files: Record<string, string> = await resp.json();
+        const dir = `/node_modules/${pkg}`;
+        c.vfs.mkdirSync(dir, { recursive: true });
+        c.vfs.mkdirSync(`${dir}/dist`, { recursive: true });
+        for (const [path, content] of Object.entries(files)) {
+          const fullPath = `${dir}/${path}`;
+          c.vfs.writeFileSync(fullPath, content);
+        }
+        // Write package.json
+        c.vfs.writeFileSync(`${dir}/package.json`, JSON.stringify({
+          name: pkg, version: '0.0.0-local', main: 'dist/index.js',
+        }));
+        console.log(`[yuan-bootstrap] ${pkg}: ${Object.keys(files).length} files from bundle`);
+        continue;
+      }
+    } catch (e: any) {
+      console.warn(`[yuan-bootstrap] bundle fetch failed for ${pkg}: ${e.message}, falling back to npm`);
+    }
+
+    // Fallback: try npm install (requires internet)
+    console.log(`[yuan-bootstrap] falling back to npm install for ${pkg}...`);
+    await c.npm.install(pkg);
+  }
+
+  // @yuaone/tools depends on child_process for shell_exec/bash/git_ops/test_run
+  // Those tools won't work in browser until v86 bridge is implemented,
+  // but file_read/file_write/file_edit/glob/grep/code_search/web_search/task_complete
+  // work fine with the VFS and don't need child_process.
   console.log('[yuan-bootstrap] packages installed');
 }
 
@@ -153,6 +191,68 @@ function injectShims(c: AlmostNodeContainer): void {
     main: 'index.js',
   }));
 
+  // node-pty shim — @yuaone/tools depends on it for PTY support, not available in browser
+  c.vfs.mkdirSync('/node_modules/node-pty', { recursive: true });
+  c.vfs.writeFileSync('/node_modules/node-pty/index.js', [
+    'module.exports = {',
+    '  spawn: function() { throw new Error("node-pty not available in browser"); },',
+    '};',
+  ].join('\n'));
+  c.vfs.writeFileSync('/node_modules/node-pty/package.json', JSON.stringify({
+    name: 'node-pty',
+    version: '0.0.0-shim',
+    main: 'index.js',
+  }));
+
+  // playwright shim — @yuaone/tools depends on it for browser automation, not available in browser sandbox
+  c.vfs.mkdirSync('/node_modules/playwright', { recursive: true });
+  c.vfs.writeFileSync('/node_modules/playwright/index.js', [
+    'module.exports = {',
+    '  chromium: { launch: async function() { throw new Error("playwright not available in browser"); } },',
+    '  firefox: { launch: async function() { throw new Error("playwright not available in browser"); } },',
+    '  webkit: { launch: async function() { throw new Error("playwright not available in browser"); } },',
+    '};',
+  ].join('\n'));
+  c.vfs.writeFileSync('/node_modules/playwright/package.json', JSON.stringify({
+    name: 'playwright',
+    version: '0.0.0-shim',
+    main: 'index.js',
+  }));
+
+  // fast-glob shim — @yuaone/tools imports it but we handle glob via our own shim
+  c.vfs.mkdirSync('/node_modules/fast-glob', { recursive: true });
+  c.vfs.writeFileSync('/node_modules/fast-glob/index.js', [
+    'function fg(p) { return Promise.resolve([]); }',
+    'fg.sync = function() { return []; };',
+    'fg.stream = function() { return { on: function() { return this; } }; };',
+    'module.exports = fg;',
+    'module.exports.default = fg;',
+  ].join('\n'));
+  c.vfs.writeFileSync('/node_modules/fast-glob/package.json', JSON.stringify({
+    name: 'fast-glob',
+    version: '0.0.0-shim',
+    main: 'index.js',
+  }));
+
+  // FS bridge shim: node:fs/promises and node:fs → boardVM.fsBridge (v86 filesystem)
+  // This makes Yuan file tools (file_read, file_write, file_edit, glob, grep) operate
+  // on the real v86 filesystem instead of almostnode's empty in-memory VFS.
+  c.vfs.mkdirSync('/node_modules/node:fs', { recursive: true });
+  c.vfs.writeFileSync('/node_modules/node:fs/promises.js', fsBridgeShimSource);
+  c.vfs.writeFileSync('/node_modules/node:fs/promises/package.json', JSON.stringify({
+    name: 'node:fs/promises',
+    version: '0.0.0-shim',
+    main: 'index.js',
+  }));
+  c.vfs.writeFileSync('/node_modules/node:fs/promises/index.js', fsBridgeShimSource);
+  // node:fs uses the same bridge (sync calls are rare in the tools)
+  c.vfs.writeFileSync('/node_modules/node:fs/index.js', fsBridgeShimSource);
+  c.vfs.writeFileSync('/node_modules/node:fs/package.json', JSON.stringify({
+    name: 'node:fs',
+    version: '0.0.0-shim',
+    main: 'index.js',
+  }));
+
   console.log('[yuan-bootstrap] shims injected');
 }
 
@@ -172,33 +272,78 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     };
 
     const { AgentLoop, BYOKClient } = require('@yuaone/core');
-    const fleetTools = require('@fleet/tools');
+    const { createDefaultRegistry } = require('@yuaone/tools');
 
-    // Build tool definitions from Fleet tools
-    const toolDefs = Object.keys(fleetTools).map(function(name) {
-      return {
-        name: name,
-        description: 'Fleet tool: ' + name,
-        parameters: { type: 'object', properties: {}, additionalProperties: true },
-      };
+    // Build Yuan built-in tool registry (file_read, file_write, file_edit, glob, grep, etc.)
+    var yuanRegistry = createDefaultRegistry();
+    var yuanDefsRaw = yuanRegistry.toDefinitions();
+    // Filter out any defs with undefined/missing function names
+    var yuanDefs = yuanDefsRaw.filter(function(d) {
+      return d && typeof d.name === 'string' && d.name.length > 0;
     });
+    var yuanToolNames = new Set(yuanDefs.map(function(d) { return d.name; }));
+    var yuanExecutor = yuanRegistry.toExecutor('/workspace');
+    console.log('[yuan-runner] Yuan built-in tools:', yuanToolNames.size, '(' + Array.from(yuanToolNames).join(', ') + ')');
 
-    // Tool executor that routes to Fleet via boardVM
+    // Fleet tool definitions from outside via globalThis._fleetToolDefs
+    // (built dynamically from registry sandboxBindings in initYuanAgent)
+    var fleetDefsRaw = globalThis._fleetToolDefs || [];
+    // Filter out any defs with undefined/missing function names
+    var fleetDefs = fleetDefsRaw.filter(function(d) {
+      return d && typeof d.name === 'string' && d.name.length > 0;
+    });
+    console.log('[yuan-runner] Fleet tools raw:', fleetDefsRaw.length, 'valid:', fleetDefs.length);
+
+    // Merge: Yuan defs first, then Fleet defs (skip duplicates by name)
+    var allDefs = yuanDefs.slice();
+    var seenNames = new Set(yuanToolNames);
+    for (var fi = 0; fi < fleetDefs.length; fi++) {
+      var fd = fleetDefs[fi];
+      var fn = fd.name;
+      if (!seenNames.has(fn)) {
+        allDefs.push(fd);
+        seenNames.add(fn);
+      }
+    }
+    console.log('[yuan-runner] total merged tools:', allDefs.length, 'names:', allDefs.map(function(d) { return d.name; }).join(', '));
+
+    // Pass all tool names to openai-shim so XML extraction only matches real tools
+    var openaiShim = require('/node_modules/openai/index.js');
+    if (openaiShim && openaiShim.setKnownToolNames) {
+      openaiShim.setKnownToolNames(allDefs.map(function(d) { return d.name; }));
+      console.log('[yuan-runner] passed tool names to openai-shim for dynamic XML extraction');
+    }
+
+    var boardVM = globalThis.boardVM;
+
+    // Combined tool executor: Yuan tools → registry, Fleet tools → boardVM.dispatchTool
+    // Handles both OpenAI tool_call format ({ function: { name, arguments } }) and flat format
     const toolExecutor = {
-      definitions: toolDefs,
+      definitions: allDefs,
       execute: async function(call) {
         var startTime = Date.now();
         try {
-          var args = typeof call.arguments === 'string' ? JSON.parse(call.arguments) : call.arguments;
-          var toolFn = fleetTools[call.name];
-          if (!toolFn) {
-            return { tool_call_id: call.id, name: call.name, output: 'Unknown tool: ' + call.name, success: false, durationMs: Date.now() - startTime };
+          var toolName = (call.function && call.function.name) || call.name;
+          var rawArgs = (call.function && call.function.arguments) || call.arguments;
+          var args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+
+          // Route Yuan built-in tools to the registry executor
+          if (yuanToolNames.has(toolName)) {
+            var flatCall = { id: call.id, name: toolName, arguments: args || {} };
+            var result = await yuanExecutor.execute(flatCall);
+            return result;
           }
-          var result = await toolFn(args);
-          var output = typeof result === 'string' ? result : JSON.stringify(result);
-          return { tool_call_id: call.id, name: call.name, output: output, success: true, durationMs: Date.now() - startTime };
+
+          // Route Fleet tools to boardVM.dispatchTool
+          if (!boardVM || !boardVM.dispatchTool) {
+            return { tool_call_id: call.id, name: toolName, output: 'Error: boardVM.dispatchTool not available', success: false, durationMs: Date.now() - startTime };
+          }
+          var fleetResult = await boardVM.dispatchTool(toolName, [args]);
+          var output = typeof fleetResult === 'string' ? fleetResult : JSON.stringify(fleetResult);
+          return { tool_call_id: call.id, name: toolName, output: output, success: true, durationMs: Date.now() - startTime };
         } catch (err) {
-          return { tool_call_id: call.id, name: call.name, output: 'Error: ' + err.message, success: false, durationMs: Date.now() - startTime };
+          var name2 = (call.function && call.function.name) || call.name || 'unknown';
+          return { tool_call_id: call.id, name: name2, output: 'Error: ' + err.message, success: false, durationMs: Date.now() - startTime };
         }
       }
     };
@@ -207,7 +352,71 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     globalThis._yuanAgent = null;
     globalThis._yuanReady = false;
 
+    // Build system prompt dynamically from Fleet tool definitions + Yuan built-in tools
+    function buildSystemPrompt(tools) {
+      var toolDescs = [];
+      for (var i = 0; i < tools.length; i++) {
+        var t = tools[i];
+        if (t && t.name) {
+          var params = '';
+          if (t.parameters && t.parameters.properties) {
+            params = Object.keys(t.parameters.properties).join(', ');
+          }
+          toolDescs.push('- ' + t.name + '(' + params + '): ' + (t.description || 'No description'));
+        }
+      }
+
+      var prompt = 'You are an autonomous coding agent running inside Fleet.\\n\\n';
+      prompt += 'You have THREE categories of tools available:\\n\\n';
+
+      prompt += '1. YUAN FILE TOOLS (read/write/search files in /workspace VFS):\\n';
+      prompt += '   - file_read(path, offset?, limit?) — read file with line numbers, 50KB limit\\n';
+      prompt += '   - file_write(path, content, createDirectories?) — write file, auto-mkdir, backs up before overwrite\\n';
+      prompt += '   - file_edit(path, old_string, new_string, replace_all?) — exact string replacement in file\\n';
+      prompt += '   - glob(pattern, path?, maxResults?) — find files matching glob pattern\\n';
+      prompt += '   - grep(pattern, path?, glob?, maxResults?, context?) — search file contents (ripgrep or fallback)\\n';
+      prompt += '   - code_search(query, mode?, language?) — symbol-based code search (definitions, references)\\n';
+      prompt += '   - security_scan(operation?, path?) — scan for security vulnerabilities\\n';
+      prompt += '   - web_search(operation, query?, url?) — search the web or fetch a URL\\n';
+      prompt += '   - parallel_web_search(queries) — multiple web searches in parallel\\n';
+      prompt += '   - task_complete(summary) — signal task is done, MUST call when finished\\n';
+      prompt += '   - spawn_sub_agent(prompt, model?) — spawn a sub-agent for a subtask\\n';
+      prompt += '\\n';
+
+      prompt += '2. YUAN SHELL TOOLS (NOT YET AVAILABLE — need v86 bridge):\\n';
+      prompt += '   - shell_exec(executable, args, cwd?, timeout?, env?, pty?) — execute command without shell\\n';
+      prompt += '   - bash(command, cwd?, timeout?, env?) — run bash shell command (pipes, redirects)\\n';
+      prompt += '   - git_ops(operation, message?, files?, count?, branch?) — git status/diff/log/add/commit/branch/stash/restore\\n';
+      prompt += '   - test_run(testPath?, framework?, coverage?) — run tests (Jest/Vitest/Pytest auto-detect)\\n';
+      prompt += '   These tools are NOT functional yet. Do NOT attempt to use them.\\n';
+      prompt += '\\n';
+
+      prompt += '3. FLEET TOOLS (control the kanban board and interact with external services):\\n';
+      if (toolDescs.length > 0) {
+        prompt += toolDescs.join('\\n') + '\\n';
+        prompt += '   These tools let you manage tasks on the kanban board, interact with the user,\\n';
+        prompt += '   delegate to external executors (Jules, GitHub Actions), and access artifacts.\\n';
+      } else {
+        prompt += '   (none registered)\\n';
+      }
+      prompt += '\\n';
+
+      prompt += 'Additionally, you have direct access to the Node.js fs module at /workspace:\\n';
+      prompt += '   var fs = require("fs"); // read/write files directly in VFS\\n\\n';
+
+      prompt += 'IMPORTANT RULES:\\n';
+      prompt += '- Only use tools listed above. Do NOT invent tools.\\n';
+      prompt += '- Do NOT use shell_exec, bash, git_ops, or test_run — they are not available yet.\\n';
+      prompt += '- For file operations, prefer file_read/file_write/file_edit over raw fs module.\\n';
+      prompt += '- Always call task_complete(summary) when you finish your task.\\n';
+      prompt += '- Think step by step. Use tools to gather information before making changes.\\n';
+      prompt += '- If a tool call fails, read the error and try a different approach.';
+      return prompt;
+    }
+
     globalThis._yuanCreateAgent = function(apiKey, provider, model) {
+      var systemPrompt = buildSystemPrompt(fleetDefs);
+      console.log('[yuan-runner] system prompt length:', systemPrompt.length, 'tools:', allDefs.length);
       var config = {
         byok: { provider: provider || 'openai', apiKey: apiKey || 'shim', model: model },
         loop: {
@@ -215,8 +424,8 @@ function createAgentRunner(c: AlmostNodeContainer): void {
           maxIterations: 25,
           maxTokensPerIteration: 4096,
           totalTokenBudget: 100000,
-          tools: toolDefs,
-          systemPrompt: 'You are an autonomous coding agent running inside Fleet. Use the available tools to help the user.',
+          tools: allDefs,
+          systemPrompt: systemPrompt,
           projectPath: '/workspace',
           indexing: false,
         },
@@ -229,7 +438,9 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       });
 
       agent.on('agent:thinking', function(ev) { console.log('[yuan] thinking:', ev.content); });
-      agent.on('agent:tool_call', function(ev) { console.log('[yuan] tool_call:', ev.tool); });
+      agent.on('agent:tool_call', function(ev) { console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200)); });
+      agent.on('agent:tool_result', function(ev) { console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200)); });
+      agent.on('agent:completed', function(ev) { console.log('[yuan] completed:', ev.summary); });
       agent.on('agent:error', function(ev) { console.error('[yuan] error:', ev.message); });
 
       globalThis._yuanAgent = agent;
@@ -251,7 +462,11 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     globalThis._lastLLMText = '';
     var _origSendRequest = globalThis.boardVM.llmfs.sendRequest;
     globalThis.boardVM.llmfs.sendRequest = async function(reqJSON) {
+      console.log('═══════ [yuan-runner] llmfs.sendRequest CALL ═══════');
+      console.log('request:', reqJSON);
       var resp = await _origSendRequest.call(globalThis.boardVM.llmfs, reqJSON);
+      console.log('═══════ [yuan-runner] llmfs.sendRequest RESPONSE ═══════');
+      console.log('response:', resp);
       try {
         var parsed = JSON.parse(resp);
         if (parsed.choices && parsed.choices[0] && parsed.choices[0].message) {
@@ -264,14 +479,34 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     // Callback-based runner for sync execute() bridge
     globalThis._yuanRunWithCallback = function(message, resolve, reject) {
       if (!globalThis._yuanAgent) { reject(new Error('Agent not initialized')); return; }
-      console.log('[yuan-runner] starting run for:', message);
+      // Clear context history so each message starts fresh (no accumulation)
+      try {
+        globalThis._yuanAgent.contextManager.clear();
+        // Re-add system prompt (clear() removes it, and run() doesn't re-add it)
+        globalThis._yuanAgent.contextManager.addMessage({
+          role: 'system',
+          content: globalThis._yuanAgent.config.loop.systemPrompt
+        });
+      } catch(e) { console.warn('[yuan-runner] contextManager.clear failed:', e); }
+      console.log('═══════ [yuan-runner] INCOMING MESSAGE ═══════');
+      console.log(message);
+      console.log('═══════ [yuan-runner] END INCOMING ═══════');
       globalThis._yuanAgent.run(message).then(function(result) {
-        console.log('[yuan-runner] run completed, result:', JSON.stringify(result).substring(0, 500));
+        console.log('═══════ [yuan-runner] RUN RESULT ═══════');
+        console.log('reason:', result && result.reason);
+        console.log('summary:', result && result.summary);
+        console.log('filesChanged:', JSON.stringify(result && result.filesChanged));
+        console.log('_lastLLMText:', globalThis._lastLLMText);
+        console.log('═══════ [yuan-runner] END RESULT ═══════');
         // Prefer the actual LLM content over generic summaries like "Task completed"
         var text = globalThis._lastLLMText || (result && result.summary) || '';
         resolve(text || 'completed');
       }).catch(function(err) {
-        console.error('[yuan-runner] run error:', err.message, err.stack);
+        console.error('═══════ [yuan-runner] RUN ERROR ═══════');
+        console.error('message:', err.message);
+        console.error('stack:', err.stack);
+        console.error('_lastLLMText:', globalThis._lastLLMText);
+        console.error('═══════ [yuan-runner] END ERROR ═══════');
         if (globalThis._lastLLMText) {
           resolve(globalThis._lastLLMText);
         } else {
@@ -315,6 +550,30 @@ export async function initYuanAgent(): Promise<void> {
 
   console.log('[yuan-bootstrap] creating agent runner...');
   createAgentRunner(container);
+
+  // Build tool definitions dynamically from boardVM.toolfs.listTools()
+  // (which reads sandboxBindings from all enabled module manifests).
+  // This must happen before the runner is executed since container.execute() is sync.
+  const bvm2 = getBoardVM();
+  let toolDefs: any[] = [];
+  if (bvm2?.toolfs?.listTools) {
+    try {
+      const toolsJSON = await bvm2.toolfs.listTools();
+      const toolList = JSON.parse(toolsJSON);
+      toolDefs = toolList.map((t: any) => ({
+        // Flat format — Yuan's toOpenAITool() wraps this into { type: "function", function: { ... } }
+        name: t.name,
+        description: t.description || `Fleet tool: ${t.name}`,
+        parameters: t.parameters || { type: 'object', properties: {}, required: [] },
+      }));
+      console.log(`[yuan-bootstrap] discovered ${toolDefs.length} tools from registry`);
+    } catch (e: any) {
+      console.error('[yuan-bootstrap] tool discovery failed:', e);
+    }
+  }
+
+  // Inject tool definitions into globalThis for the sync runner to pick up
+  (globalThis as any)._fleetToolDefs = toolDefs;
 
   console.log('[yuan-bootstrap] executing agent runner...');
   container.execute('require("/yuan-runner.js")');

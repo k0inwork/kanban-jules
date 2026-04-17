@@ -32,6 +32,8 @@ import MailboxView from './components/MailboxView';
 import ConstitutionEditor from './components/ConstitutionEditor';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
 import { TerminalPanel } from './modules/channel-wasm-terminal/TerminalPanel';
+import { BoardVMProvider } from './bridge/BoardVMContext';
+import YuanChatPanel from './bridge/YuanChatPanel';
 import PreviewPane from './components/PreviewPane';
 import { Artifact, db, AgentMessage } from './services/db';
 import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
@@ -42,6 +44,51 @@ import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
 import { parseTasksFromMessage } from './core/prompt';
+
+/** WorkspaceTabs — internal tabbed view for Yuan Chat + v86 Terminal */
+function WorkspaceTabs() {
+  const [activeTab, setActiveTab] = useState<'yuan' | 'terminal'>('yuan');
+  return (
+    <div className="flex flex-col h-full bg-neutral-950">
+      <div className="flex items-center border-b border-neutral-800 bg-neutral-900/50">
+        <button
+          onClick={() => setActiveTab('yuan')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors border-b-2',
+            activeTab === 'yuan'
+              ? 'text-purple-400 border-purple-400'
+              : 'text-neutral-400 border-transparent hover:text-white'
+          )}
+        >
+          Yuan Chat
+        </button>
+        <button
+          onClick={() => setActiveTab('terminal')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors border-b-2',
+            activeTab === 'terminal'
+              ? 'text-green-400 border-green-400'
+              : 'text-neutral-400 border-transparent hover:text-white'
+          )}
+        >
+          Terminal
+        </button>
+      </div>
+      <div className="flex-1 min-h-0 relative">
+        <div className="absolute inset-0" style={{ display: activeTab === 'yuan' ? 'flex' : 'none', flexDirection: 'column' }}>
+          <YuanChatPanel />
+        </div>
+        <div className="absolute inset-0" style={{ display: activeTab === 'terminal' ? 'flex' : 'none', flexDirection: 'column' }}>
+          <TerminalPanel
+            bundleUrl="/assets/wasm/sys.tar.gz"
+            wasmUrl="/assets/wasm/boot.wasm"
+            wanixUrl="/assets/wasm/wanix.min.js"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
@@ -716,6 +763,14 @@ export default function App() {
   };
 
   return (
+    <BoardVMProvider
+      apiProvider={apiProvider}
+      geminiApiKey={geminiApiKey}
+      geminiModel={geminiModel}
+      openaiUrl={openaiUrl}
+      openaiKey={openaiKey}
+      openaiModel={openaiModel}
+    >
     <div className="flex flex-col h-screen bg-neutral-950 text-neutral-100 font-sans overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-900/50">
@@ -793,26 +848,19 @@ export default function App() {
 
           <button
             onClick={() => {
-              if (activeTabId === 'terminal-vm') {
-                // Terminal is visible — switch away
-                const otherTabs = tabs.filter(t => t.type !== 'terminal');
-                if (otherTabs.length > 0) {
-                  setActiveTabId(otherTabs[otherTabs.length - 1].id);
-                } else {
-                  setIsViewingBoard(true);
-                  setActiveTabId(null);
-                }
+              if (activeTabId === 'workspace') {
+                setIsViewingBoard(true);
+                setActiveTabId(null);
               } else {
-                // Show terminal
                 setIsViewingBoard(false);
-                setActiveTabId('terminal-vm');
+                setActiveTabId('workspace');
               }
             }}
             className={cn(
               "p-2 rounded-md transition-colors",
-              activeTabId === 'terminal-vm' ? "text-green-400 bg-neutral-800" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              activeTabId === 'workspace' ? "text-purple-400 bg-neutral-800" : "text-neutral-400 hover:text-white hover:bg-neutral-800"
             )}
-            title="Toggle Terminal"
+            title="Yuan Chat & Terminal"
           >
             <Terminal className="w-5 h-5" />
           </button>
@@ -957,8 +1005,10 @@ export default function App() {
                   setActiveTabId(id);
                   setIsViewingBoard(false);
                 }
-              }} 
-              onTabClose={handleTabClose} 
+              }}
+              onTabClose={(id: string) => {
+                handleTabClose(id);
+              }}
               onShowBoard={() => setIsViewingBoard(true)}
             />
           )}
@@ -970,26 +1020,16 @@ export default function App() {
             />
           ) : (
             <div className="flex-1 min-h-0 relative">
-              {/* Terminal: always mounted, boots on app start. Overlays everything when active. */}
+              {/* Workspace: Yuan Chat + Terminal in a tabbed view */}
               <div
                 className="absolute inset-0"
                 style={{
-                  display: activeTabId === 'terminal-vm' ? 'flex' : 'none',
+                  display: activeTabId === 'workspace' ? 'flex' : 'none',
                   flexDirection: 'column',
                   zIndex: 10,
                 }}
               >
-                <TerminalPanel
-                  bundleUrl="/assets/wasm/sys.tar.gz"
-                  wasmUrl="/assets/wasm/boot.wasm"
-                  wanixUrl="/assets/wasm/wanix.min.js"
-                  apiProvider={apiProvider}
-                  geminiApiKey={geminiApiKey}
-                  geminiModel={geminiModel}
-                  openaiUrl={openaiUrl}
-                  openaiKey={openaiKey}
-                  openaiModel={openaiModel}
-                />
+                <WorkspaceTabs />
               </div>
               {/* Non-terminal content */}
               {tabs.length > 0 && !isViewingBoard ? (
@@ -1109,5 +1149,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </BoardVMProvider>
   );
 }

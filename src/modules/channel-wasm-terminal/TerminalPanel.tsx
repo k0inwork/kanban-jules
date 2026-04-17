@@ -1,6 +1,66 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-export const BUILD = 35;
+export const BUILD = 37;
+
+/**
+ * Early VM boot — starts fetching wanix.min.js and sys.tar.gz bundle
+ * immediately when this module is imported (before user clicks terminal tab).
+ * The actual WanixRuntime + VM boot happens in parallel with the rest of the app.
+ * When TerminalPanel mounts, it just waits for the pre-booted VM and connects xterm.
+ */
+let vmBootPromise: Promise<any> | null = null;
+const termSizeRef = { cols: 120, rows: 40 };
+
+function prebootVM(bundleUrl: string, wanixUrl: string, wasmUrl: string): Promise<any> {
+  if (vmBootPromise) return vmBootPromise;
+
+  vmBootPromise = (async () => {
+    console.log('[preboot] Starting early VM boot...');
+
+    // 1. Load WanixRuntime
+    const WanixRuntime = await loadWanixRuntime(wanixUrl);
+    if (!WanixRuntime) throw new Error('WanixRuntime not loaded');
+
+    // 2. Create runtime instance
+    const w = new WanixRuntime({
+      screen: false,
+      helpers: false,
+      debug9p: false,
+      wasm: null,
+      network: 'fetch',
+    });
+
+    // 3. Fetch bundle + WASM in parallel
+    const [bundleResp, wasmResp] = await Promise.all([
+      fetch(bundleUrl),
+      fetch(wasmUrl),
+    ]);
+    if (!bundleResp.ok) throw new Error(`Failed to fetch bundle: ${bundleResp.status}`);
+    if (!wasmResp.ok) throw new Error(`Failed to fetch WASM: ${wasmResp.status}`);
+
+    const [bundleData, wasmData] = await Promise.all([
+      bundleResp.arrayBuffer(),
+      wasmResp.arrayBuffer(),
+    ]);
+
+    w._bundle = bundleData;
+    w._getBundle = async () => undefined;
+
+    // 4. Load WASM (starts VM boot)
+    w._loadWasm(wasmData);
+
+    // 5. Wait for VM to be ready
+    await w.ready();
+    console.log('[preboot] VM ready');
+    return w;
+  })();
+
+  return vmBootPromise;
+}
+
+// Auto-preboot at module import time with static URLs.
+// The VM boots in parallel with React rendering.
+prebootVM('/assets/wasm/sys.tar.gz', '/assets/wasm/wanix.min.js', '/assets/wasm/boot.wasm');
 
 /**
  * TerminalPanel — xterm.js terminal connected to a Wanix VM.
@@ -54,40 +114,19 @@ interface TerminalPanelProps {
   bundleUrl: string;
   wasmUrl: string;
   wanixUrl: string;
-  /** LLM API settings */
-  apiProvider: string;
-  geminiApiKey: string;
-  geminiModel: string;
-  openaiUrl: string;
-  openaiKey: string;
-  openaiModel: string;
   /** Called when the terminal is ready for input */
   onReady?: () => void;
   /** Called when the terminal produces output */
   onOutput?: (data: string) => void;
 }
 
-export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, geminiApiKey, geminiModel, openaiUrl, openaiKey, openaiModel, onReady, onOutput }: TerminalPanelProps) {
+export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput }: TerminalPanelProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<any>(null);
   const xtermRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
   const [cmdInput, setCmdInput] = useState('');
   const [serialReady, setSerialReady] = useState(false);
-
-  // Refs to always read latest props inside closures created at mount time
-  const apiProviderRef = useRef(apiProvider);
-  const geminiApiKeyRef = useRef(geminiApiKey);
-  const geminiModelRef = useRef(geminiModel);
-  const openaiUrlRef = useRef(openaiUrl);
-  const openaiKeyRef = useRef(openaiKey);
-  const openaiModelRef = useRef(openaiModel);
-  apiProviderRef.current = apiProvider;
-  geminiApiKeyRef.current = geminiApiKey;
-  geminiModelRef.current = geminiModel;
-  openaiUrlRef.current = openaiUrl;
-  openaiKeyRef.current = openaiKey;
-  openaiModelRef.current = openaiModel;
 
   const sendCommand = useCallback((text: string) => {
     const fn = (window as any).__boardSend;
@@ -127,479 +166,114 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
     term.loadAddon(new WebLinksAddon());
     term.open(terminalRef.current);
     fitAddon.fit();
+
     xtermRef.current = term;
     (window).__xterm = term; // expose for testing
 
-    term.writeln(`\r\n\x1b[1;36m●\x1b[0m Starting terminal (v${BUILD})...\r\n`);
+    // Check if container is visible (has dimensions). When the terminal tab
+    // is hidden via display:none, xterm reports 0x0. In that case, skip the
+    // size wait and use defaults — the ResizeObserver in the resize handler
+    // will send the correct size when the tab becomes visible.
+    const containerVisible = terminalRef.current.offsetWidth > 0;
+    if (containerVisible) {
+      await new Promise<void>((resolve) => {
+        const tryFit = (): boolean => {
+          fitAddon.fit();
+          return term.cols >= 80 && term.rows >= 24;
+        };
+        if (tryFit()) { resolve(); return; }
+        const container = terminalRef.current;
+        if (!container) { resolve(); return; }
+        const observer = new ResizeObserver(() => {
+          if (tryFit()) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        observer.observe(container);
+      });
+    }
+    console.log(`[TerminalPanel] Starting terminal (v${BUILD}) cols=${term.cols} rows=${term.rows} visible=${containerVisible}...`);
 
     try {
-      // Load WanixRuntime — fetch the ESM module and eval it to extract the export
-      // Vite blocks import() for files in /public, so we fetch + eval instead
-      const WanixRuntime = await loadWanixRuntime(wanixUrl);
-
-      if (!WanixRuntime) {
-        term.writeln('\r\n[error: WanixRuntime not exported from wanix.min.js]\r\n');
-        return;
+      // Update boardVM with terminal dimensions for boot.wasm.
+      // The main boardVM object (llmfs, toolfs, yuan, etc.) is set up by
+      // BoardVMProvider — we only add/update the terminal-specific properties.
+      if (containerVisible) {
+        termSizeRef.cols = term.cols;
+        termSizeRef.rows = term.rows;
+      }
+      const bvm = (window as any).boardVM;
+      if (bvm) {
+        bvm.mode = 'terminal';
+        bvm.memoryMB = 1024;
+        Object.defineProperty(bvm, 'termCols', { get: () => termSizeRef.cols, configurable: true });
+        Object.defineProperty(bvm, 'termRows', { get: () => termSizeRef.rows, configurable: true });
       }
 
-      // Set up boardVM config for boot.wasm to read
-      (window as any).boardVM = {
-        mode: 'terminal',
-        memoryMB: 1024,
-        get termCols() { return term.cols; },
-        get termRows() { return term.rows; },
-        gitfs: {
-          getFile: (_path: string) => Promise.resolve(undefined),
-          listFiles: (_path: string) => Promise.resolve([]),
-        },
-        boardfs: {
-          listTasks: () => Promise.resolve([]),
-          getTask: (_id: string) => Promise.resolve(undefined),
-          updateTask: (_id: string, _data: any) => Promise.resolve(),
-          listArtifacts: () => Promise.resolve([]),
-          readArtifact: (_name: string) => Promise.resolve(''),
-          saveArtifact: (_name: string, _content: string) => Promise.resolve(),
-          invokeTool: (_tool: string, _args: any) => Promise.resolve(undefined),
-        },
-        llmfs: {
-          sendPrompt: async (prompt: string) => {
-            console.log('[llmfs] sendPrompt:', prompt);
-            try {
-              if (apiProviderRef.current === 'gemini') {
-                const { GoogleGenAI } = await import('@google/genai');
-                const ai = new GoogleGenAI({ apiKey: geminiApiKeyRef.current });
-                const response = await ai.models.generateContent({
-                  model: geminiModelRef.current,
-                  contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                });
-                return response.text || '';
-              } else {
-                const response = await fetch(`${openaiUrlRef.current}/chat/completions`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKeyRef.current}`,
-                  },
-                  body: JSON.stringify({
-                    model: openaiModelRef.current,
-                    messages: [{ role: 'user', content: prompt }],
-                    temperature: 0.1,
-                  }),
-                });
-                if (response.ok) {
-                  const data = await response.json();
-                  return data.choices[0].message.content || '';
-                } else {
-                  const error = await response.text();
-                  throw new Error(`OpenAI API error: ${error}`);
-                }
-              }
-            } catch (e: any) {
-              console.error('[llmfs] API error:', e);
-              return `ERROR: ${e.message}`;
-            }
-          },
-          sendRequest: async (reqJSON: string) => {
-            console.log('[llmfs] sendRequest:', reqJSON.substring(0, 200));
-            try {
-              const req = JSON.parse(reqJSON);
-              // Override the model name with the configured one
-              console.log('[llmfs] model:', req.model, '->', openaiModelRef.current, '| url:', openaiUrlRef.current, '| key:', openaiKeyRef.current ? 'set' : 'unset');
-              req.model = openaiModelRef.current;
-              if (apiProviderRef.current === 'gemini') {
-                // Convert OpenAI format to Gemini format
-                const { GoogleGenAI } = await import('@google/genai');
-                const ai = new GoogleGenAI({ apiKey: geminiApiKeyRef.current });
-                // Build Gemini contents from OpenAI messages
-                const contents: any[] = [];
-                for (const msg of req.messages || []) {
-                  if (msg.role === 'system') continue; // handle separately
-                  contents.push({
-                    role: msg.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }],
-                  });
-                }
-                // Convert OpenAI tools to Gemini tools
-                const geminiTools: any[] = [];
-                for (const tool of req.tools || []) {
-                  geminiTools.push({
-                    functionDeclarations: [{
-                      name: tool.function.name,
-                      description: tool.function.description,
-                      parameters: tool.function.parameters,
-                    }],
-                  });
-                }
-                const response = await ai.models.generateContent({
-                  model: geminiModelRef.current,
-                  contents,
-                  config: {
-                    systemInstruction: req.messages?.find((m: any) => m.role === 'system')?.content,
-                    tools: geminiTools.length > 0 ? geminiTools : undefined,
-                  },
-                });
-                // Convert Gemini response back to OpenAI format
-                const candidate = response.candidates?.[0];
-                const contentParts: any[] = [];
-                const toolCalls: any[] = [];
-                if (candidate?.content?.parts) {
-                  let toolIdx = 0;
-                  for (const part of candidate.content.parts) {
-                    if (part.text) {
-                      contentParts.push({ type: 'text', text: part.text });
-                    } else if (part.functionCall) {
-                      toolCalls.push({
-                        id: `call_${toolIdx}`,
-                        type: 'function',
-                        function: {
-                          name: part.functionCall.name,
-                          arguments: JSON.stringify(part.functionCall.args),
-                        },
-                      });
-                      toolIdx++;
-                    }
-                  }
-                }
-                const openaiResp: any = {
-                  id: `chatcmpl-${Date.now()}`,
-                  object: 'chat.completion',
-                  choices: [{
-                    index: 0,
-                    message: {
-                      role: 'assistant',
-                      content: contentParts.map((p: any) => p.text).filter(Boolean).join('') || null,
-                      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-                    },
-                    finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
-                  }],
-                  usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-                };
-                return JSON.stringify(openaiResp);
-              } else {
-                // OpenAI-compatible: pass through directly
-                console.log('[llmfs] POST', openaiUrlRef.current + '/chat/completions', 'model:', req.model);
-                const response = await fetch(`${openaiUrlRef.current}/chat/completions`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKeyRef.current}`,
-                  },
-                  body: JSON.stringify(req),
-                });
-                console.log('[llmfs] response status:', response.status, response.statusText);
-                if (response.ok) {
-                  const data = await response.json();
-                  console.log('[llmfs] response data:', JSON.stringify(data).substring(0, 300));
-                  return JSON.stringify(data);
-                } else {
-                  const error = await response.text();
-                  console.error('[llmfs] API error response:', error);
-                  throw new Error(`OpenAI API error: ${error}`);
-                }
-              }
-            } catch (e: any) {
-              console.error('[llmfs] sendRequest error:', e);
-              return JSON.stringify({ error: { message: e.message } });
-            }
-          },
-        },
-        dispatchTool: async (name: string, args: any[]): Promise<any> => {
-          console.log('[boardVM.dispatchTool]', name, args);
-          const resultJSON = await (window as any).boardVM.toolfs.callTool(name, JSON.stringify(args[0] || {}));
-          const parsed = JSON.parse(resultJSON);
-          if (parsed.error) throw new Error(parsed.error);
-          return parsed.content;
-        },
-        toolfs: {
-          listTools: async () => {
-            return JSON.stringify([
-              // Board tools
-              { name: 'list_tasks', description: 'List all kanban board tasks with their status', params: {} },
-              { name: 'get_task', description: 'Get full task details including description, status, steps, and analysis', params: { task_id: { type: 'string', description: 'Task ID', required: true } } },
-              { name: 'update_task', description: 'Update task fields (workflowStatus, agentState, description, etc.)', params: { task_id: { type: 'string', description: 'Task ID', required: true }, updates: { type: 'object', description: 'Fields to update', required: true } } },
-              { name: 'get_task_logs', description: 'Download task execution logs from all modules (executor, negotiator, orchestrator)', params: { task_id: { type: 'string', description: 'Task ID', required: true } } },
-              { name: 'get_jules_activities', description: 'Download Jules session activity log for a task (plans, steps, outputs, errors)', params: { task_id: { type: 'string', description: 'Task ID', required: true } } },
-              { name: 'list_artifacts', description: 'List all artifacts', params: {} },
-              { name: 'read_artifact', description: 'Read artifact content by name', params: { name: { type: 'string', description: 'Artifact name', required: true } } },
-              { name: 'save_artifact', description: 'Save or create an artifact', params: { name: { type: 'string', description: 'Artifact name', required: true }, content: { type: 'string', description: 'Artifact content', required: true } } },
-              // Git/file tools
-              { name: 'git_get_file', description: 'Read a file from the git repository', params: { path: { type: 'string', description: 'File path in repo', required: true } } },
-              { name: 'git_list_files', description: 'List files in a git repository directory', params: { path: { type: 'string', description: 'Directory path (use "" for root)', required: false } } },
-            ]);
-          },
-          callTool: async (name: string, paramsJSON: string) => {
-            console.log('[toolfs] callTool:', name, paramsJSON.substring(0, 200));
-            const params = JSON.parse(paramsJSON);
-            try {
-              const { db } = await import('../../services/db');
-
-              switch (name) {
-                // --- Board tools ---
-                case 'list_tasks': {
-                  const tasks = await db.tasks.toArray();
-                  return JSON.stringify({ content: JSON.stringify(tasks.map(t => ({
-                    id: t.id, title: t.title, workflowStatus: t.workflowStatus,
-                    agentState: t.agentState, createdAt: t.createdAt,
-                    description: t.description?.substring(0, 200),
-                  }))), error: '' });
-                }
-                case 'get_task': {
-                  const task = await db.tasks.get(params.task_id);
-                  if (!task) return JSON.stringify({ content: '', error: `Task ${params.task_id} not found` });
-                  return JSON.stringify({ content: JSON.stringify(task), error: '' });
-                }
-                case 'update_task': {
-                  await db.tasks.update(params.task_id, params.updates);
-                  return JSON.stringify({ content: `Task ${params.task_id} updated`, error: '' });
-                }
-                case 'get_task_logs': {
-                  const task = await db.tasks.get(params.task_id);
-                  if (!task) return JSON.stringify({ content: '', error: `Task ${params.task_id} not found` });
-                  const logs = task.moduleLogs || {};
-                  return JSON.stringify({ content: JSON.stringify({ taskId: task.id, title: task.title, status: task.workflowStatus, agentState: task.agentState, logs }), error: '' });
-                }
-                case 'get_jules_activities': {
-                  const task = await db.tasks.get(params.task_id);
-                  if (!task) return JSON.stringify({ content: '', error: `Task ${params.task_id} not found` });
-                  const session = await db.julesSessions.where('taskId').equals(params.task_id).first();
-                  if (!session) return JSON.stringify({ content: JSON.stringify({ info: 'No Jules session for this task' }), error: '' });
-                  const activities: any[] = [];
-                  try {
-                    const moduleConfigs = JSON.parse(localStorage.getItem('moduleConfigs') || '{}');
-                    const julesApiKey = moduleConfigs['executor-jules']?.julesApiKey;
-                    if (julesApiKey) {
-                      const { julesApi } = await import('../../lib/julesApi');
-                      const resp = await julesApi.listActivities(julesApiKey, session.name, 50);
-                      for (const act of resp.activities || []) {
-                        activities.push({
-                          name: act.name, originator: act.originator,
-                          description: act.description, createTime: act.createTime,
-                          planGenerated: act.planGenerated ? { steps: act.planGenerated.plan.steps.map((s: any) => s.title) } : undefined,
-                          agentMessaged: act.agentMessaged?.agentMessage,
-                          sessionFailed: act.sessionFailed?.reason,
-                          bashOutput: act.artifacts?.find((a: any) => a.bashOutput)?.bashOutput,
-                        });
-                      }
-                    }
-                  } catch (e: any) {
-                    console.warn('[toolfs] Jules activity fetch failed:', e);
-                  }
-                  return JSON.stringify({ content: JSON.stringify({ session: { id: session.id, name: session.name, title: session.title, status: session.status }, activities }), error: '' });
-                }
-                case 'list_artifacts': {
-                  const artifacts = await db.taskArtifacts.toArray();
-                  return JSON.stringify({ content: JSON.stringify(artifacts.map(a => ({ id: a.id, name: a.name, taskId: a.taskId, type: a.type }))), error: '' });
-                }
-                case 'read_artifact': {
-                  const artifact = await db.taskArtifacts.where('name').equals(params.name).first();
-                  if (!artifact) return JSON.stringify({ content: '', error: `Artifact ${params.name} not found` });
-                  return JSON.stringify({ content: artifact.content, error: '' });
-                }
-                case 'save_artifact': {
-                  await db.taskArtifacts.add({ name: params.name, content: params.content, taskId: '', repoName: '', branchName: '' });
-                  return JSON.stringify({ content: `Artifact ${params.name} saved`, error: '' });
-                }
-
-                // --- Git tools (use existing boardVM.gitfs which has credentials) ---
-                case 'git_get_file': {
-                  const gitfs = (window as any).boardVM?.gitfs;
-                  if (!gitfs) return JSON.stringify({ content: '', error: 'GitFS not available' });
-                  const content = await gitfs.getFile(params.path);
-                  if (!content) return JSON.stringify({ content: '', error: `File ${params.path} not found` });
-                  return JSON.stringify({ content: typeof content === 'string' ? content : JSON.stringify(content), error: '' });
-                }
-                case 'git_list_files': {
-                  const gitfs = (window as any).boardVM?.gitfs;
-                  if (!gitfs) return JSON.stringify({ content: '', error: 'GitFS not available' });
-                  const files = await gitfs.listFiles(params.path || '');
-                  return JSON.stringify({ content: JSON.stringify(files), error: '' });
-                }
-
-                default:
-                  return JSON.stringify({ content: '', error: `Unknown tool: ${name}` });
-              }
-            } catch (e: any) {
-              console.error('[toolfs] callTool error:', e);
-              return JSON.stringify({ content: '', error: e.message });
-            }
-          },
-        },
-      };
-
-      // Yuan agent bridge — wired to session pipes for chat with session-mux
-      (window as any).boardVM.yuan = {
-        _status: 'not initialized' as string,
-        init: async () => {
-          console.log('[yuan] init called');
-          (window as any).boardVM.yuan._status = 'idle';
-        },
-        send: async (msg: string): Promise<string> => {
-          console.log('[yuan] send:', msg?.substring(0, 200));
-          return '[yuan bridge: use session pipes]';
-        },
-        status: () => (window as any).boardVM?.yuan?._status || 'not configured',
-      };
-
-      // Initialize the real Yuan agent (almostnode + @yuaone/core) in background.
-      // Don't await — npm install can be slow and we don't want to block VM startup.
-      import(
-        /* @vite-ignore */
-        '../../bridge/agent-bootstrap'
-      ).then(async ({ initYuanAgent, registerYuanWithBoardVM }) => {
-        await initYuanAgent();
-        registerYuanWithBoardVM();
-        term.writeln('\r\n\x1b[1;32m●\x1b[0m Yuan agent ready.\r\n');
-        console.log('[TerminalPanel] Yuan agent initialized successfully');
-      }).catch((e: any) => {
-        console.error('[TerminalPanel] Yuan agent init failed:', e);
-        term.writeln(`\r\n\x1b[1;31m●\x1b[0m Yuan agent failed: ${e.message}\r\n`);
-      });
-
-      // Create Wanix runtime instance (no screen, no helpers)
-      const w = new WanixRuntime({
-        screen: false,
-        helpers: false,
-        debug9p: false,
-        wasm: null,
-        network: 'fetch',
-      });
+      // Await preboot (runtime + bundle + WASM) — starts if not already running
+      const w = await prebootVM(bundleUrl, wanixUrl, wasmUrl);
       runtimeRef.current = w;
+      console.log('[TerminalPanel] VM preboot complete, connecting console...');
+      onReady?.();
 
-      // Load the sys.tar.gz bundle
-      const bundleResp = await fetch(bundleUrl);
-      if (!bundleResp.ok) throw new Error(`Failed to fetch bundle: ${bundleResp.status}`);
-      const bundleData = await bundleResp.arrayBuffer();
-      w._bundle = bundleData;
-      w._getBundle = async () => undefined;
+      // Connect serial console
+      try {
+        await w.waitFor('#console/data', 60000);
+        console.log('[TerminalPanel] Console connected');
 
-      // Wait for WASM ready, then connect serial to xterm
-      w.ready().then(async () => {
-        term.writeln('\r\n\x1b[1;36m●\x1b[0m VM ready, connecting console...\r\n');
-        onReady?.();
+        const readFd = await w.open('#console/data');
+        console.log('[TerminalPanel] read fd:', readFd);
 
-        try {
-          // Wait for the v86 VM to boot and serial to be available.
-          await w.waitFor('#console/data', 60000);
-          term.writeln('\x1b[1;32m●\x1b[0m Connected.\r\n');
+        const decoder = new TextDecoder();
 
-          // --- Console output: read from #console/data (pipe Port 1) ---
-          const readFd = await w.open('#console/data');
-          console.log('[TerminalPanel] read fd:', readFd);
-
-          const decoder = new TextDecoder();
-
-          (async () => {
-            try {
-              for (;;) {
-                const chunk: Uint8Array | null = await w.read(readFd, 4096);
-                if (chunk === null) {
-                  term.writeln('\r\n[console EOF]\r\n');
-                  break;
-                }
-                if (chunk.length > 0) {
-                  const text = decoder.decode(chunk, { stream: true });
-                  term.write(text);
-                  onOutput?.(text);
-                }
+        (async () => {
+          try {
+            for (;;) {
+              const chunk: Uint8Array | null = await w.read(readFd, 4096);
+              if (chunk === null) {
+                term.writeln('\r\n[console EOF]\r\n');
+                break;
               }
-            } catch (e: any) {
-              console.error('[TerminalPanel] console read error:', e);
-              term.writeln(`\r\n[console read error: ${e.message}]\r\n`);
-            }
-          })();
-
-          // Mark ready
-          (runtimeRef.current as any)._serialReady = true;
-          // Expose send function on window so GUI input bar can call it
-          (window as any).__boardSend = (text: string) => {
-            const encoded = new TextEncoder().encode(text + '\r');
-            return w.appendFile('#console/data', encoded).catch((e: any) => {
-              console.error('[TerminalPanel] send error:', e);
-            });
-          };
-          // Raw keystroke send (no \r) for interactive typing
-          (window as any).__boardSendRaw = (data: Uint8Array) => {
-            return w.appendFile('#console/data', data).catch((e: any) => {
-              console.error('[TerminalPanel] sendRaw error:', e);
-            });
-          };
-          setSerialReady(true);
-
-          // --- Session pipe bridge: read mux→JS messages, respond via LLM ---
-          (async () => {
-            try {
-              await w.waitFor('#sessions/0/in', 30000);
-              console.log('[session-bridge] session pipes available');
-
-              // JS uses "in" (Port1) O_RDWR: reads buffer1 (mux writes), writes buffer2 (mux reads)
-              // Mux uses "out" (Port2) O_RDWR: writes buffer1, reads buffer2
-              const fd = await w.open('#sessions/0/in');
-              console.log('[session-bridge] opened in fd:', fd);
-              const decoder = new TextDecoder();
-              let buf = '';
-
-              for (;;) {
-                const chunk: Uint8Array | null = await w.read(fd, 4096);
-                if (chunk === null || chunk.length === 0) continue;
-                buf += decoder.decode(chunk, { stream: true });
-                const lines = buf.split('\n');
-                buf = lines.pop() || '';
-                for (const line of lines) {
-                  if (!line.trim()) continue;
-                  try {
-                    const msg = JSON.parse(line);
-                    console.log('[session-bridge] msg:', msg);
-                    if (msg.type === 'chat' && msg.text) {
-                      (window as any).boardVM.yuan._status = 'running';
-                      (async () => {
-                        try {
-                          const yuan = (window as any).boardVM?.yuan;
-                          console.log('[session-bridge] calling Yuan agent, yuan:', !!yuan?.send);
-                          const response = await yuan?.send?.(msg.text) || '[Yuan not configured]';
-                          console.log('[session-bridge] LLM response:', response?.substring(0, 100));
-                          const reply = JSON.stringify({ type: 'chat', text: response }) + '\n';
-                          console.log('[session-bridge] writing reply to response');
-                          try {
-                            const rfd = await w.open('#sessions/0/response');
-                            await w.write(rfd, new TextEncoder().encode(reply));
-                            await w.close(rfd);
-                          } catch(e2: any) {
-                            console.log('[session-bridge] fallback to in:', e2.message);
-                            await w.appendFile('#sessions/0/in', new TextEncoder().encode(reply));
-                          }
-                          console.log('[session-bridge] reply written');
-                        } catch (e: any) {
-                          console.error('[session-bridge] LLM error:', e);
-                          const errReply = JSON.stringify({ type: 'chat', text: `[error: ${e.message}]` }) + '\n';
-                          try {
-                            const efd = await w.open('#sessions/0/response');
-                            await w.write(efd, new TextEncoder().encode(errReply));
-                            await w.close(efd);
-                          } catch(e3) {
-                            await w.appendFile('#sessions/0/in', new TextEncoder().encode(errReply));
-                          }
-                        }
-                        (window as any).boardVM.yuan._status = 'idle';
-                      })();
-                    }
-                  } catch { /* not JSON */ }
-                }
+              if (chunk.length > 0) {
+                const text = decoder.decode(chunk, { stream: true });
+                term.write(text);
+                onOutput?.(text);
               }
-            } catch (e: any) {
-              console.error('[session-bridge] error:', e);
             }
-          })();
-        } catch (serialErr: any) {
-          console.error('[TerminalPanel] console setup error:', serialErr);
-          term.writeln(`\r\n[console setup error: ${serialErr.message}]\r\n`);
+          } catch (e: any) {
+            console.error('[TerminalPanel] console read error:', e);
+            term.writeln(`\r\n[console read error: ${e.message}]\r\n`);
+          }
+        })();
+
+        // Expose send functions
+        (runtimeRef.current as any)._serialReady = true;
+        (window as any).__boardSend = (text: string) => {
+          const encoded = new TextEncoder().encode(text + '\r');
+          return w.appendFile('#console/data', encoded).catch((e: any) => {
+            console.error('[TerminalPanel] send error:', e);
+          });
+        };
+        (window as any).__boardSendRaw = (data: Uint8Array) => {
+          return w.appendFile('#console/data', data).catch((e: any) => {
+            console.error('[TerminalPanel] sendRaw error:', e);
+          });
+        };
+        setSerialReady(true);
+
+        // Send initial resize to sync xterm dimensions with VM
+        // Only when container is visible — otherwise the ResizeObserver
+        // handles it when the terminal tab is shown.
+        if (containerVisible && term.cols >= 80 && term.rows >= 24) {
+          const initSeq = `\x1b[8;${term.rows};${term.cols}t`;
+          (window as any).__boardSendRaw(new TextEncoder().encode(initSeq));
+          console.log(`[TerminalPanel] sent initial resize: ${term.cols}x${term.rows}`);
         }
-      });
-
-      // Load and boot the WASM
-      const wasmResp = await fetch(wasmUrl);
-      if (!wasmResp.ok) throw new Error(`Failed to fetch WASM: ${wasmResp.status}`);
-      const wasmData = await wasmResp.arrayBuffer();
-      w._loadWasm(wasmData);
+      } catch (serialErr: any) {
+        console.error('[TerminalPanel] console setup error:', serialErr);
+        term.writeln(`\r\n[console setup error: ${serialErr.message}]\r\n`);
+      }
 
       // xterm keystrokes → VM console pipe (via __boardSendRaw)
       term.onData((data: string) => {
@@ -612,18 +286,29 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, apiProvider, gemin
       term.writeln(`\r\n[error: ${err.message || err}]\r\n`);
     }
 
-    // Resize handling
-    const onResize = () => fitAddon.fit();
-    window.addEventListener('resize', onResize);
+    // Resize handling: fit xterm AND propagate to VM's VT emulator
+    const sendResizeToVM = () => {
+      const fn = (window as any).__boardSendRaw;
+      if (!fn) return;
+      // Send CSI 8;rows;cols t — session-mux intercepts this
+      const seq = `\x1b[8;${term.rows};${term.cols}t`;
+      fn(new TextEncoder().encode(seq));
+    };
+
+    const handleResize = () => {
+      try { fitAddon.fit(); } catch {}
+      sendResizeToVM();
+    };
+    window.addEventListener('resize', handleResize);
 
     // Refit when the container becomes visible (e.g. tab switch)
     const resizeObserver = new ResizeObserver(() => {
-      try { fitAddon.fit(); } catch {}
+      handleResize();
     });
     if (terminalRef.current) {
       resizeObserver.observe(terminalRef.current);
     }
-  }, [bundleUrl, wasmUrl, wanixUrl, apiProvider, geminiApiKey, geminiModel, openaiUrl, openaiKey, openaiModel, onReady, onOutput]);
+  }, [bundleUrl, wasmUrl, wanixUrl, onReady, onOutput]);
 
   useEffect(() => {
     initTerminal();

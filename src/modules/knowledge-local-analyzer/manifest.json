@@ -20,6 +20,9 @@
       }
     }
   ],
+  "sandboxBindings": {
+    "scan": "knowledge-local-analyzer.scan"
+  },
   "permissions": ["storage"],
   "enabled": true
 }
