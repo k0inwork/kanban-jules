@@ -13,8 +13,14 @@ interface CommitData {
 }
 
 /**
- * Initialize commit harvest listener.
- * Call once at app startup with HostConfig + llmCall.
+ * Decision harvest — event-driven listener.
+ *
+ * Two paths, same event:
+ *   executor-jules  → fetch GitHub commits → extract decisions
+ *   executor-local  → read moduleLogs     → extract decisions
+ *
+ * No explicit recordDecision() calls needed in agent code.
+ * The dreamer analyzes traces in a separate LLM context focused on decisions.
  */
 export function initCommitHarvest(
   config: HostConfig,
@@ -33,38 +39,51 @@ export function destroyCommitHarvest() {
 
 async function handleExecutorCompleted(data: { taskId: string; executor: string; sessionName?: string; startedAt?: number }) {
   if (!_config || !_llmCall) return;
-  if (data.executor !== 'executor-jules') return;
 
   try {
     const task = await db.tasks.get(data.taskId);
     if (!task) return;
 
-    const commits = await fetchCommitsFromGitHub(task.id, data.startedAt || task.createdAt);
-    if (commits.length === 0) return;
+    let extracted: KBEntry[] = [];
 
-    const extracted = await extractDecisionsFromCommits(task.id, task.title, task.description, commits);
+    if (data.executor === 'executor-jules') {
+      const commits = await fetchCommitsFromGitHub(data.startedAt || task.createdAt);
+      if (commits.length > 0) {
+        extracted = await extractFromCommits(task.id, task.title, task.description, commits);
+      }
+    } else if (data.executor === 'executor-local') {
+      const logs = task.moduleLogs || {};
+      const logText = Object.entries(logs).map(([mod, text]) => `--- ${mod} ---\n${text}`).join('\n\n');
+      if (logText.length > 50) {
+        extracted = await extractFromLogs(task.id, task.title, task.description, logText);
+      }
+    }
+
     for (const decision of extracted) {
       await db.kbLog.add(decision);
     }
 
-    eventBus.emit('module:log', {
-      taskId: data.taskId,
-      moduleId: 'dream:commit-harvest',
-      message: `Extracted ${extracted.length} decisions from ${commits.length} commits`,
-    });
+    if (extracted.length > 0) {
+      eventBus.emit('module:log', {
+        taskId: data.taskId,
+        moduleId: 'dream:decision-harvest',
+        message: `Extracted ${extracted.length} decisions from ${data.executor}`,
+      });
+    }
   } catch (e: any) {
-    console.error(`[commit-harvest] Error processing executor:completed for task ${data.taskId}:`, e);
+    console.error(`[decision-harvest] Error for task ${data.taskId}:`, e);
   }
 }
 
+// --- Jules path: GitHub commits ---
+
 function parseRepoUrl(repoUrl: string): [string, string] {
-  // https://github.com/owner/repo → ['owner', 'repo']
   const match = repoUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
   if (!match) throw new Error(`Cannot parse repo URL: ${repoUrl}`);
   return [match[1], match[2]];
 }
 
-async function fetchCommitsFromGitHub(_taskId: string, startedAt: number): Promise<CommitData[]> {
+async function fetchCommitsFromGitHub(startedAt: number): Promise<CommitData[]> {
   if (!_config?.githubToken || !_config?.repoUrl) return [];
 
   const [owner, repo] = parseRepoUrl(_config.repoUrl);
@@ -81,7 +100,7 @@ async function fetchCommitsFromGitHub(_taskId: string, startedAt: number): Promi
   });
 
   if (!resp.ok) {
-    console.error(`[commit-harvest] GitHub API error: ${resp.status}`);
+    console.error(`[decision-harvest] GitHub API error: ${resp.status}`);
     return [];
   }
 
@@ -101,7 +120,7 @@ async function fetchCommitsFromGitHub(_taskId: string, startedAt: number): Promi
         sha: c.sha,
         message: c.commit.message,
         author: c.commit.author?.name || 'unknown',
-        patch: patch.substring(0, 4000), // cap patch size for LLM context
+        patch: patch.substring(0, 4000),
       });
     } catch {
       // Skip individual commit fetch failures
@@ -111,7 +130,7 @@ async function fetchCommitsFromGitHub(_taskId: string, startedAt: number): Promi
   return results;
 }
 
-async function extractDecisionsFromCommits(
+async function extractFromCommits(
   taskId: string,
   taskTitle: string,
   taskDescription: string,
@@ -123,13 +142,38 @@ async function extractDecisionsFromCommits(
     `--- Commit ${c.sha.slice(0, 8)} by ${c.author} ---\n${c.message}\n\nDiff:\n${c.patch.substring(0, 2000)}`
   ).join('\n\n');
 
-  const prompt = `Analyze these git commits from an external coding agent (Jules) and extract NON-OBVIOUS architectural decisions.
+  const prompt = buildExtractionPrompt(taskTitle, taskDescription, commitTexts, 'external coding agent (Jules) via its git commits');
+
+  return runExtraction(prompt, taskId, 'external-agent');
+}
+
+// --- Local executor path: moduleLogs ---
+
+async function extractFromLogs(
+  taskId: string,
+  taskTitle: string,
+  taskDescription: string,
+  logText: string
+): Promise<KBEntry[]> {
+  if (!_llmCall) return [];
+
+  // Cap log text to avoid blowing up LLM context
+  const cappedLog = logText.substring(0, 8000);
+  const prompt = buildExtractionPrompt(taskTitle, taskDescription, cappedLog, 'local coding agent (Yuan) via its execution logs');
+
+  return runExtraction(prompt, taskId, 'internal-agent');
+}
+
+// --- Shared extraction logic ---
+
+function buildExtractionPrompt(taskTitle: string, taskDescription: string, sourceText: string, sourceLabel: string): string {
+  return `Analyze the output from an ${sourceLabel} and extract NON-OBVIOUS architectural decisions.
 
 Task: ${taskTitle}
 ${taskDescription || ''}
 
-Commits:
-${commitTexts}
+Output:
+${sourceText}
 
 A decision must have: what was chosen + why (or a clear choice between alternatives).
 Do NOT extract: style choices, following existing patterns, default values, obvious implementations, typo fixes.
@@ -146,6 +190,10 @@ Classification tags must be one of: architectural, api, dependency, pattern, loc
 If no decisions found, output: []
 
 Output ONLY the JSON array, no other text.`;
+}
+
+async function runExtraction(prompt: string, taskId: string, agentTag: string): Promise<KBEntry[]> {
+  if (!_llmCall) return [];
 
   try {
     const response = await _llmCall(prompt, true);
@@ -163,13 +211,13 @@ Output ONLY the JSON array, no other text.`;
         category: 'decision' as const,
         abstraction: 4,
         layer: ['L0', 'L1'] as string[],
-        tags: [...(d.tags || []), taskId, 'external-agent'],
+        tags: [...(d.tags || []), taskId, agentTag],
         source: 'dream:micro',
         active: true,
         project: 'target' as const,
       }));
   } catch (e) {
-    console.error('[commit-harvest] LLM extraction error:', e);
+    console.error('[decision-harvest] LLM extraction error:', e);
     return [];
   }
 }

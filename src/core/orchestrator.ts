@@ -442,6 +442,13 @@ export class Orchestrator {
             task.project
           );
           await this.moduleRequest(task.id, 'process-dream.microDream', [{ taskId: task.id }]);
+
+          // Emit event for decision harvest (dream engine extracts decisions from moduleLogs)
+          eventBus.emit('executor:completed', {
+            taskId: task.id,
+            executor: 'executor-local',
+            startedAt: task.createdAt,
+          });
         } catch {
           // KB recording / dream failure must not affect task status
         }

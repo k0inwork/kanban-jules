@@ -125,43 +125,38 @@ The two agent types use **completely separate mechanisms**. No runtime branching
 
 | | External (Jules) | Internal (Yuan) |
 |---|---|---|
-| **How decisions enter KB** | Event → dream engine extracts from GitHub commits | Agent calls `recordDecision()` during execution |
-| **When** | After session COMPLETED, event-driven | During execution, inline |
-| **Dream involvement** | Dream engine fetches + extracts + stores | Dream only verifies + classifies later |
-| **Event** | `executor:completed` from JulesPostman | No event — decisions already in KB |
+| **How decisions enter KB** | Event → dream engine fetches GitHub commits → extracts | Event → dream engine reads moduleLogs → extracts |
+| **When** | After session COMPLETED, event-driven | After task DONE, event-driven |
+| **Dream involvement** | Dream engine extracts in dedicated decision-analysis context | Same — separate LLM context focused on decisions |
+| **Event** | `executor:completed` from JulesPostman | `executor:completed` from Orchestrator |
+| **Source** | GitHub commits (messages + patches) | moduleLogs (architect, orchestrator, etc.) |
 
-### 2.4 External Path: Event → GitHub Commits → KB
+### 2.4 Both Paths: Event → Extract → KB
 
-JulesPostman already polls and detects session completion. Add one emit:
-
-```
-JulesPostman.poll():
-  ...
-  if (currentSession.state === 'COMPLETED') {
-    → emit eventBus.emit('executor:completed', {
-        taskId: task.id,
-        executor: 'executor-jules',
-        sessionName: session.name,
-        startedAt: task.createdAt
-      })
-  }
-```
-
-Dream engine listens:
+Both paths fire `executor:completed`. The decision harvest listener handles both:
 
 ```
-eventBus.on('executor:completed', async ({ taskId, executor, sessionName, startedAt }) => {
-  // Only external executors fire this event — no branching check needed
+eventBus.on('executor:completed', async ({ taskId, executor, startedAt }) => {
   const task = await db.tasks.get(taskId);
-  const commits = await fetchCommitsFromGitHub(task, startedAt);
-  if (commits.length === 0) return;
 
-  const extracted = await extractDecisionsFromCommits(task, commits);
-  // extracted → KB entries, source: 'dream:micro', category: 'decision'
+  if (executor === 'executor-jules') {
+    // External: fetch commits from GitHub API
+    const commits = await fetchCommitsFromGitHub(startedAt);
+    extracted = await extractFromCommits(task, commits);
+  } else if (executor === 'executor-local') {
+    // Internal: read moduleLogs from DB
+    const logs = task.moduleLogs; // architect, orchestrator, etc.
+    extracted = await extractFromLogs(task, logs);
+  }
+
+  // Same extraction LLM prompt, same KB schema
+  for (const decision of extracted) {
+    await db.kbLog.add(decision);
+  }
 });
 ```
 
-The local executor path has **no event**. Yuan calls `recordDecision()` during execution. Decisions land in KB via the existing tool binding. When micro dream runs its regular consolidation cycle, it picks up these entries and classifies them.
+No `recordDecision()` in agent code. The dreamer analyzes traces in a **separate LLM context** focused on decision extraction — different from the agent's coding context.
 
 ### 2.5 GitHub API for Commit Fetching
 
@@ -492,22 +487,15 @@ interface Task {
 
 ## 6. Implementation Phases
 
-### Phase 1a: Agent Declaration Rule (Internal — code path, no events)
+### Phase 1a: Unified Decision Harvest Listener (both agent types)
 
-- [ ] Add decision declaration rule to Yuan system prompt in `agent-bootstrap.ts`
-- [ ] Wire `knowledge-kb.recordDecision` as callable tool in sandbox bindings
-- [ ] Agent records decisions during execution (source: 'agent')
-- [ ] No event needed — decisions land in KB directly via tool call
-
-### Phase 1b: Event-Driven Commit Harvest (External — Jules fires event)
-
-- [ ] Add `executor:completed` event emission to JulesPostman (on session COMPLETED)
-- [ ] Dream engine listens on `executor:completed` event
-- [ ] Implement `fetchCommitsFromGitHub()` using existing `githubToken` + `repoUrl`
-- [ ] LLM extracts decisions from GitHub commit messages + patches
-- [ ] Filter: only non-obvious choices with alternatives
-- [ ] Extracted entries: source `dream:micro`, same schema as declared entries
-- [ ] No branching logic — only external executors fire this event
+- [x] Add `executor:completed` event emission to JulesPostman (on session COMPLETED)
+- [x] Add `executor:completed` event emission to Orchestrator (on local task DONE)
+- [x] Dream engine listens on `executor:completed` event
+- [x] Jules path: fetch commits from GitHub API, extract decisions
+- [x] Local path: read moduleLogs from DB, extract decisions
+- [x] Shared extraction prompt + KB schema (source: `dream:micro`)
+- [x] No `recordDecision()` in agent code — dreamer analyzes traces separately
 
 ### Phase 1c: Task Branching (Conditional)
 
