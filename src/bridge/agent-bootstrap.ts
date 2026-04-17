@@ -518,9 +518,14 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       return resp;
     };
 
-    // Callback-based runner for sync execute() bridge
-    globalThis._yuanRunWithCallback = function(message, resolve, reject) {
-      if (!globalThis._yuanAgent) { reject(new Error('Agent not initialized')); return; }
+    // Callback-based runner: result goes through boardVM.yuan._onResult since
+    // globalThis is not shared between browser and almostnode worker.
+    globalThis._yuanRunWithCallback = function(message) {
+      if (!globalThis._yuanAgent) {
+        var cb = globalThis.boardVM && globalThis.boardVM.yuan;
+        if (cb && cb._onError) cb._onError(new Error('Agent not initialized'));
+        return;
+      }
       // Clear context history so each message starts fresh (no accumulation)
       try {
         globalThis._yuanAgent.contextManager.clear();
@@ -542,17 +547,19 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         console.log('═══════ [yuan-runner] END RESULT ═══════');
         // Prefer the actual LLM content over generic summaries like "Task completed"
         var text = globalThis._lastLLMText || (result && result.summary) || '';
-        resolve(text || 'completed');
+        var cb = globalThis.boardVM && globalThis.boardVM.yuan;
+        if (cb && cb._onResult) cb._onResult(text || 'completed');
       }).catch(function(err) {
         console.error('═══════ [yuan-runner] RUN ERROR ═══════');
         console.error('message:', err.message);
         console.error('stack:', err.stack);
         console.error('_lastLLMText:', globalThis._lastLLMText);
         console.error('═══════ [yuan-runner] END ERROR ═══════');
+        var cb2 = globalThis.boardVM && globalThis.boardVM.yuan;
         if (globalThis._lastLLMText) {
-          resolve(globalThis._lastLLMText);
+          if (cb2 && cb2._onResult) cb2._onResult(globalThis._lastLLMText);
         } else {
-          resolve('error: ' + (err.message || String(err)));
+          if (cb2 && cb2._onError) cb2._onError(err);
         }
       });
     };
@@ -640,16 +647,18 @@ export async function sendToYuanAgent(message: string): Promise<string> {
   const bvm = getBoardVM();
   if (bvm?.yuan) bvm.yuan._status = 'running';
   try {
-    // Use callback bridge: pass resolve/reject into almostnode's sync execute
-    // so the async agent.run() can call back when done
+    // Use boardVM.yuan callback bridge — the worker can't access browser's globalThis,
+    // but it CAN access boardVM (which is injected into the worker by almostnode).
     const result = await new Promise<string>((resolve, reject) => {
-      // Expose the resolve/reject on globalThis so the runner can call them
-      (globalThis as any).__yuanResolve = resolve;
-      (globalThis as any).__yuanReject = reject;
+      const bvm = getBoardVM();
+      if (!bvm?.yuan) { reject(new Error('boardVM.yuan not available')); return; }
+
+      bvm.yuan._onResult = (text: string) => { resolve(text); };
+      bvm.yuan._onError = (err: any) => { reject(err); };
 
       const escapedMsg = JSON.stringify(message);
       container!.execute(
-        `globalThis._yuanRunWithCallback(${escapedMsg}, globalThis.__yuanResolve, globalThis.__yuanReject)`
+        `globalThis._yuanRunWithCallback(${escapedMsg})`
       );
     });
 
