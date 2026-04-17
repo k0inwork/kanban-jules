@@ -433,7 +433,7 @@ export class Orchestrator {
         agentId: 'local-agent'
       });
 
-      // KB hook: record outcome + trigger microDream on task completion
+      // KB hook: record outcome + trigger decision harvest then microDream
       if (status === 'DONE' && this.config) {
         try {
           await KBHandler.recordExecution(
@@ -441,14 +441,16 @@ export class Orchestrator {
             [task.id],
             task.project
           );
-          await this.moduleRequest(task.id, 'process-dream.microDream', [{ taskId: task.id }]);
 
-          // Emit event for decision harvest (dream engine extracts decisions from moduleLogs)
+          // Emit event for decision harvest FIRST so commit-harvest writes decisions
+          // to DB before microDream's verifyDecisions runs
           eventBus.emit('executor:completed', {
             taskId: task.id,
             executor: 'executor-local',
             startedAt: task.createdAt,
           });
+
+          await this.moduleRequest(task.id, 'process-dream.microDream', [{ taskId: task.id }]);
         } catch {
           // KB recording / dream failure must not affect task status
         }

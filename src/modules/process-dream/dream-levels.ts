@@ -5,6 +5,14 @@ import { eventBus } from '../../core/event-bus';
 import { KBHandler } from '../knowledge-kb/Handler';
 
 export async function microDream(taskId: string, context: RequestContext): Promise<string> {
+  // Idempotency guard: skip consolidation if already ran for this task
+  const existingConsolidation = await db.kbLog
+    .filter(e => e.active && e.source === 'dream:micro' && e.category === 'insight' && e.tags.includes(taskId))
+    .count();
+  if (existingConsolidation > 0) {
+    return `Micro-dream: already consolidated for task ${taskId}, skipping.`;
+  }
+
   // Gather raw entries for this task
   let entries = await db.kbLog.filter(e => e.active).toArray();
   entries = entries.filter(e => e.tags.includes(taskId) && e.abstraction <= 2);
@@ -142,10 +150,18 @@ Output ONLY the JSON array.`;
 }
 
 export async function sessionDream(context: RequestContext): Promise<string> {
-  // Phase 1: Gather
+  // Idempotency guard: skip if session dream already ran (has active session-level insights)
+  const existingSessionInsights = await db.kbLog
+    .filter(e => e.active && e.source === 'dream:session' && e.category === 'insight')
+    .count();
+  if (existingSessionInsights > 0) {
+    return 'Session-dream: already ran this session, skipping.';
+  }
+
+  // Phase 1: Gather — only raw observations + decisions, not consolidation output
   let entries = await db.kbLog.filter(e => e.active).toArray();
   entries = entries.filter(e =>
-    e.source === 'execution' || e.source === 'dream:micro'
+    e.source === 'execution' || (e.source === 'dream:micro' && e.category !== 'insight')
   );
 
   const docs = await db.kbDocs.filter(d => d.active).toArray();
@@ -217,7 +233,7 @@ export async function sessionDream(context: RequestContext): Promise<string> {
   // to analyze and potentially reclassify. Once reflection runs (Phase 3 in the
   // full proposal), errors that get reclassified move to project='self'.
   const superseded = entries.filter(e =>
-    e.id && (e.category !== 'error')
+    e.id && e.category !== 'error' && e.category !== 'decision'
   );
   if (superseded.length > 0) {
     await db.kbLog.bulkPut(
@@ -242,9 +258,9 @@ export async function sessionDream(context: RequestContext): Promise<string> {
  * Returns number of conflicts escalated.
  */
 async function detectConflicts(context: RequestContext): Promise<number> {
-  // Gather all verified active decisions
+  // Gather verified active decisions that are NOT already pending conflict resolution
   const decisions = await db.kbLog
-    .filter(e => e.active && e.category === 'decision' && e.tags.includes('verified'))
+    .filter(e => e.active && e.category === 'decision' && e.tags.includes('verified') && !e.tags.includes('conflict-pending'))
     .toArray();
 
   if (decisions.length < 2) return 0;
@@ -292,13 +308,17 @@ Output ONLY the JSON array.`;
     const escalateConflicts = parsed.filter((c: any) => c.severity === 'ESCALATE');
     if (escalateConflicts.length === 0) return 0;
 
-    // Create escalation AgentMessages
+    // Create escalation AgentMessages + tag conflicting decisions as pending
     for (const conflict of escalateConflicts) {
       const d1 = decisions.find(d => d.id === conflict.id1);
       const d2 = decisions.find(d => d.id === conflict.id2);
       if (!d1 || !d2) continue;
 
-      await db.messages.add({
+      // Tag both decisions as conflict-pending to prevent re-escalation
+      await db.kbLog.update(d1.id, { tags: [...d1.tags, 'conflict-pending'] });
+      await db.kbLog.update(d2.id, { tags: [...d2.tags, 'conflict-pending'] });
+
+      const msgId = await db.messages.add({
         sender: 'dream:session',
         type: 'alert',
         content: `Conflict between decisions:\n\nD${d1.id}: ${conflict.d1_choice}\nD${d2.id}: ${conflict.d2_choice}\n\nConcern: ${conflict.concern}\n\nOptions:\n(a) Choose D${d1.id}\n(b) Choose D${d2.id}\n(c) Both are right — describe the merged rule\n\nSuggested: (c) ${conflict.suggestion}`,
@@ -318,17 +338,88 @@ Output ONLY the JSON array.`;
         category: 'decision',
         abstraction: 7,
         layer: ['L0', 'L1'],
-        tags: ['conflict', ...(d1.tags.filter(t => t !== 'verified')), ...(d2.tags.filter(t => t !== 'verified'))],
+        tags: ['conflict', ...(d1.tags.filter(t => t !== 'verified' && t !== 'conflict-pending')), ...(d2.tags.filter(t => t !== 'verified' && t !== 'conflict-pending'))],
         source: 'dream:session',
         active: true,
         project: 'target',
       });
+
+      // Listen for user resolution
+      registerConflictResolutionHandler(msgId, d1.id, d2.id, conflict.suggestion);
     }
 
     return escalateConflicts.length;
   } catch {
     return 0;
   }
+}
+
+/**
+ * Register a one-shot user:reply handler for conflict resolution.
+ * On user response:
+ *   (a) → deactivate d2, mark d1 conflict-resolved
+ *   (b) → deactivate d1, mark d2 conflict-resolved
+ *   (c) → merge: deactivate both, create new merged decision entry
+ * Any response marks the message as read and removes conflict-pending tags.
+ */
+function registerConflictResolutionHandler(
+  msgId: number,
+  d1Id: number,
+  d2Id: number,
+  suggestion: string,
+) {
+  const handler = async (data: { taskId: string; content: string; messageId?: number }) => {
+    if (data.messageId !== msgId) return;
+    eventBus.off('user:reply', handler);
+
+    const content = data.content.trim().toLowerCase();
+    const d1 = await db.kbLog.get(d1Id);
+    const d2 = await db.kbLog.get(d2Id);
+    if (!d1 || !d2) return;
+
+    if (content.startsWith('(a)') || content.startsWith('a)') || /^(a|choose d1|first)/.test(content)) {
+      // Choose D1: deactivate D2, resolve D1
+      await db.kbLog.update(d2Id, { active: false });
+      await db.kbLog.update(d1Id, {
+        tags: d1.tags.filter(t => t !== 'conflict-pending').concat('conflict-resolved'),
+      });
+    } else if (content.startsWith('(b)') || content.startsWith('b)') || /^(b|choose d2|second)/.test(content)) {
+      // Choose D2: deactivate D1, resolve D2
+      await db.kbLog.update(d1Id, { active: false });
+      await db.kbLog.update(d2Id, {
+        tags: d2.tags.filter(t => t !== 'conflict-pending').concat('conflict-resolved'),
+      });
+    } else {
+      // Option (c) or any other response: merge both into a new decision
+      const mergedText = content.replace(/^\(c\)\s*/i, '').trim() || suggestion;
+      const allTags = [...new Set([
+        ...d1.tags.filter(t => !['conflict-pending', 'verified'].includes(t)),
+        ...d2.tags.filter(t => !['conflict-pending', 'verified'].includes(t)),
+        'conflict-resolved', 'verified',
+      ])];
+
+      await db.kbLog.bulkPut([
+        { ...d1, active: false },
+        { ...d2, active: false },
+      ]);
+
+      await db.kbLog.add({
+        timestamp: Date.now(),
+        text: `MERGED: ${mergedText}`,
+        category: 'decision',
+        abstraction: Math.max(d1.abstraction, d2.abstraction),
+        layer: [...new Set([...d1.layer, ...d2.layer])],
+        tags: allTags,
+        source: 'dream:session',
+        supersedes: [d1Id, d2Id],
+        active: true,
+        project: d1.project || 'target',
+      });
+    }
+
+    await db.messages.update(msgId, { status: 'read' });
+  };
+  eventBus.on('user:reply', handler);
 }
 
 export async function deepDream(context: RequestContext): Promise<string> {

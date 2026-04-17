@@ -11,6 +11,7 @@ import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
 import { FixedKBSource } from '../modules/process-dream/external-kb';
 import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
+import { microDream } from '../modules/process-dream/dream-levels';
 import { eventBus } from '../core/event-bus';
 
 // Helper: build a KBEntry
@@ -572,16 +573,22 @@ describe('DreamHandler', () => {
     // Should complete without throwing
   });
 
-  it('sessionDream deactivates superseded entries (execution + micro-dream inputs)', async () => {
-    // Seed execution and micro-dream entries
+  it('sessionDream deactivates superseded entries but preserves decisions and micro-dream insights', async () => {
+    // Seed execution observations
     for (let i = 0; i < 3; i++) {
       await db.kbLog.add(makeEntry({
         text: `Execution obs ${i}`, category: 'observation', abstraction: 2,
         source: 'execution', tags: ['task-1'],
       }));
     }
+    // Micro-dream consolidation output (insight) — should survive (BUG 1 fix)
     await db.kbLog.add(makeEntry({
       text: 'Micro summary', category: 'insight', abstraction: 5,
+      source: 'dream:micro', tags: ['task-1'],
+    }));
+    // Micro-dream harvested decision — should survive (BUG 2 fix)
+    await db.kbLog.add(makeEntry({
+      text: 'A harvested decision', category: 'decision', abstraction: 4,
       source: 'dream:micro', tags: ['task-1'],
     }));
 
@@ -592,14 +599,19 @@ describe('DreamHandler', () => {
     const ctx = mockContext(mockJson);
     await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
 
-    // Original observation entries should be deactivated
     const all = await db.kbLog.toArray();
+
+    // Execution observations should be deactivated
     const execObs = all.filter(e => e.source === 'execution' && e.category === 'observation');
     expect(execObs.every(e => !e.active)).toBe(true);
 
-    // Micro-dream entries should be deactivated
-    const micro = all.filter(e => e.source === 'dream:micro');
-    expect(micro.every(e => !e.active)).toBe(true);
+    // Micro-dream insight (consolidation output) should survive — not gathered by sessionDream
+    const microInsights = all.filter(e => e.source === 'dream:micro' && e.category === 'insight');
+    expect(microInsights.every(e => e.active)).toBe(true);
+
+    // Micro-dream decisions should survive Phase 4b (BUG 2 fix)
+    const microDecisions = all.filter(e => e.source === 'dream:micro' && e.category === 'decision');
+    expect(microDecisions.every(e => e.active)).toBe(true);
 
     // Session-dream insights should be active
     const session = all.filter(e => e.source === 'dream:session');
@@ -628,6 +640,54 @@ describe('DreamHandler', () => {
     const errors = all.filter(e => e.category === 'error');
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.every(e => e.active)).toBe(true);
+  });
+
+  it('microDream idempotency — skips if consolidation already exists', async () => {
+    // Seed a micro-dream insight (consolidation output) for this task
+    await db.kbLog.add(makeEntry({
+      text: 'Existing consolidation', category: 'insight', abstraction: 5,
+      source: 'dream:micro', tags: ['task-1'],
+    }));
+    // Seed raw entries that would normally be consolidated
+    for (let i = 0; i < 5; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Raw ${i}`, category: 'observation', abstraction: 1,
+        source: 'execution', tags: ['task-1'],
+      }));
+    }
+
+    const ctx = mockContext('Should not be called');
+    const result = await microDream('task-1', ctx);
+
+    expect(result).toContain('already consolidated');
+    // Raw entries should still be active — no consolidation ran
+    const all = await db.kbLog.toArray();
+    const raw = all.filter(e => e.category === 'observation' && e.source === 'execution');
+    expect(raw.every(e => e.active)).toBe(true);
+  });
+
+  it('sessionDream idempotency — skips if session insights already exist', async () => {
+    // Seed a session dream insight
+    await db.kbLog.add(makeEntry({
+      text: 'Existing session insight', category: 'insight', abstraction: 7,
+      source: 'dream:session', tags: ['test'],
+    }));
+    // Seed execution entries that would normally be processed
+    for (let i = 0; i < 3; i++) {
+      await db.kbLog.add(makeEntry({
+        text: `Exec ${i}`, category: 'observation', abstraction: 2,
+        source: 'execution', tags: ['task-1'],
+      }));
+    }
+
+    const ctx = mockContext('Should not be called');
+    const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    expect(result.dream).toContain('already ran');
+    // Execution entries should still be active — no session dream ran
+    const all = await db.kbLog.toArray();
+    const exec = all.filter(e => e.source === 'execution');
+    expect(exec.every(e => e.active)).toBe(true);
   });
 
   it('deepDream adds strategic insight and prunes old raw entries', async () => {
@@ -2221,6 +2281,153 @@ describe('Phase 1f: Session Conflict Detection', () => {
 
     const result = await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
     expect(result.dream).toContain('0 conflicts escalated');
+  });
+
+  it('tags conflicting decisions as conflict-pending to prevent re-escalation', async () => {
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use REST API', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use GraphQL', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'API style', d1_choice: 'REST', d2_choice: 'GraphQL',
+      severity: 'ESCALATE', suggestion: 'Use REST for external, GraphQL for internal',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    // Both decisions should have conflict-pending tag
+    const d1 = await db.kbLog.get(d1Id);
+    const d2 = await db.kbLog.get(d2Id);
+    expect(d1!.tags).toContain('conflict-pending');
+    expect(d2!.tags).toContain('conflict-pending');
+
+    // Re-running sessionDream should NOT re-escalate (idempotency blocks it,
+    // but even if it ran, conflict-pending decisions are excluded from detectConflicts)
+  });
+
+  it('resolves conflict with option (a) — keeps D1, deactivates D2', async () => {
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use REST API', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use GraphQL', category: 'decision', abstraction: 4,
+      layer: ['L0', 'L1'], tags: ['api', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'API style', d1_choice: 'REST', d2_choice: 'GraphQL',
+      severity: 'ESCALATE', suggestion: 'Use REST for external, GraphQL for internal',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    // Find the alert message
+    const messages = await db.messages.toArray();
+    const alert = messages.find(m => m.type === 'alert' && m.sender === 'dream:session');
+    expect(alert).toBeDefined();
+    expect(alert!.status).toBe('unread');
+
+    // User picks option (a) — choose D1
+    eventBus.emit('user:reply', {
+      taskId: 'test',
+      content: '(a) REST is simpler',
+      messageId: alert!.id,
+    });
+
+    // Small delay for async handler
+    await new Promise(r => setTimeout(r, 50));
+
+    const d1 = await db.kbLog.get(d1Id);
+    const d2 = await db.kbLog.get(d2Id);
+
+    expect(d1!.active).toBe(true);
+    expect(d1!.tags).toContain('conflict-resolved');
+    expect(d1!.tags).not.toContain('conflict-pending');
+
+    expect(d2!.active).toBe(false);
+
+    // Message should be marked read
+    const updatedMsg = await db.messages.get(alert!.id);
+    expect(updatedMsg!.status).toBe('read');
+  });
+
+  it('resolves conflict with option (c) — merges both into new decision', async () => {
+    const d1Id = await db.kbLog.add(makeEntry({
+      text: 'Use REST API', category: 'decision', abstraction: 4,
+      layer: ['L0'], tags: ['api', 'verified', 'task-a'], source: 'dream:micro',
+    }));
+    const d2Id = await db.kbLog.add(makeEntry({
+      text: 'Use GraphQL', category: 'decision', abstraction: 5,
+      layer: ['L0', 'L1'], tags: ['api', 'verified', 'task-b'], source: 'dream:micro',
+    }));
+    await db.kbLog.add(makeEntry({
+      text: 'Some execution', category: 'observation', abstraction: 1,
+      tags: [], source: 'execution',
+    }));
+
+    const conflictJson = JSON.stringify([{
+      id1: d1Id, id2: d2Id,
+      concern: 'API style', d1_choice: 'REST', d2_choice: 'GraphQL',
+      severity: 'ESCALATE', suggestion: 'Use REST for external, GraphQL for internal',
+    }]);
+
+    const ctx = trackingContext([
+      JSON.stringify({ patterns: [], failures: [], strategies: [], docGaps: [] }),
+      conflictJson,
+    ]);
+    await DreamHandler.handleRequest('process-dream.sessionDream', [], ctx);
+
+    const messages = await db.messages.toArray();
+    const alert = messages.find(m => m.type === 'alert' && m.sender === 'dream:session');
+
+    // User picks option (c) — merged rule
+    eventBus.emit('user:reply', {
+      taskId: 'test',
+      content: '(c) REST for public APIs, GraphQL for internal',
+      messageId: alert!.id,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    // Both originals should be deactivated
+    const d1 = await db.kbLog.get(d1Id);
+    const d2 = await db.kbLog.get(d2Id);
+    expect(d1!.active).toBe(false);
+    expect(d2!.active).toBe(false);
+
+    // A new merged decision should exist
+    const all = await db.kbLog.toArray();
+    const merged = all.find(e => e.text.startsWith('MERGED:') && e.active);
+    expect(merged).toBeDefined();
+    expect(merged!.abstraction).toBe(5); // max of 4, 5
+    expect(merged!.tags).toContain('conflict-resolved');
+    expect(merged!.tags).toContain('verified');
+    expect(merged!.supersedes).toContain(d1Id);
+    expect(merged!.supersedes).toContain(d2Id);
   });
 });
 
