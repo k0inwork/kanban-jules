@@ -229,21 +229,21 @@ function injectShims(c: AlmostNodeContainer): void {
     main: 'index.js',
   }));
 
-  // FS bridge shim: node:fs/promises and node:fs → boardVM.fsBridge (v86 filesystem)
-  // This makes Yuan file tools (file_read, file_write, file_edit, glob, grep) operate
-  // on the real v86 filesystem instead of almostnode's empty in-memory VFS.
-  c.vfs.mkdirSync('/node_modules/node:fs', { recursive: true });
-  c.vfs.writeFileSync('/node_modules/node:fs/promises.js', fsBridgeShimSource);
-  c.vfs.writeFileSync('/node_modules/node:fs/promises/package.json', JSON.stringify({
-    name: 'node:fs/promises',
+  // FS bridge shim: fs/promises and fs → boardVM.fsBridge (v86 filesystem)
+  // almostnode strips "node:" prefix before resolving, so we write under /node_modules/fs/ not /node_modules/node:fs/
+  c.vfs.mkdirSync('/node_modules/fs', { recursive: true });
+  c.vfs.mkdirSync('/node_modules/fs/promises', { recursive: true });
+  c.vfs.writeFileSync('/node_modules/fs/promises.js', fsBridgeShimSource);
+  c.vfs.writeFileSync('/node_modules/fs/promises/package.json', JSON.stringify({
+    name: 'fs/promises',
     version: '0.0.0-shim',
     main: 'index.js',
   }));
-  c.vfs.writeFileSync('/node_modules/node:fs/promises/index.js', fsBridgeShimSource);
-  // node:fs uses the same bridge (sync calls are rare in the tools)
-  c.vfs.writeFileSync('/node_modules/node:fs/index.js', fsBridgeShimSource);
-  c.vfs.writeFileSync('/node_modules/node:fs/package.json', JSON.stringify({
-    name: 'node:fs',
+  c.vfs.writeFileSync('/node_modules/fs/promises/index.js', fsBridgeShimSource);
+  // fs (base module) uses the same bridge
+  c.vfs.writeFileSync('/node_modules/fs/index.js', fsBridgeShimSource);
+  c.vfs.writeFileSync('/node_modules/fs/package.json', JSON.stringify({
+    name: 'fs',
     version: '0.0.0-shim',
     main: 'index.js',
   }));
