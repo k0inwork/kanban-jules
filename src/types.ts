@@ -11,6 +11,7 @@ export interface TaskStep {
   currentCode?: string;
   executionHistory?: any[];
   seed?: number;
+  focus?: string[];
 }
 
 export interface TaskProtocol {

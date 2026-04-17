@@ -166,7 +166,7 @@ export class Orchestrator {
       
       const modules = registry.getEnabled();
 
-      const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', project: 'target', taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}` });
+      const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', project: 'target', taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}`, focus: step.focus });
 
       const prompt = composeProgrammerPrompt(modules, task, step, errorContext, projectedKnowledge);
       
