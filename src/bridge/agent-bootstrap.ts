@@ -48,7 +48,7 @@ async function createAlmostnodeContainer(): Promise<AlmostNodeContainer> {
   if (!createContainer) throw new Error('almostnode.createContainer not found');
 
   const c = createContainer({
-    cwd: '/workspace',
+    cwd: '/home',
     env: { NODE_ENV: 'production' },
     onConsole: (method: string, args: any[]) => {
       console.log(`[almostnode:${method}]`, ...args);
@@ -277,7 +277,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       return d && typeof d.name === 'string' && d.name.length > 0;
     });
     var yuanToolNames = new Set(yuanDefs.map(function(d) { return d.name; }));
-    var yuanExecutor = yuanRegistry.toExecutor('/workspace');
+    var yuanExecutor = yuanRegistry.toExecutor('/home');
     console.log('[yuan-runner] Yuan built-in tools:', yuanToolNames.size, '(' + Array.from(yuanToolNames).join(', ') + ')');
 
     // Fleet tool definitions from outside via globalThis._fleetToolDefs
@@ -396,7 +396,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '=========================================\\n\\n';
       prompt += 'You have THREE categories of tools available:\\n\\n';
 
-      prompt += '1. YUAN FILE TOOLS (read/write/search files in /workspace VFS):\\n';
+      prompt += '1. YUAN FILE TOOLS (read/write/search files in v86 filesystem):\\n';
       prompt += '   - file_read(path, offset?, limit?) — read file with line numbers, 50KB limit\\n';
       prompt += '   - file_write(path, content, createDirectories?) — write file, auto-mkdir, backs up before overwrite\\n';
       prompt += '   - file_edit(path, old_string, new_string, replace_all?) — exact string replacement in file\\n';
@@ -450,7 +450,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
           totalTokenBudget: 100000,
           tools: allDefs,
           systemPrompt: systemPrompt,
-          projectPath: '/workspace',
+          projectPath: '/home',
           indexing: false,
         },
       };
@@ -560,7 +560,6 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     console.log('[yuan-runner] agent runner loaded');
   `;
 
-  c.vfs.mkdirSync('/workspace', { recursive: true });
   c.vfs.writeFileSync('/yuan-runner.js', runnerCode);
 }
 
