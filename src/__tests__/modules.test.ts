@@ -2,7 +2,7 @@
  * Tests for knowledge-kb, process-dream, process-reflection modules.
  * Uses fake-indexeddb (vitest setup) and mock LLM calls.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { db, KBEntry } from '../services/db';
 import { applyRules } from '../modules/process-reflection/rules';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
@@ -10,6 +10,8 @@ import { DreamHandler } from '../modules/process-dream/Handler';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
 import { FixedKBSource } from '../modules/process-dream/external-kb';
+import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
+import { eventBus } from '../core/event-bus';
 
 // Helper: build a KBEntry
 let nextId = 1;
@@ -1444,5 +1446,399 @@ describe('Projector: doc chunking in RAG', () => {
     });
 
     expect(result).toContain('Auth');
+  });
+});
+
+// ─── Commit Harvest (Decision Extraction) ──────────────────────
+describe('commit-harvest: event-driven decision extraction', () => {
+  const mockConfig = {
+    githubToken: 'ghp_test123',
+    repoUrl: 'https://github.com/testorg/testrepo',
+    repoBranch: 'main',
+  } as any;
+
+  let taskCounter = 0;
+
+  beforeEach(() => {
+    taskCounter++;
+  });
+
+  afterEach(() => {
+    destroyCommitHarvest();
+  });
+
+  it('extracts decisions from local executor moduleLogs', async () => {
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Implement auth',
+      description: 'Add JWT auth',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now(),
+      moduleLogs: {
+        architect: '> [10:00] Generated protocol with 3 steps\n> [10:01] Decided to use JWT over sessions for stateless auth',
+        orchestrator: '> [10:05] Step 1 completed\n> [10:10] Step 2 completed',
+      },
+    } as any);
+
+    const llmResponse = JSON.stringify([
+      { text: 'Chose JWT over session-based auth for stateless scalability', tags: ['architectural', 'security'], confidence: 'high' },
+      { text: 'Split auth into 3 protocol steps for isolation', tags: ['pattern'], confidence: 'medium' },
+    ]);
+    const llmCall = vi.fn().mockResolvedValue(llmResponse);
+
+    initCommitHarvest(mockConfig, llmCall);
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-local',
+      startedAt: Date.now() - 60000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(llmCall).toHaveBeenCalled();
+    const prompt = llmCall.mock.calls[0][0];
+    expect(prompt).toContain('JWT');
+    expect(prompt).toContain('Implement auth');
+
+    const entries = await db.kbLog.toArray();
+    const decisions = entries.filter(e => e.category === 'decision' && e.source === 'dream:micro');
+    expect(decisions).toHaveLength(2);
+    expect(decisions[0].tags).toContain('internal-agent');
+    expect(decisions[0].tags).toContain(taskId);
+    expect(decisions[0].layer).toEqual(['L0', 'L1']);
+    expect(decisions[0].abstraction).toBe(4);
+    expect(decisions[0].active).toBe(true);
+  });
+
+  it('skips extraction when moduleLogs are too short', async () => {
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Tiny task',
+      description: 'Fix typo',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now(),
+      moduleLogs: { orchestrator: 'ok' },
+    } as any);
+
+    const llmCall = vi.fn().mockResolvedValue('[]');
+    initCommitHarvest(mockConfig, llmCall);
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-local',
+      startedAt: Date.now() - 60000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(llmCall).not.toHaveBeenCalled();
+  });
+
+  it('filters out low-confidence decisions', async () => {
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Refactor module',
+      description: 'Clean up',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now(),
+      moduleLogs: {
+        architect: '> Decided to use strategy pattern for payment handlers because it allows easy addition of new providers',
+        orchestrator: '> Step completed successfully with good results from the implementation',
+      },
+    } as any);
+
+    const llmResponse = JSON.stringify([
+      { text: 'Used strategy pattern for payments', tags: ['pattern'], confidence: 'high' },
+      { text: 'Named variable x instead of y', tags: ['local'], confidence: 'low' },
+    ]);
+    const llmCall = vi.fn().mockResolvedValue(llmResponse);
+    initCommitHarvest(mockConfig, llmCall);
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-local',
+      startedAt: Date.now() - 60000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const entries = await db.kbLog.toArray();
+    const decisions = entries.filter(e => e.category === 'decision' && e.source === 'dream:micro');
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].text).toContain('strategy pattern');
+  });
+
+  it('handles LLM returning empty array gracefully', async () => {
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Simple task',
+      description: 'No real decisions',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now(),
+      moduleLogs: {
+        architect: '> Generated a basic protocol with straightforward steps for the implementation task at hand',
+        orchestrator: '> Completed all steps successfully without any issues or errors in the execution process',
+      },
+    } as any);
+
+    const llmCall = vi.fn().mockResolvedValue('[]');
+    initCommitHarvest(mockConfig, llmCall);
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-local',
+      startedAt: Date.now() - 60000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const entries = await db.kbLog.toArray();
+    expect(entries.filter(e => e.source === 'dream:micro')).toHaveLength(0);
+  });
+
+  it('handles malformed LLM response gracefully', async () => {
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Another task',
+      description: 'With decisions',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now(),
+      moduleLogs: {
+        architect: '> Important architectural decision to use event sourcing over CRUD for audit trail requirements in the financial module',
+      },
+    } as any);
+
+    const llmCall = vi.fn().mockResolvedValue('This is not JSON at all, just plain text');
+    initCommitHarvest(mockConfig, llmCall);
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-local',
+      startedAt: Date.now() - 60000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const entries = await db.kbLog.toArray();
+    expect(entries.filter(e => e.source === 'dream:micro')).toHaveLength(0);
+  });
+
+  it('ignores executor:completed for unknown task', async () => {
+    const llmCall = vi.fn().mockResolvedValue('[]');
+    initCommitHarvest(mockConfig, llmCall);
+
+    eventBus.emit('executor:completed', {
+      taskId: 'nonexistent-task-id',
+      executor: 'executor-local',
+      startedAt: Date.now() - 60000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(llmCall).not.toHaveBeenCalled();
+  });
+
+  it('fetches commits from GitHub for executor-jules', async () => {
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Build API',
+      description: 'Create REST endpoints',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now() - 300000,
+    } as any);
+
+    const llmResponse = JSON.stringify([
+      { text: 'Chose REST over GraphQL for simplicity', tags: ['api'], confidence: 'high' },
+    ]);
+    const llmCall = vi.fn().mockResolvedValue(llmResponse);
+    initCommitHarvest(mockConfig, llmCall);
+
+    const originalFetch = globalThis.fetch;
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { sha: 'abc123def456', url: 'https://api.github.com/repos/testorg/testrepo/commits/abc123def456', commit: { message: 'feat: implement REST API', author: { name: 'jules' } } },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => 'diff --git a/src/api.ts b/src/api.ts\n+export function getItems() { }',
+      });
+    globalThis.fetch = mockFetch;
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-jules',
+      sessionName: 'test-session',
+      startedAt: Date.now() - 300000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(mockFetch).toHaveBeenCalled();
+    const githubCall = mockFetch.mock.calls[0][0];
+    expect(githubCall).toContain('api.github.com/repos/testorg/testrepo/commits');
+
+    expect(llmCall).toHaveBeenCalled();
+
+    const entries = await db.kbLog.toArray();
+    const decisions = entries.filter(e => e.category === 'decision' && e.source === 'dream:micro');
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].tags).toContain('external-agent');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('skips GitHub fetch when no config/token', async () => {
+    const noTokenConfig = { ...mockConfig, githubToken: '' } as any;
+    const llmCall = vi.fn().mockResolvedValue('[]');
+    initCommitHarvest(noTokenConfig, llmCall);
+
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Test task',
+      description: '',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now(),
+    } as any);
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-jules',
+      startedAt: Date.now(),
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(llmCall).not.toHaveBeenCalled();
+  });
+
+  it('destroyCommitHarvest stops listening to events', async () => {
+    const llmCall = vi.fn().mockResolvedValue('[]');
+    initCommitHarvest(mockConfig, llmCall);
+    destroyCommitHarvest();
+
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'After destroy',
+      description: '',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now(),
+      moduleLogs: { architect: '> Some long enough log text to pass the 50 char threshold for extraction to proceed' },
+    } as any);
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-local',
+      startedAt: Date.now(),
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(llmCall).not.toHaveBeenCalled();
+  });
+
+  it('handles GitHub API errors gracefully', async () => {
+    const taskId = `ch-task-${taskCounter}`;
+    await db.tasks.add({
+      id: taskId,
+      title: 'Test GH error',
+      description: '',
+      project: 'target',
+      workflowStatus: 'DONE',
+      agentState: 'IDLE',
+      createdAt: Date.now() - 300000,
+    } as any);
+
+    const llmCall = vi.fn().mockResolvedValue('[]');
+    initCommitHarvest(mockConfig, llmCall);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+    });
+
+    eventBus.emit('executor:completed', {
+      taskId,
+      executor: 'executor-jules',
+      startedAt: Date.now() - 300000,
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const entries = await db.kbLog.toArray();
+    expect(entries.filter(e => e.source === 'dream:micro')).toHaveLength(0);
+
+    globalThis.fetch = originalFetch;
+  });
+});
+
+// ─── EventBus: executor:completed ──────────────────────────────
+describe('EventBus: executor:completed event', () => {
+  it('emits and receives executor:completed events', () => {
+    const handler = vi.fn();
+    eventBus.on('executor:completed', handler);
+
+    const data = {
+      taskId: 'task-123',
+      executor: 'executor-jules',
+      sessionName: 'session-abc',
+      startedAt: Date.now(),
+    };
+
+    eventBus.emit('executor:completed', data);
+    expect(handler).toHaveBeenCalledWith(data);
+
+    eventBus.off('executor:completed', handler);
+  });
+
+  it('supports multiple listeners on executor:completed', () => {
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+
+    eventBus.on('executor:completed', handler1);
+    eventBus.on('executor:completed', handler2);
+
+    const data = { taskId: 't1', executor: 'executor-local', startedAt: Date.now() };
+    eventBus.emit('executor:completed', data);
+
+    expect(handler1).toHaveBeenCalledWith(data);
+    expect(handler2).toHaveBeenCalledWith(data);
+
+    eventBus.off('executor:completed', handler1);
+    eventBus.off('executor:completed', handler2);
+  });
+
+  it('off stops receiving events', () => {
+    const handler = vi.fn();
+    eventBus.on('executor:completed', handler);
+    eventBus.off('executor:completed', handler);
+
+    eventBus.emit('executor:completed', { taskId: 't1', executor: 'executor-local' });
+
+    expect(handler).not.toHaveBeenCalled();
   });
 });
