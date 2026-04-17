@@ -138,8 +138,9 @@ func RegisterFSBridge(cfg js.Value, ns *nsWrapper, vmID string) {
 				maxResults = args[2].Int()
 			}
 			resolvedRoot := resolvePath(root)
+				log.Printf("[fsbridge] glob pat=%q root=%q resolved=%q", globPat, root, resolvedRoot)
 
-			// Build ignore set (skip node_modules, .git, dist, build)
+				// Build ignore set (skip node_modules, .git, dist, build)
 			ignoreDirs := map[string]bool{
 				"node_modules": true,
 				".git":         true,
