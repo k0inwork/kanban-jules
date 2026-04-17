@@ -62,17 +62,31 @@ async function createAlmostnodeContainer(): Promise<AlmostNodeContainer> {
 async function installPackages(c: AlmostNodeContainer): Promise<void> {
   console.log('[yuan-bootstrap] installing @yuaone/core + @yuaone/tools from local bundle...');
 
-  // Instead of hitting npm registry, load pre-built bundles from public assets.
-  // The bundles are created by `npm run bundle:yuaone` which packs the dist/ files
-  // into self-contained JSON blobs that we write into VFS.
+  // Pipeline: scripts/bundle-yuaone.mjs → public/assets/wasm/yuaone-bundles/*.json + manifest.json
+  // Runtime: fetch manifest → fetch each bundle → write into almostnode VFS
   const bundleBase = '/assets/wasm/yuaone-bundles';
 
-  for (const [pkg, main] of [
-    ['@yuaone/core', 'dist/agent-loop.js, dist/llm-client.js, dist/types.js, dist/constants.js, dist/errors.js, dist/debug-logger.js, dist/index.js, dist/context-manager.js, dist/token-budget.js, dist/prompt-defense.js, dist/budget-governor.js, dist/cost-optimizer.js, dist/skill-loader.js, dist/vision-intent.js, dist/reasoning-aggregator.js, dist/reasoning-tree.js'],
-    ['@yuaone/tools', 'dist/index.js, dist/registry.js, dist/base-tool.js, dist/file-read.js, dist/file-write.js, dist/file-edit.js, dist/glob-tool.js, dist/grep-tool.js, dist/code-search.js, dist/web-search.js, dist/task-complete.js'],
-  ]) {
+  // Load manifest to discover available bundles
+  let manifest: Record<string, { version: string; files: number; hash: string; bundleFile: string }> = {};
+  try {
+    const manifestResp = await fetch(`${bundleBase}/manifest.json`);
+    if (manifestResp.ok) {
+      manifest = await manifestResp.json();
+      console.log(`[yuan-bootstrap] manifest loaded: ${Object.keys(manifest).join(', ')}`);
+    }
+  } catch {
+    console.warn('[yuan-bootstrap] manifest.json not found, loading bundles by convention');
+  }
+
+  for (const [pkg] of [
+    ['@yuaone/core'],
+    ['@yuaone/tools'],
+  ] as const) {
+    const entry = manifest[pkg];
+    const bundleFile = entry?.bundleFile || `${pkg.replace('/', '_')}.json`;
+
     try {
-      const resp = await fetch(`${bundleBase}/${pkg.replace('/', '_')}.json`);
+      const resp = await fetch(`${bundleBase}/${bundleFile}`);
       if (resp.ok) {
         const files: Record<string, string> = await resp.json();
         const dir = `/node_modules/${pkg}`;
@@ -82,11 +96,11 @@ async function installPackages(c: AlmostNodeContainer): Promise<void> {
           const fullPath = `${dir}/${path}`;
           c.vfs.writeFileSync(fullPath, content);
         }
-        // Write package.json
+        // Write package.json with manifest version if available
         c.vfs.writeFileSync(`${dir}/package.json`, JSON.stringify({
-          name: pkg, version: '0.0.0-local', main: 'dist/index.js',
+          name: pkg, version: entry?.version || '0.0.0-local', main: 'dist/index.js',
         }));
-        console.log(`[yuan-bootstrap] ${pkg}: ${Object.keys(files).length} files from bundle`);
+        console.log(`[yuan-bootstrap] ${pkg}: ${Object.keys(files).length} files from bundle (hash ${entry?.hash || 'n/a'}, v${entry?.version || 'unknown'})`);
         continue;
       }
     } catch (e: any) {

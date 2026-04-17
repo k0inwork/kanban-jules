@@ -4,16 +4,29 @@
  * into JSON bundles that agent-bootstrap.ts loads into almostnode VFS.
  * Transforms ESM exports to CJS so almostnode's require() works.
  *
+ * Pipeline: node_modules/@yuaone/* → ESM→CJS transform → public/assets/wasm/yuaone-bundles/*.json
+ * Runtime: agent-bootstrap.ts fetches bundles → writes into almostnode VFS
+ *
  * Usage: node scripts/bundle-yuaone.mjs
- * Output: public/assets/wasm/yuaone-bundles/*.json
+ * Output: public/assets/wasm/yuaone-bundles/*.json + manifest.json
  */
-import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, existsSync } from 'fs';
 import { join, relative } from 'path';
+import { createHash } from 'crypto';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const OUT_DIR = join(ROOT, 'public/assets/wasm/yuaone-bundles');
+const MANIFEST_PATH = join(OUT_DIR, 'manifest.json');
+
+const PACKAGES = ['@yuaone/core', '@yuaone/tools'];
 
 mkdirSync(OUT_DIR, { recursive: true });
+
+// --- Load or create manifest ---
+let manifest = {};
+if (existsSync(MANIFEST_PATH)) {
+  try { manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf-8')); } catch {}
+}
 
 function walkDir(dir) {
   const files = [];
@@ -77,7 +90,7 @@ function esmToCJS(code) {
   // export { X } from './mod.js'  →  const _X = require('./mod'); module.exports.X = _X.X
   code = code.replace(
     /^export\s*\{([^}]*)\}\s*from\s*(['"])([^'"]+)\2\s*;?\s*$/gm,
-    (full, names, _q, mod) => {
+    (_full, names, _q, mod) => {
       const cjsNames = names.replace(/\bas\s+/g, ': ');
       const items = names.split(',').map(n => {
         const parts = n.trim().split(/\s+as\s+/);
@@ -151,8 +164,42 @@ function stripExt(modPath) {
   return `'${modPath}'`;
 }
 
-for (const pkg of ['@yuaone/core', '@yuaone/tools']) {
+// --- Main: bundle each package ---
+
+let changed = false;
+
+for (const pkg of PACKAGES) {
   const distDir = join(ROOT, 'node_modules', pkg, 'dist');
+  const outName = pkg.replace('/', '_') + '.json';
+  const outPath = join(OUT_DIR, outName);
+
+  if (!statSync(distDir, { throwIfNoEntry: false })) {
+    // Package not installed locally — keep existing bundle, ensure manifest entry
+    if (statSync(outPath, { throwIfNoEntry: false })) {
+      const existingRaw = readFileSync(outPath, 'utf-8');
+      const hash = createHash('sha256').update(existingRaw).digest('hex').slice(0, 16);
+      if (!manifest[pkg] || manifest[pkg].hash !== hash) {
+        const parsed = JSON.parse(existingRaw);
+        manifest[pkg] = {
+          version: manifest[pkg]?.version || 'unknown',
+          files: Object.keys(parsed).length,
+          hash,
+          bundledAt: manifest[pkg]?.bundledAt || new Date().toISOString(),
+          bundleFile: outName,
+        };
+        changed = true;
+      }
+      console.log(`skip ${pkg}: not in node_modules, keeping existing ${outName} (hash ${hash})`);
+      continue;
+    }
+    console.error(`ERROR: ${pkg} not found in node_modules and no pre-built bundle at ${outPath}`);
+    console.error(`  Run: npm install ${pkg}`);
+    process.exit(1);
+  }
+
+  // Read version from package.json
+  const pkgJson = JSON.parse(readFileSync(join(ROOT, 'node_modules', pkg, 'package.json'), 'utf-8'));
+
   const files = walkDir(distDir);
   const bundle = {};
 
@@ -162,10 +209,34 @@ for (const pkg of ['@yuaone/core', '@yuaone/tools']) {
     bundle[relPath] = esmToCJS(raw);
   }
 
-  const outName = pkg.replace('/', '_') + '.json';
-  const outPath = join(OUT_DIR, outName);
-  writeFileSync(outPath, JSON.stringify(bundle));
-  console.log(`bundled ${pkg}: ${files.length} files → ${outName} (${(Buffer.byteLength(JSON.stringify(bundle)) / 1024).toFixed(0)} KB)`);
+  const jsonStr = JSON.stringify(bundle);
+  const hash = createHash('sha256').update(jsonStr).digest('hex').slice(0, 16);
+
+  // Check if bundle actually changed
+  const prev = manifest[pkg];
+  if (prev && prev.hash === hash) {
+    console.log(`unchanged ${pkg}: ${files.length} files, hash ${hash} (v${pkgJson.version})`);
+    continue;
+  }
+
+  writeFileSync(outPath, jsonStr);
+  manifest[pkg] = {
+    version: pkgJson.version,
+    files: files.length,
+    hash,
+    bundledAt: new Date().toISOString(),
+    bundleFile: outName,
+  };
+  changed = true;
+  console.log(`bundled ${pkg}: ${files.length} files → ${outName} (${(Buffer.byteLength(jsonStr) / 1024).toFixed(0)} KB, hash ${hash}, v${pkgJson.version})`);
 }
 
+// Always write manifest (even if unchanged, to keep it in sync)
+writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+
+if (changed) {
+  console.log('manifest updated — bundles changed, VFS will reload on next init');
+} else {
+  console.log('no bundle changes detected');
+}
 console.log('done');
