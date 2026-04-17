@@ -1,29 +1,88 @@
 /**
- * YuanChatPanel — simple chat UI for the Yuan AI agent.
- * No xterm.js — just a scrollable message list + input box.
- * Calls boardVM.yuan.send() directly via BoardVMContext.
+ * YuanChatPanel — xterm.js-based chat UI for the Yuan AI agent.
+ * Matches the terminal look of TerminalPanel. Read-only xterm output
+ * with a separate input bar at the bottom.
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useBoardVM } from '../bridge/BoardVMContext';
-
-interface Message {
-  id: number;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
-}
+import { useBoardVM } from './BoardVMContext';
 
 export default function YuanChatPanel() {
   const { yuanReady, yuanStatus, yuanSend, initYuan } = useBoardVM();
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const nextId = useRef(1);
-  const listEndRef = useRef<HTMLDivElement>(null);
+
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<any>(null);
+  const fitAddonRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const initedRef = useRef(false);
 
-  // Auto-init Yuan when this panel first mounts
+  // Init xterm + Yuan agent on mount
+  useEffect(() => {
+    let term: any;
+    let fit: any;
+
+    (async () => {
+      const { Terminal } = await import('@xterm/xterm');
+      const { FitAddon } = await import('@xterm/addon-fit');
+      await import('@xterm/xterm/css/xterm.css');
+
+      term = new Terminal({
+        cursorBlink: false,
+        disableStdin: true,
+        fontSize: 14,
+        fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+        scrollback: 5000,
+        convertEol: true,
+        theme: {
+          background: '#1e1e2e',
+          foreground: '#cdd6f4',
+          cursor: '#f5e0dc',
+          selectionBackground: '#585b7066',
+          blue: '#89b4fa',
+          magenta: '#cba6f7',
+          green: '#a6e3a1',
+          red: '#f38ba8',
+          yellow: '#f9e2af',
+          cyan: '#94e2d5',
+        },
+      });
+
+      fit = new FitAddon();
+      term.loadAddon(fit);
+
+      if (terminalRef.current) {
+        term.open(terminalRef.current);
+        fit.fit();
+      }
+
+      xtermRef.current = term;
+      fitAddonRef.current = fit;
+
+      // Welcome message
+      term.writeln('\x1b[2mSend a message to start a conversation with Yuan.\x1b[0m');
+      term.writeln('\x1b[2mYuan has access to file tools, code search, web search, and Fleet tools.\x1b[0m');
+      term.writeln('');
+    })();
+
+    const onResize = () => {
+      if (fitAddonRef.current && terminalRef.current?.offsetWidth) {
+        try { fitAddonRef.current.fit(); } catch {}
+      }
+    };
+    window.addEventListener('resize', onResize);
+
+    const ro = new ResizeObserver(onResize);
+    if (terminalRef.current) ro.observe(terminalRef.current);
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      ro.disconnect();
+      term?.dispose();
+    };
+  }, []);
+
+  // Auto-init Yuan
   useEffect(() => {
     if (!initedRef.current && !yuanReady && yuanStatus === 'not initialized') {
       initedRef.current = true;
@@ -31,45 +90,45 @@ export default function YuanChatPanel() {
     }
   }, [yuanReady, yuanStatus, initYuan]);
 
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    listEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || !xtermRef.current) return;
 
-    const userMsg: Message = {
-      id: nextId.current++,
-      role: 'user',
-      content: text,
-      timestamp: Date.now(),
-    };
-    setMessages(prev => [...prev, userMsg]);
+    const term = xtermRef.current;
+
+    // Echo user message
+    term.writeln(`\x1b[34m[you]\x1b[0m > ${text}`);
+    term.writeln('');
     setInput('');
     setSending(true);
 
-    // Reset textarea height
+    // Show thinking indicator
+    term.writeln('\x1b[35m[yuan]\x1b[0m \x1b[2mThinking...\x1b[0m');
+
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     try {
       const response = await yuanSend(text);
-      const assistantMsg: Message = {
-        id: nextId.current++,
-        role: 'assistant',
-        content: response || '(empty response)',
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, assistantMsg]);
+
+      // Clear the "Thinking..." line by moving up and clearing
+      term.write('\x1b[1A\x1b[2K');
+
+      if (response) {
+        // Write response lines with [yuan] prefix on first line
+        const lines = response.split('\n');
+        term.writeln(`\x1b[35m[yuan]\x1b[0m ${lines[0]}`);
+        for (let i = 1; i < lines.length; i++) {
+          term.writeln(`       ${lines[i]}`);
+        }
+      } else {
+        term.writeln('\x1b[35m[yuan]\x1b[0m \x1b[2m(empty response)\x1b[0m');
+      }
+      term.writeln('');
     } catch (e: any) {
-      const errMsg: Message = {
-        id: nextId.current++,
-        role: 'assistant',
-        content: `[Error] ${e.message}`,
-        timestamp: Date.now(),
-      };
-      setMessages(prev => [...prev, errMsg]);
+      // Clear the "Thinking..." line
+      term.write('\x1b[1A\x1b[2K');
+      term.writeln(`\x1b[31m[yuan]\x1b[0m \x1b[31m[Error] ${e.message}\x1b[0m`);
+      term.writeln('');
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -83,7 +142,6 @@ export default function YuanChatPanel() {
     }
   }, [handleSend]);
 
-  // Auto-resize textarea
   const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     e.target.style.height = 'auto';
@@ -114,57 +172,28 @@ export default function YuanChatPanel() {
         </span>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-        {messages.length === 0 && (
-          <div className="text-center text-neutral-500 mt-20">
-            <p className="text-sm">Send a message to start a conversation with Yuan.</p>
-            <p className="text-xs mt-2 text-neutral-600">
-              Yuan has access to file tools, code search, web search, and Fleet tools.
-            </p>
-          </div>
-        )}
-        {messages.map(msg => (
-          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap break-words ${
-                msg.role === 'user'
-                  ? 'bg-blue-600/20 text-blue-100 border border-blue-500/20'
-                  : 'bg-neutral-800 text-neutral-200 border border-neutral-700'
-              }`}
-            >
-              {msg.content}
-            </div>
-          </div>
-        ))}
-        {sending && (
-          <div className="flex justify-start">
-            <div className="bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-2.5 text-sm text-neutral-400">
-              <span className="animate-pulse">Thinking...</span>
-            </div>
-          </div>
-        )}
-        <div ref={listEndRef} />
-      </div>
+      {/* xterm.js output */}
+      <div ref={terminalRef} className="flex-1 min-h-0" style={{ padding: '4px 0' }} />
 
-      {/* Input */}
-      <div className="border-t border-neutral-800 p-3 bg-neutral-900/50">
+      {/* Input bar */}
+      <div className="border-t border-neutral-800 p-3 bg-[#1e1e2e]">
         <div className="flex items-end gap-2">
+          <span className="text-sm font-mono text-blue-400 pb-2 select-none">[you]&gt;</span>
           <textarea
             ref={inputRef}
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder={yuanReady ? 'Type a message... (Enter to send, Shift+Enter for newline)' : 'Yuan is starting up...'}
+            placeholder={yuanReady ? 'Type a message... (Enter to send)' : 'Yuan is starting up...'}
             disabled={!yuanReady || sending}
             rows={1}
-            className="flex-1 resize-none rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 resize-none bg-transparent border-none outline-none text-sm text-[#cdd6f4] font-mono placeholder-neutral-500 disabled:opacity-50"
             style={{ maxHeight: '200px' }}
           />
           <button
             onClick={handleSend}
             disabled={!yuanReady || sending || !input.trim()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-mono rounded transition-colors disabled:cursor-not-allowed"
           >
             {sending ? '...' : 'Send'}
           </button>
