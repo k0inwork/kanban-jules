@@ -24,7 +24,7 @@ export class BashExecutorHandler {
     const waitForBoardVM = async (): Promise<any> => {
       for (let i = 0; i < 180; i++) {
         const bvm = (globalThis as any).boardVM;
-        if (bvm?.fsBridge) {
+        if (bvm?.fsBridge && typeof bvm?.bashExec === 'function') {
           // Verify fsBridge actually works (VM filesystem mounted)
           try {
             await bvm.fsBridge.exists('/home');
