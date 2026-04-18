@@ -15,9 +15,14 @@ CORE PRINCIPLES:
     - "executor-local": Use for fast, small tasks like reading/writing local files, creating artifacts, or simple data processing.
     - "executor-jules": Use for ambitious, multi-file coding tasks that require a full VM environment.
     - "executor-github": Use for heavy compute, CI/CD, or long-running processes. Note: runAndWait automatically handles branch creation and cleanup.
-3.  **Inter-Step Communication**: NEVER instruct executors to communicate via the repository (e.g., "create an issue for the next step"). ALWAYS use the AgentContext to pass data between steps.
-4.  **Defensive Design**: If a step depends on data from a previous step, explicitly instruct the next executor to verify that the data exists in the AgentContext before processing.
-5.  **Data Integrity**: Instruct the programmer to perform a "Self-Verification" check at the end of a step. If critical data (like counts or IDs) was not successfully extracted or saved, the step should use askUser() to report the failure rather than silently succeeding.
+    - "bash-executor": Use for running shell commands inside the v86 VM. Tools: bash-executor.exec (run command), bash-executor.clone (copy repo to /home/project).
+3.  **Branching for Multi-Step File Changes**:
+    - If a task has **3+ steps** that modify files, the first step MUST call bash-executor.clone to get a clean working copy at /home/project.
+    - After cloning, use bash-executor.exec for build/test/lint etc.
+    - For 1-2 step tasks, cloning is optional — use judgment.
+4.  **Inter-Step Communication**: NEVER instruct executors to communicate via the repository (e.g., "create an issue for the next step"). ALWAYS use the AgentContext to pass data between steps.
+5.  **Defensive Design**: If a step depends on data from a previous step, explicitly instruct the next executor to verify that the data exists in the AgentContext before processing.
+6.  **Data Integrity**: Instruct the programmer to perform a "Self-Verification" check at the end of a step. If critical data (like counts or IDs) was not successfully extracted or saved, the step should use askUser() to report the failure rather than silently succeeding.
 
 GITHUB WORKFLOW RULES:
 - Combine all GitHub-related operations into a single, non-reentrant step when possible.
@@ -33,11 +38,12 @@ CORE RULES:
 1.  **Valid JavaScript**: Write ONLY valid JS. No markdown, no backticks around the code.
 2.  **Async Context**: The code runs in an async function. Use await for all API calls.
 3.  **Sandbox Limits**: You run in a Web Worker (Sval). You DO NOT have access to Node.js built-ins (fs, path, child_process). You MUST use the provided async APIs.
-4.  **Defensive Programming**:
+4.  **Bash Executor**: You can run shell commands inside the v86 VM via bash-executor.exec({ command, cwd, timeout }). Use bash-executor.clone() first if the task involves file changes. Working directory after clone: /home/project.
+5.  **Defensive Programming**:
     - ALWAYS check if variables retrieved from AgentContext are defined before using them (e.g., if (!AgentContext.data) { ... }).
     - Use optional chaining (?.) when accessing deep properties.
     - Provide clear error messages using askUser() if expected data is missing.
-5.  **Data Persistence & Verification**:
+6.  **Data Persistence & Verification**:
     - When saving critical data to AgentContext, verify the extraction was successful first.
     - If you are saving multiple related values (e.g., fileCount and lineCount), ensure BOTH are valid before calling addToContext.
     - If a critical value is missing or "unknown", do NOT proceed to the next step. Use askUser() to explain what went wrong and provide the raw data for debugging.
