@@ -92,7 +92,7 @@ export class BashExecutorHandler {
       arg && typeof arg === 'object' && !Array.isArray(arg) ? arg : null;
     const obj = unpack(args[0]);
     const command = obj ? obj.command : args[0];
-    const cwd = obj?.cwd || `/tmp/${context.taskId || 'default'}/repo`;
+    const repoDir = `/tmp/${context.taskId || 'default'}/repo`;
     const timeout = Math.min(obj?.timeout || 30000, 120000);
 
     if (!command) {
@@ -102,6 +102,16 @@ export class BashExecutorHandler {
     const boardVM = (globalThis as any).boardVM;
     if (!boardVM?.bashExec) {
       return { stdout: '', exitCode: 1, error: 'bashExec bridge not available', durationMs: 0 };
+    }
+
+    // Default cwd: repo dir if cloned, otherwise /home
+    let cwd = obj?.cwd;
+    if (!cwd) {
+      try {
+        cwd = (await boardVM.fsBridge?.exists(repoDir)) ? repoDir : '/home';
+      } catch {
+        cwd = '/home';
+      }
     }
 
     return boardVM.bashExec({ command, cwd, timeout });
