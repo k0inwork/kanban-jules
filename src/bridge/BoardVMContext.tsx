@@ -423,8 +423,7 @@ export function BoardVMProvider({
         const start = Date.now();
         const resultDir = `/tmp/bash-exec/${id}`;
 
-        await fs.mkdir(resultDir);
-
+        // session-mux creates the result dir itself via os.MkdirAll
         const payload = btoa(`${id}:${cwd}:${args.command}`);
         const seq = new TextEncoder().encode(`\x1b]89;${payload}\x07`);
         const sendRaw = (globalThis as any).__boardSendRaw;
