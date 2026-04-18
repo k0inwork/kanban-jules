@@ -266,6 +266,44 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       return _origFetch.apply(this, arguments);
     };
 
+    // Patch almostnode built-in fsShim.promises with missing open function.
+    // almostnode createFsShim has readFile/writeFile/stat etc but NOT open.
+    // @yuaone/tools imports { open as fsOpen } from node:fs/promises which
+    // resolves to fsShim.promises - without this patch, fsOpen is undefined.
+    var _fsp = require('fs/promises');
+    if (!_fsp.open) {
+      _fsp.open = async function open(path, flags, mode) {
+        var b = globalThis.boardVM && globalThis.boardVM.fsBridge;
+        if (!b) throw new Error('boardVM.fsBridge not available for open()');
+        var content = await b.readFile(path);
+        if (content instanceof Error) throw content;
+        return {
+          _path: path,
+          readFile: async function() {
+            var r = await b.readFile(path);
+            if (r instanceof Error) throw r;
+            return { toString: function() { return r; }, length: r.length };
+          },
+          writeFile: async function(data) {
+            var c = typeof data === 'string' ? data : String(data);
+            var r = await b.writeFile(path, c);
+            if (r instanceof Error) throw r;
+          },
+          close: function() {},
+          stat: async function() {
+            var info = await b.stat(path);
+            if (!info.exists) throw new Error('ENOENT');
+            return {
+              isFile: function() { return !info.isDir; },
+              isDirectory: function() { return info.isDir; },
+              size: info.size,
+            };
+          },
+        };
+      };
+      console.log('[yuan-runner] patched fsShim.promises.open');
+    }
+
     const { AgentLoop, BYOKClient } = require('@yuaone/core');
     const { createDefaultRegistry } = require('@yuaone/tools');
 
@@ -383,49 +421,48 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         }
       }
 
-      var prompt = 'You are an autonomous coding agent running inside Fleet.\\n';
-      prompt += '**IMPORTANT: Always respond in English only. Never use Chinese, Korean, or any other non-English language.**\\n\\n';
+      var prompt = 'You are Yuan, an autonomous coding agent inside Fleet.\\n';
+      prompt += '**IMPORTANT: Always respond in English only.**\\n\\n';
       prompt += 'Use the provided tools via native function calling. Do not output tool calls as text.\\n\\n';
-      prompt += 'You have THREE categories of tools available:\\n\\n';
+      prompt += 'TOOL CATEGORIES:\\n\\n';
 
-      prompt += '1. YUAN FILE TOOLS (read/write/search files in v86 filesystem):\\n';
-      prompt += '   - file_read(path, offset?, limit?) — read file with line numbers, 50KB limit\\n';
-      prompt += '   - file_write(path, content, createDirectories?) — write file, auto-mkdir, backs up before overwrite\\n';
-      prompt += '   - file_edit(path, old_string, new_string, replace_all?) — exact string replacement in file\\n';
-      prompt += '   - glob(pattern, path?, maxResults?) — find files matching glob pattern\\n';
-      prompt += '   - grep(pattern, path?, glob?, maxResults?, context?) — search file contents (ripgrep or fallback)\\n';
-      prompt += '   - code_search(query, mode?, language?) — symbol-based code search (definitions, references)\\n';
-      prompt += '   - security_scan(operation?, path?) — scan for security vulnerabilities\\n';
-      prompt += '   - web_search(operation, query?, url?) — search the web or fetch a URL\\n';
-      prompt += '   - parallel_web_search(queries) — multiple web searches in parallel\\n';
-      prompt += '   - task_complete(summary) — signal task is done, MUST call when finished\\n';
-      prompt += '   - spawn_sub_agent(prompt, model?) — spawn a sub-agent for a subtask\\n';
-      prompt += '\\n';
-
-      prompt += '2. YUAN SHELL TOOLS (NOT YET AVAILABLE — need v86 bridge):\\n';
-      prompt += '   - shell_exec(executable, args, cwd?, timeout?, env?, pty?) — execute command without shell\\n';
-      prompt += '   - bash(command, cwd?, timeout?, env?) — run bash shell command (pipes, redirects)\\n';
-      prompt += '   - git_ops(operation, message?, files?, count?, branch?) — git status/diff/log/add/commit/branch/stash/restore\\n';
-      prompt += '   - test_run(testPath?, framework?, coverage?) — run tests (Jest/Vitest/Pytest auto-detect)\\n';
-      prompt += '   These tools are NOT functional yet. Do NOT attempt to use them.\\n';
-      prompt += '\\n';
-
-      prompt += '3. FLEET TOOLS (control the kanban board and interact with external services):\\n';
+      prompt += '1. FLEET REPO TOOLS (access GitHub repositories directly via GitHub API):\\n';
       if (toolDescs.length > 0) {
         prompt += toolDescs.join('\\n') + '\\n';
-        prompt += '   These tools let you manage tasks on the kanban board, interact with the user,\\n';
-        prompt += '   delegate to external executors (Jules, GitHub Actions), and access artifacts.\\n';
       } else {
         prompt += '   (none registered)\\n';
       }
+      prompt += '   These are your PRIMARY way to read and write repository files. They go directly to GitHub.\\n';
+      prompt += '   Use repo.listFiles, repo.readFile, repo.headFile to browse and read repo files.\\n';
+      prompt += '   Use repo.writeFile to commit changes back to the repo.\\n';
       prompt += '\\n';
 
-      prompt += 'IMPORTANT RULES:\\n';
+      prompt += '2. LOCAL FILE TOOLS (v86 workspace filesystem — NOT the GitHub repo):\\n';
+      prompt += '   - file_read, file_write, file_edit — read/write/edit local workspace files\\n';
+      prompt += '   - glob, grep — search local filesystem\\n';
+      prompt += '   - security_scan — scan local files for vulnerabilities\\n';
+      prompt += '   Only use these for local workspace files, NOT for accessing the GitHub repository.\\n';
+      prompt += '\\n';
+
+      prompt += '3. SEARCH TOOLS:\\n';
+      prompt += '   - web_search — search the web or fetch URLs\\n';
+      prompt += '   - code_search — symbol-based code search\\n';
+      prompt += '\\n';
+
+      prompt += 'CRITICAL DISTINCTION:\\n';
+      prompt += '- Fleet repo tools (repo.*) access GitHub repositories via the GitHub API. Use them to browse and edit code in GitHub repos.\\n';
+      prompt += '- Local file tools (file_read, glob, grep, etc.) access the local v86 workspace filesystem. Use them for local files only.\\n';
+      prompt += '- Do NOT use repo tools to search or read the local filesystem. They are for GitHub only.\\n\\n';
+
+      prompt += 'WORKFLOW:\\n';
+      prompt += '1. Use Fleet repo tools to explore and understand the GitHub repository\\n';
+      prompt += '2. Use Fleet repo tools (repo.writeFile) or local file tools to make changes\\n';
+      prompt += '3. Use task_complete({"summary": "..."}) when done\\n\\n';
+
+      prompt += 'RULES:\\n';
       prompt += '- Only use tools listed above. Do NOT invent tools.\\n';
-      prompt += '- Do NOT use shell_exec, bash, git_ops, or test_run — they are not available yet.\\n';
-      prompt += '- For file operations, use file_read/file_write/file_edit.\\n';
-      prompt += '- Always call task_complete({"summary": "..."}) when you finish your task.\\n';
-      prompt += '- Think step by step. Use tools to gather information before making changes.\\n';
+      prompt += '- shell_exec, bash, git_ops, test_run are NOT available.\\n';
+      prompt += '- Think step by step. Gather information before making changes.\\n';
       prompt += '- If a tool call fails, read the error and try a different approach.';
       return prompt;
     }
@@ -488,7 +525,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     globalThis._yuanRun = async function(message) {
       if (!globalThis._yuanAgent) throw new Error('Agent not initialized');
       try {
-        var result = await globalThis._yuanAgent.run(message);
+        var result = await globalThis._yuanAgent.run(enrichedMessage);
         return (result && (result.summary || result.reason)) || 'completed';
       } catch(err) {
         return 'error: ' + (err.message || String(err));
@@ -532,6 +569,10 @@ function createAgentRunner(c: AlmostNodeContainer): void {
           content: globalThis._yuanAgent.config.loop.systemPrompt
         });
       } catch(e) { console.warn('[yuan-runner] contextManager.clear failed:', e); }
+      // Prepend English-only instruction to user message so it survives criticalInit's system prompt replacement
+      var englishPrefix = '[System: You MUST respond in English only.]\\n\\n';
+      var enrichedMessage = englishPrefix + message;
+
       console.log('═══════ [yuan-runner] INCOMING MESSAGE ═══════');
       console.log(message);
       console.log('═══════ [yuan-runner] END INCOMING ═══════');
