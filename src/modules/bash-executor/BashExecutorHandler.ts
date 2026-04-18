@@ -78,7 +78,7 @@ export class BashExecutorHandler {
       arg && typeof arg === 'object' && !Array.isArray(arg) ? arg : null;
     const obj = unpack(args[0]);
     const command = obj ? obj.command : args[0];
-    const cwd = obj?.cwd || '/tmp/repo-root';
+    const cwd = obj?.cwd || '/home/project';
     const timeout = Math.min(obj?.timeout || 30000, 120000);
 
     if (!command) {
@@ -95,8 +95,8 @@ export class BashExecutorHandler {
 
   private async clone(args: any[], context: RequestContext): Promise<any> {
     const boardVM = (globalThis as any).boardVM;
-    if (!boardVM?.fsBridge) {
-      return { path: '', error: 'fsBridge not available' };
+    if (!boardVM?.bashExec || !boardVM?.fsBridge) {
+      return { path: '', error: 'boardVM not available' };
     }
 
     // Check if startup prefetch completed
@@ -105,15 +105,23 @@ export class BashExecutorHandler {
       return { path: '', error: 'Repo not yet cloned (startup prefetch still running or failed)' };
     }
 
+    // Copy clean mirror → working directory
+    const targetDir = '/home/project';
+    await boardVM.bashExec({
+      command: `rm -rf ${targetDir} && cp -r /tmp/repo-root ${targetDir}`,
+      cwd: '/home',
+      timeout: 60000,
+    });
+
     const branch = context.repoBranch || 'main';
     const commitResult = await boardVM.bashExec({
       command: 'git rev-parse HEAD',
-      cwd: '/tmp/repo-root',
+      cwd: targetDir,
       timeout: 5000,
     });
 
     return {
-      path: '/tmp/repo-root',
+      path: targetDir,
       branch,
       commit: (commitResult.stdout || '').trim(),
     };
