@@ -36,7 +36,7 @@ export class ModuleRegistry {
     { ...localExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...githubExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...localAnalyzerManifest, enabled: true, init: () => {}, destroy: () => {} },
-    { ...bashExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

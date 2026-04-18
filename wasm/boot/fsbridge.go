@@ -124,6 +124,15 @@ func RegisterFSBridge(cfg js.Value, ns *nsWrapper, vmID string) {
 			return js.ValueOf(err == nil), nil
 		}),
 
+		// rm(path) -> Promise<bool> — removes file or directory tree
+		"rm": asyncFunc(func(_ js.Value, args []js.Value) (any, error) {
+			p := resolvePath(args[0].String())
+			if err := fs.RemoveAll(ns, p); err != nil {
+				return nil, fmt.Errorf("rm %s: %w", p, err)
+			}
+			return js.ValueOf(true), nil
+		}),
+
 		// glob(pattern, root, maxResults) -> Promise<[string]>
 		// Native Go glob: walks the filesystem in a single goroutine, no per-dir JS round-trips.
 		// Supports *, ?, ** (globstar), and {a,b} brace expansion.

@@ -363,8 +363,8 @@ export const boardVM = {
       stdout = stdout.slice(0, MAX_OUTPUT) + `\n... truncated (${stdout.length} bytes total)`;
     }
 
-    // 7. Cleanup result dir (best-effort — rm not yet in fsBridge)
-    // TODO: add fsBridge.rm and clean up /tmp/bash-exec/<id>
+    // 7. Cleanup result dir (best-effort)
+    try { await fs.rm(resultDir); } catch {}
 
     return { stdout, exitCode, durationMs: Date.now() - start };
   },
