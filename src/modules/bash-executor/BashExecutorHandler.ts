@@ -20,10 +20,19 @@ export class BashExecutorHandler {
       return;
     }
     // Retry until boardVM is ready (Go WASM sets fsBridge asynchronously)
+    // v86 boot can take 30-90s, so we poll for up to 3 minutes
     const waitForBoardVM = async (): Promise<any> => {
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 180; i++) {
         const bvm = (globalThis as any).boardVM;
-        if (bvm?.bashExec && bvm?.fsBridge) return bvm;
+        if (bvm?.fsBridge) {
+          // Verify fsBridge actually works (VM filesystem mounted)
+          try {
+            await bvm.fsBridge.exists('/home');
+            return bvm;
+          } catch {
+            // fsBridge registered but IDB not ready yet
+          }
+        }
         await new Promise(r => setTimeout(r, 1000));
       }
       return null;
