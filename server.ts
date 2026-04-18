@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import { exec } from "child_process";
 import util from "util";
+import os from "os";
 import net from "net";
 import { WebSocketServer } from "ws";
 
@@ -72,6 +73,51 @@ async function startServer() {
       res.json({ result });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // DEV-ONLY: Host agent endpoint — spawns claude CLI on the host
+  // TODO: gate behind process.env.ENABLE_HOST_AGENT === 'true'
+  app.post("/api/host/claude", async (req, res) => {
+    const { prompt, model, timeout } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: "prompt is required" });
+    }
+
+    try {
+      const args = [
+        "-p", prompt,
+        "--output-format", "json",
+        "--model", model || "sonnet",
+        "--dangerously-skip-permissions",
+        "--no-session-persistence",
+      ];
+
+      const agentCwd = os.homedir() + '/opencluade';
+      console.log(`[host/claude] Spawning agent in ${agentCwd}: "${prompt.slice(0, 80)}..."`);
+
+      const { stdout, stderr } = await execPromise(
+        `claude ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`,
+        {
+          cwd: agentCwd,
+          timeout: Math.min(timeout || 300000, 600000),
+          maxBuffer: 10 * 1024 * 1024,
+          env: { ...process.env, FORCE_COLOR: "0" },
+        }
+      );
+
+      console.log(`[host/claude] Agent finished, ${stdout.length} bytes`);
+      res.json({ stdout: stdout || "", stderr: stderr || "", exitCode: 0 });
+    } catch (error: any) {
+      const killed = error.killed;
+      console.warn(`[host/claude] Agent failed:`, error.message);
+      res.json({
+        stdout: error.stdout || "",
+        stderr: error.stderr || "",
+        exitCode: killed ? -1 : (typeof error.code === "number" ? error.code : 1),
+        error: killed ? `Agent timed out after ${timeout || 300000}ms` : error.message,
+      });
     }
   });
 

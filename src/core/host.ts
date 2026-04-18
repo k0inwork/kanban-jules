@@ -15,6 +15,7 @@ import { LocalHandler } from '../modules/executor-local/LocalHandler';
 import { GithubHandler } from '../modules/executor-github/GithubHandler';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
+import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -168,6 +169,9 @@ export class ModuleHost {
     const localHandler = new LocalHandler();
     const githubHandler = new GithubHandler();
     const bashHandler = new BashExecutorHandler();
+    const claudeHandler = new ClaudeExecutorHandler();
+    // DEV-ONLY: executor-claude — disabled in production
+    // TODO: gate behind process.env.ENABLE_HOST_AGENT === 'true'
 
     registry.registerModuleHandlers('executor-jules', julesHandler.handleRequest.bind(julesHandler));
     registry.registerModuleHandlers('channel-user-negotiator', userHandler.handleRequest.bind(userHandler));
@@ -179,6 +183,7 @@ export class ModuleHost {
     registry.registerModuleHandlers('process-project-manager', ProcessAgent.handleRequest);
     registry.registerModuleHandlers('knowledge-local-analyzer', LocalAnalyzer.handleRequest.bind(LocalAnalyzer));
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
+    registry.registerModuleHandlers('executor-claude', claudeHandler.handleRequest.bind(claudeHandler));
 
     // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
