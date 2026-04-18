@@ -28,6 +28,7 @@ import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, S
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
 import KBBrowser from './components/KBBrowser';
+import { AgentTreePanel } from './components/AgentTree/AgentTreePanel';
 import MailboxView from './components/MailboxView';
 import ConstitutionEditor from './components/ConstitutionEditor';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
@@ -127,6 +128,7 @@ export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isViewingBoard, setIsViewingBoard] = useState(true);
+  const [isAgentTreeOpen, setIsAgentTreeOpen] = useState(false);
   const [isConstitutionOpen, setIsConstitutionOpen] = useState(false);
 
   // LLM Settings
@@ -955,6 +957,18 @@ export default function App() {
             <Plus className="w-4 h-4 mr-2" />
             New Task
           </button>
+          <button
+            onClick={() => setIsAgentTreeOpen(o => !o)}
+            className={`flex items-center px-3 py-2 rounded-md text-sm transition-colors ${isAgentTreeOpen ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200 hover:bg-neutral-800'}`}
+            title="Agent Tree"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <line x1="4" y1="2" x2="4" y2="14" />
+              <line x1="4" y1="4" x2="8" y2="4" />
+              <line x1="4" y1="8" x2="8" y2="8" />
+              <line x1="4" y1="12" x2="10" y2="12" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -1087,6 +1101,7 @@ export default function App() {
             </div>
           )}
         </div>
+        <AgentTreePanel open={isAgentTreeOpen} onClose={() => setIsAgentTreeOpen(false)} />
       </div>
 
       {/* Modals */}
