@@ -56,6 +56,8 @@ export interface RequestContext {
   repoUrl: string;
   repoBranch: string;
   githubToken?: string;
+  taskDir?: string;      // task-scoped Lightning-FS directory (set when task has a branch)
+  branchName?: string;   // task branch name (e.g. 'task/550e8400')
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
   moduleConfig: any;
 }

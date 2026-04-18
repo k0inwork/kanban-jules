@@ -79,6 +79,18 @@ export interface KBEntry {
   project: string; // 'self' | 'target' (default: 'target')
 }
 
+export interface PushQueueItem {
+  id?: number;
+  dir: string;        // Lightning-FS directory to push from
+  branch: string;     // branch name to push
+  repoUrl: string;    // remote URL
+  token: string;      // auth token
+  status: 'pending' | 'pushing' | 'failed';
+  error?: string;
+  timestamp: number;
+  taskId?: string;
+}
+
 export interface KBDoc {
   id?: number;
   timestamp: number;
@@ -105,6 +117,7 @@ export class MyDatabase extends Dexie {
   moduleKnowledge!: Table<ModuleKnowledge>;
   kbLog!: Table<KBEntry>;
   kbDocs!: Table<KBDoc>;
+  pushQueue!: Table<PushQueueItem>;
 
   constructor() {
     super('AgentKanbanDB');
@@ -243,6 +256,19 @@ export class MyDatabase extends Dexie {
         }
         entry.tags = [...tagSet];
       });
+    });
+    this.version(23).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project',
+      pushQueue: '++id, branch, status, timestamp'
     });
   }
 }

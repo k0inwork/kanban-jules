@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Tab } from './PreviewTabs';
 import Markdown from 'react-markdown';
-import { Plus, X, Zap, Send, BookOpen, Activity, GitBranch, ScrollText } from 'lucide-react';
+import { Plus, X, Zap, Send, BookOpen, Activity, GitBranch, ScrollText, Shield, Check } from 'lucide-react';
 import { db, AgentMessage, KBEntry, KBDoc } from '../services/db';
 import { cn } from '../lib/utils';
 import { parseTasksFromMessage } from '../core/prompt';
@@ -25,6 +25,12 @@ const CATEGORY_COLORS: Record<string, string> = {
 function KBEntryDetail({ entry, onNavigateEntry }: { entry: KBEntry; onNavigateEntry?: (entry: KBEntry) => void }) {
   const [chain, setChain] = useState<KBEntry[]>([]);
   const [chainLoading, setChainLoading] = useState(false);
+  const [showPromote, setShowPromote] = useState(false);
+  const [promotedTo, setPromotedTo] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState(false);
+
+  const isConflictResolved = entry.tags.includes('conflict-resolved');
+  const alreadyPromoted = entry.tags.includes('constitution-promoted');
 
   useEffect(() => {
     if (!entry.id) return;
@@ -33,6 +39,66 @@ function KBEntryDetail({ entry, onNavigateEntry }: { entry: KBEntry; onNavigateE
       .then(c => setChain(c))
       .finally(() => setChainLoading(false));
   }, [entry.id]);
+
+  // Check if already promoted and show which constitution
+  useEffect(() => {
+    if (!alreadyPromoted) return;
+    const tag = entry.tags.find(t => t.startsWith('promoted-to:'));
+    if (tag) setPromotedTo(tag.replace('promoted-to:', ''));
+  }, [entry.tags, alreadyPromoted]);
+
+  const CONSTITUTIONS = [
+    { id: 'project', label: 'Project Constitution' },
+    { id: 'system:overseer', label: 'Overseer' },
+    { id: 'system:architect', label: 'Architect' },
+    { id: 'system:programmer', label: 'Programmer' },
+  ];
+
+  const handlePromote = async (constId: string) => {
+    if (!entry.id) return;
+    setPromoting(true);
+    try {
+      // Load current constitution content
+      const defaults: Record<string, string> = {
+        'system:overseer': OVERSEER_CONSTITUTION,
+        'system:architect': ARCHITECT_CONSTITUTION,
+        'system:programmer': PROGRAMMER_CONSTITUTION,
+      };
+      let currentContent: string;
+      if (constId === 'project') {
+        const configs = await db.projectConfigs.toArray();
+        currentContent = configs[0]?.constitution || '';
+      } else {
+        const rec = await db.moduleKnowledge.get(constId);
+        currentContent = rec?.content || defaults[constId] || '';
+      }
+
+      // Append the resolution as a rule
+      const rule = `\n\n## Rule (from conflict resolution ${new Date(entry.timestamp).toLocaleDateString()})\n${entry.text}`;
+      const newContent = currentContent + rule;
+
+      // Save back
+      if (constId === 'project') {
+        const configs = await db.projectConfigs.toArray();
+        if (configs.length > 0) {
+          await db.projectConfigs.update(configs[0].id, { constitution: newContent, updatedAt: Date.now() });
+        } else {
+          await db.projectConfigs.add({ id: 'default', constitution: newContent, updatedAt: Date.now() });
+        }
+      } else {
+        await db.moduleKnowledge.put({ id: constId, content: newContent, updatedAt: Date.now() });
+      }
+
+      // Tag the entry
+      const newTags = [...entry.tags.filter(t => !t.startsWith('promoted-to:')), 'constitution-promoted', `promoted-to:${constId}`];
+      await db.kbLog.update(entry.id, { tags: newTags });
+
+      setPromotedTo(constId);
+      setShowPromote(false);
+    } finally {
+      setPromoting(false);
+    }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#0d1117] custom-scrollbar p-6">
@@ -47,6 +113,12 @@ function KBEntryDetail({ entry, onNavigateEntry }: { entry: KBEntry; onNavigateE
           </span>
           {entry.project === 'self' && (
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400">self</span>
+          )}
+          {alreadyPromoted && promotedTo && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
+              <Check className="w-3 h-3" />
+              Rule in {CONSTITUTIONS.find(c => c.id === promotedTo)?.label || promotedTo}
+            </span>
           )}
         </div>
 
@@ -73,6 +145,44 @@ function KBEntryDetail({ entry, onNavigateEntry }: { entry: KBEntry; onNavigateE
             {entry.text}
           </div>
         </div>
+
+        {/* Promote to Rule */}
+        {isConflictResolved && !alreadyPromoted && (
+          <div className="mb-4">
+            {!showPromote ? (
+              <button
+                onClick={() => setShowPromote(true)}
+                className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-bold py-2 px-4 rounded uppercase tracking-wider transition-colors border border-emerald-500/30"
+              >
+                <Shield className="w-4 h-4" />
+                Promote to Constitution Rule
+              </button>
+            ) : (
+              <div className="p-3 bg-neutral-800/50 rounded-lg border border-neutral-700">
+                <div className="text-[10px] font-mono text-neutral-400 mb-2 uppercase tracking-wider">Add rule to:</div>
+                <div className="flex flex-wrap gap-2">
+                  {CONSTITUTIONS.map(c => (
+                    <button
+                      key={c.id}
+                      disabled={promoting}
+                      onClick={() => handlePromote(c.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 disabled:opacity-50 text-neutral-300 text-[10px] font-mono rounded transition-colors"
+                    >
+                      {promoting ? '...' : <ScrollText className="w-3 h-3" />}
+                      {c.label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowPromote(false)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-neutral-500 text-[10px] font-mono rounded hover:text-neutral-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Metadata */}
         <div className="flex flex-wrap gap-3 text-[10px] font-mono text-neutral-500">

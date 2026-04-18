@@ -501,11 +501,16 @@ interface Task {
 
 ### Phase 1c: Task Branching (Conditional)
 
-- [ ] Add `branch` field to Task model
-- [ ] On task start: evaluate branch condition → create `task/{id}` if qualifying
-- [ ] On task success: merge `task/{id}` back
-- [ ] On task failure: leave branch for retry
-- [ ] Simple tasks commit directly (no branch)
+- [x] Add `branchName` + `branchDir` fields to Task model (Dexie v23)
+- [x] BranchEvaluator: qualifies tasks by protocol steps (≥3), scope keywords, or architectural flag
+- [x] GitFs: task-scoped Lightning-FS directories (`/owner/repo--{shortTaskId}`), `createTaskBranch()`, `mergeTaskBranch()`, `commitOnly()`
+- [x] RequestContext extended with `taskDir`/`branchName` — tools (RepositoryTool) use task-scoped dir
+- [x] On task start: evaluate branch condition → create `task/{shortId}` if qualifying
+- [x] On task success: merge `task/{shortId}` back + enqueue deferred push via PushQueue
+- [x] On task failure: leave branch for retry
+- [x] Simple tasks commit directly (no branch)
+- [x] PushQueue: IndexedDB-backed deferred push queue, auto-flush on `window.online`
+- [x] Tests: BranchEvaluator (7), GitFs.taskDir (2), PushQueue (3), Task DB fields (1) — 13 passing
 
 ### Phase 1d: Micro Dream Verification (Unifies Both Sources)
 
@@ -521,7 +526,7 @@ interface Task {
 - [x] Validation: only supersede ≤ own abstraction
 - [x] Auto-deactivate superseded entries
 - [x] Query helper: `traceDecisionChain(entryId)`
-- [ ] KB browser: show decision history as timeline
+- [x] KB browser: show decision history as timeline
 
 ### Phase 1f: Session Conflict Detection + Escalation
 
@@ -533,10 +538,10 @@ interface Task {
 
 ### Phase 1g: Resolution Feedback Loop
 
-- [ ] On user resolution: create superseding entry
-- [ ] If generalizable: propose as constitution rule
-- [ ] User-approved resolutions → appended to constitution
-- [ ] Future tasks see resolution in L0 projection
+- [x] On user resolution: create superseding entry
+- [x] Future tasks see resolution in L0 projection (conflict-resolved tag bypasses abstraction cap)
+- [x] Manual constitution editing via KB browser (user can promote resolutions by editing constitutions directly)
+- [x] Auto-proposal UI: "Promote this resolution to constitution rule?" button on resolved entries
 
 ### Phase 1h: Deep Decision Log
 

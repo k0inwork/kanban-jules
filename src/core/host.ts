@@ -19,10 +19,12 @@ import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
+import { pushQueue } from '../services/PushQueue';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
   private config: HostConfig | null = null;
+  private stopPushFlush: (() => void) | null = null;
 
   constructor() {
     this.setupListeners();
@@ -87,11 +89,14 @@ export class ModuleHost {
     eventBus.on('module:request', async ({ requestId, taskId, toolName, args }) => {
       try {
         const moduleId = toolName.split('.')[0];
+        const task = taskId ? await db.tasks.get(taskId) : null;
         const context: RequestContext = {
           taskId,
           repoUrl: this.config?.repoUrl || '',
           repoBranch: this.config?.repoBranch || '',
           githubToken: this.config?.githubToken || '',
+          taskDir: task?.branchDir,
+          branchName: task?.branchName,
           llmCall: this.llmCall.bind(this),
           moduleConfig: this.config?.moduleConfigs?.[moduleId] || {}
         };
@@ -193,6 +198,9 @@ export class ModuleHost {
     // Initialize commit harvest listener (dream engine extracts decisions from Jules commits)
     initCommitHarvest(config, this.llmCall.bind(this));
 
+    // Start push queue auto-flush (flushes pending pushes on connectivity)
+    this.stopPushFlush = pushQueue.startAutoFlush();
+
     // Instantiate and register handlers
     const julesConfig = config.moduleConfigs['executor-jules'] || {};
     const julesHandler = new JulesHandler({ 
@@ -228,6 +236,10 @@ export class ModuleHost {
 
   stop() {
     destroyCommitHarvest();
+    if (this.stopPushFlush) {
+      this.stopPushFlush();
+      this.stopPushFlush = null;
+    }
     const modules = registry.getEnabled();
     for (const module of modules) {
       if (module.destroy) {
