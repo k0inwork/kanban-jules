@@ -14,6 +14,7 @@ import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
 import { GithubHandler } from '../modules/executor-github/GithubHandler';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
+import { YuanSandboxHandler } from '../modules/sandbox-yuan/YuanSandboxHandler';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
@@ -225,6 +226,10 @@ export class ModuleHost {
     registry.registerModuleHandlers('knowledge-projector', ProjectorHandler.handleRequest);
     registry.registerModuleHandlers('process-dream', DreamHandler.handleRequest);
     registry.registerModuleHandlers('process-reflection', ReflectionHandler.handleRequest);
+
+    // Yuan sandbox — runScript tool for batching tool calls
+    const yuanSandboxHandler = new YuanSandboxHandler();
+    registry.registerModuleHandlers('sandbox-yuan', yuanSandboxHandler.handleRequest.bind(yuanSandboxHandler));
 
     // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));

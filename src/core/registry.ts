@@ -27,6 +27,8 @@ import knowledgeProjectorManifest from '../modules/knowledge-projector/manifest.
 import processDreamManifest from '../modules/process-dream/manifest.json';
 import processReflectionManifest from '../modules/process-reflection/manifest.json';
 
+import sandboxYuanManifest from '../modules/sandbox-yuan/manifest.json';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -42,6 +44,7 @@ export class ModuleRegistry {
     { ...knowledgeProjectorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...processDreamManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...processReflectionManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

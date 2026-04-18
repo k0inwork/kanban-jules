@@ -12,7 +12,11 @@ export class Sandbox {
 
   constructor() {
     this.worker = new Worker(new URL('./sandbox.worker.ts', import.meta.url), { type: 'module' });
-    
+
+    this.worker.onerror = (e) => {
+      console.error('[Sandbox] worker error:', e.message);
+    };
+
     this.worker.onmessage = async (event) => {
       const { type, requestId, result, error, toolName, args, index } = event.data;
 
@@ -51,7 +55,7 @@ export class Sandbox {
   async execute(code: string, permissions: string[] = [], sandboxBindings: Record<string, string> = {}, globals?: Record<string, any>, executionHistory: any[] = [], seed?: number): Promise<any> {
     return new Promise((resolve, reject) => {
       const requestId = Math.random().toString(36).substring(7);
-      
+
       this.pendingToolCalls.set(requestId, (result, error) => {
         if (error) reject(new Error(error));
         else resolve(result);

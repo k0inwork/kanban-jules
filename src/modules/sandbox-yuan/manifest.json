@@ -1,0 +1,28 @@
+{
+  "id": "sandbox-yuan",
+  "name": "Yuan Sandbox",
+  "version": "1.0.0",
+  "type": "tool",
+  "description": "Gives Yuan the ability to run JS scripts in the Sval sandbox with access to all Fleet tool bindings. Useful for batching multiple tool calls into a single script.",
+  "tools": [
+    {
+      "name": "sandbox-yuan.runScript",
+      "description": "Executes a JavaScript script in the Sval sandbox with access to all Fleet tool bindings. Use this to batch multiple tool calls, chain operations, or run logic that requires multiple steps. Returns the script's return value as JSON.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "JavaScript code to execute. Has access to all Fleet tools (readFile, writeFile, listFiles, saveArtifact, readArtifact, KB.record, etc.). The code runs in an async context — use await for tool calls. Return a value to pass it back."
+          }
+        },
+        "required": ["code"]
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "runScript": "sandbox-yuan.runScript"
+  },
+  "permissions": ["storage"],
+  "enabled": true
+}

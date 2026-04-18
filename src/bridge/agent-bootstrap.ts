@@ -485,6 +485,25 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '   - scan(patterns?) — scan the repository for secrets and patterns\\n';
       prompt += '\\n';
 
+      prompt += '===== SCRIPTING COMPLEX TASKS WITH runScript =====\\n';
+      prompt += 'For complex tasks that need multiple tool calls with logic between them,\\n';
+      prompt += 'use runScript to write JavaScript instead of calling tools one at a time.\\n';
+      prompt += 'This lets you express loops, conditionals, and chained operations in code.\\n';
+      prompt += '\\n';
+      prompt += 'runScript({ code: "..." }) gives you access to ALL Fleet tools as async JS functions.\\n';
+      prompt += 'The code runs in a sandbox. Use await for all tool calls. Return a value to pass it back.\\n';
+      prompt += '\\n';
+      prompt += 'When to use runScript vs individual tool calls:\\n';
+      prompt += '  - Use runScript for: loops, conditionals, error handling, chaining 3+ dependent calls, data transformation.\\n';
+      prompt += '  - Use individual tool calls for: simple single operations, asking the user a question.\\n';
+      prompt += '\\n';
+      prompt += 'Example — search codebase then conditionally update files:\\n';
+      prompt += '  runScript({ code: "const files = await glob({ pattern: \\"src/**/*.ts\\" }); const results = []; for (const file of files) { const content = await readFile({ path: file }); if (content.includes(\\"oldFunction\\")) { await writeFile({ path: file, content: content.replace(/oldFunction/g, \\"newFunction\\") }); results.push(file); } } return \\"Updated: \\" + results.join(\\", \\");" })\\n';
+      prompt += '\\n';
+      prompt += 'Example — query KB, then ask user if uncertain:\\n';
+      prompt += '  runScript({ code: "const log = await KB_queryLog({ category: \\"error\\", tags: [\\"auth\\"], limit: 5 }); if (log.length === 0) { return await askUser({ prompt: \\"No auth errors found. Check repo?\\" }); } return JSON.stringify(log);" })\\n';
+      prompt += '\\n';
+
       prompt += '===== DYNAMICALLY REGISTERED TOOLS =====\\n';
       if (toolDescs.length > 0) {
         prompt += 'Additional tools available from active board modules:\\n';

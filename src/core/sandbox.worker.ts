@@ -134,8 +134,12 @@ self.onmessage = async (event) => {
         }
       }
 
-      interpreter.import('__resolve', (res: any) => postMessage({ type: 'result', requestId, result: res }));
-      interpreter.import('__reject', (err: any) => postMessage({ type: 'result', requestId, error: err.message }));
+      interpreter.import('__resolve', (res: any) => {
+        postMessage({ type: 'result', requestId, result: res });
+      });
+      interpreter.import('__reject', (err: any) => {
+        postMessage({ type: 'result', requestId, error: err.message });
+      });
 
       interpreter.run(`
         (async () => {
