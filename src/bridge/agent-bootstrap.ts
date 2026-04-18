@@ -460,9 +460,11 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '\\n';
 
       prompt += 'CRITICAL DISTINCTION:\\n';
-      prompt += '- Fleet repo tools (repo.*) access GitHub repositories via the GitHub API. Use them to browse and edit code in GitHub repos.\\n';
-      prompt += '- Local file tools (file_read, glob, grep, etc.) access the local v86 workspace filesystem. Use them for local files only.\\n';
-      prompt += '- Do NOT use repo tools to search or read the local filesystem. They are for GitHub only.\\n\\n';
+      prompt += '- To browse/read/edit repository files, ALWAYS use repo.* tools (repo.listFiles, repo.readFile, repo.writeFile).\\n';
+      prompt += '- repo.* tools access the GitHub repository directly. They are your PRIMARY way to explore code.\\n';
+      prompt += '- Do NOT use bash.exec("ls") or bash.exec("cat") to explore repo files — use repo.listFiles and repo.readFile instead.\\n';
+      prompt += '- Local file tools (file_read, glob, grep) access the local v86 workspace filesystem, NOT the GitHub repo.\\n';
+      prompt += '- bash.exec is for running commands: build, test, lint, git operations. Not for file browsing.\\n\\n';
 
       prompt += 'WORKFLOW:\\n';
       prompt += '1. Use Fleet repo tools to explore and understand the GitHub repository\\n';
