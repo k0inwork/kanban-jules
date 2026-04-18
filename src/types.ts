@@ -14,8 +14,14 @@ export interface TaskStep {
   focus?: string[];
 }
 
+export interface ArchitectDecision {
+  text: string;
+  tags?: string[];
+}
+
 export interface TaskProtocol {
   steps: TaskStep[];
+  decisions?: ArchitectDecision[];
 }
 
 export interface Task {

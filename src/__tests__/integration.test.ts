@@ -397,12 +397,12 @@ describe('Integration: full agent session lifecycle', () => {
     ).toArray();
     expect(rawActive).toHaveLength(0);
 
-    // 2. Micro-dreams were deactivated by sessionDream (observations + micro-dreams superseded)
+    // 2. Micro-dream insights survive sessionDream — not gathered, so not superseded
     const microDreams = await db.kbLog.filter(e =>
       e.source === 'dream:micro' && e.category === 'insight'
     ).toArray();
     expect(microDreams).toHaveLength(2);
-    expect(microDreams.every(e => !e.active)).toBe(true);
+    expect(microDreams.every(e => e.active)).toBe(true);
 
     // 3. Session-dream insights at abstraction 7
     const sessionInsights = await db.kbLog.filter(e =>

@@ -560,6 +560,25 @@ export default function App() {
     setIsViewingBoard(false);
   };
 
+  const handleConstitutionSelect = (id: string, label: string) => {
+    const tabId = `kb-const-${id}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+    const newTab: Tab = {
+      id: tabId,
+      name: label,
+      content: '',
+      type: 'kb-constitution',
+      constitutionId: id,
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
   const handleBrowseKB = () => {
     const tabId = 'kb-table';
     if (tabs.find(t => t.id === tabId)) {
@@ -1046,6 +1065,7 @@ export default function App() {
                   onReplyToMail={handleReplyToMail}
                   onKBEntrySelect={handleKBEntrySelect}
                   onKBDocSelect={handleKBDocSelect}
+                  onConstitutionSelect={handleConstitutionSelect}
                   autonomyMode={autonomyMode}
                   apiProvider={apiProvider}
                   geminiModel={geminiModel}

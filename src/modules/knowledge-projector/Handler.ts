@@ -244,6 +244,8 @@ export class ProjectorHandler {
       if (opts.executor && !e.tags.includes(opts.executor)) return false;
       if (opts.taskId && !e.tags.includes(opts.taskId)) return false;
       if (opts.tags && opts.tags.length > 0 && !opts.tags.some((t: string) => e.tags.includes(t))) return false;
+      // Block: conflict-pending decisions are not projected until resolved
+      if (e.tags.includes('conflict-pending')) return false;
       return true;
     });
 

@@ -1507,6 +1507,28 @@ describe('Projector: doc chunking in RAG', () => {
 
     expect(result).toContain('Auth');
   });
+
+  it('blocks conflict-pending decisions from projection', async () => {
+    await db.kbLog.add({
+      timestamp: Date.now(), text: 'Use REST API for external integrations',
+      category: 'decision', abstraction: 5, layer: ['L0', 'L3'],
+      tags: ['api', 'verified'], source: 'execution', active: true, project: 'target',
+    });
+    await db.kbLog.add({
+      timestamp: Date.now(), text: 'Use GraphQL for external integrations',
+      category: 'decision', abstraction: 5, layer: ['L0', 'L3'],
+      tags: ['api', 'verified', 'conflict-pending'], source: 'execution', active: true, project: 'target',
+    });
+
+    const result = await ProjectorHandler.project({
+      layer: 'L3', project: 'target',
+      taskDescription: 'build api integration',
+      focus: ['api'],
+    });
+
+    expect(result).toContain('REST API');
+    expect(result).not.toContain('GraphQL');
+  });
 });
 
 // ─── Commit Harvest (Decision Extraction) ──────────────────────

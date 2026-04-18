@@ -496,6 +496,8 @@ interface Task {
 - [x] Local path: read moduleLogs from DB, extract decisions
 - [x] Shared extraction prompt + KB schema (source: `dream:micro`)
 - [x] No `recordDecision()` in agent code — dreamer analyzes traces separately
+- [x] Architect declares decisions in protocol JSON — orchestrator persists to KB on task success
+- [x] Dual path: tool (architect declares) + dream (post-execution extraction)
 
 ### Phase 1c: Task Branching (Conditional)
 
@@ -526,7 +528,7 @@ interface Task {
 - [x] Compare decisions across tasks (severity filter: only direct contradictions)
 - [x] Create escalation AgentMessage for conflicts
 - [x] Present three options to user (pick D5, pick D6, merged rule)
-- [ ] Block merge on ESCALATE-severity conflicts
+- [x] Block merge on ESCALATE-severity conflicts
 - [x] Wire into `sessionDream()` in `dream-levels.ts`
 
 ### Phase 1g: Resolution Feedback Loop

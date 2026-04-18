@@ -8,7 +8,8 @@ export interface Tab {
   id: string;
   name: string;
   content: string;
-  type: 'file' | 'artifact' | 'constitution' | 'mail' | 'kb-log' | 'kb-doc' | 'kb-table';
+  type: 'file' | 'artifact' | 'constitution' | 'mail' | 'kb-log' | 'kb-doc' | 'kb-table' | 'kb-constitution';
+  constitutionId?: string;
   message?: AgentMessage;
   kbEntry?: KBEntry;
   kbDoc?: KBDoc;

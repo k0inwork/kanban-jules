@@ -433,7 +433,7 @@ export class Orchestrator {
         agentId: 'local-agent'
       });
 
-      // KB hook: record outcome + trigger decision harvest then microDream
+      // KB hook: record outcome + save architect decisions + trigger decision harvest then microDream
       if (status === 'DONE' && this.config) {
         try {
           await KBHandler.recordExecution(
@@ -441,6 +441,20 @@ export class Orchestrator {
             [task.id],
             task.project
           );
+
+          // Save architect's declared decisions to KB (only on success)
+          const protocol = currentTask?.protocol;
+          if (protocol?.decisions && Array.isArray(protocol.decisions)) {
+            for (const decision of protocol.decisions) {
+              if (decision.text) {
+                await KBHandler.recordDecision(
+                  decision.text,
+                  [...(decision.tags || []), task.id, 'architect-declared'],
+                  task.project
+                );
+              }
+            }
+          }
 
           // Emit event for decision harvest FIRST so commit-harvest writes decisions
           // to DB before microDream's verifyDecisions runs

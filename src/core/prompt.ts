@@ -153,8 +153,20 @@ Output ONLY valid JSON matching this schema:
       "status": "pending",
       "focus": ["keyword1", "keyword2"]
     }
+  ],
+  "decisions": [
+    {
+      "text": "What you chose and why (include alternatives considered)",
+      "tags": ["classification"]
+    }
   ]
 }
 The "focus" array narrows the knowledge context for each step. Include 3-7 specific keywords relevant to what that step needs to know about (e.g., technologies, modules, concepts, file names). Steps with good focus keywords will receive more relevant experience and documentation from the knowledge base.
+
+DECISIONS: List every non-obvious architectural or design decision you made in planning this task.
+A decision must have: what was chosen + why (or a clear choice between alternatives).
+Do NOT include: following existing patterns, default values, obvious implementations, style choices.
+Classification tags must be one of: architectural, api, dependency, pattern, local, infra, security
+If no non-obvious decisions were made, output: "decisions": []
   `;
 }

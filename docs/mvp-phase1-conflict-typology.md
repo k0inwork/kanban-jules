@@ -545,9 +545,9 @@ resolution with the user's judgment — all through the existing chain mechanism
 - [x] Type 3 (Doubtful): implemented — current `detectConflicts` + `registerConflictResolutionHandler`
 - [x] Layer cascade on resolution
 - [x] Projector bypass for `conflict-resolved` entries
-- [ ] Evidence score computation (`evidenceScore`, `corroborationScore`)
-- [ ] Type 0 (Constitutional): auto-resolve + amendment escalation
-- [ ] Type 1 (Guiding): auto-resolve in `detectConflicts`
-- [ ] Type 2 (Self-correcting): evidence-based biased escalation
-- [ ] Updated user prompts with evidence breakdown
-- [ ] Tests for all types
+- [x] Evidence score computation (`evidenceScore`, `corroborationScore`)
+- [x] Type 0 (Constitutional): auto-resolve + amendment escalation
+- [x] Type 1 (Guiding): auto-resolve in `detectConflicts`
+- [x] Type 2 (Self-correcting): evidence-based biased escalation
+- [x] Updated user prompts with evidence breakdown
+- [x] Tests for all types
