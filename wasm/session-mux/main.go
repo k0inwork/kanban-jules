@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -24,15 +24,6 @@ const (
 	renderFPS      = 30
 )
 
-// YuanMsg is a JSON protocol message between mux and Yuan agent.
-type YuanMsg struct {
-	Type    string `json:"type"`
-	Text    string `json:"text,omitempty"`
-	Session int    `json:"session,omitempty"`
-	Data    string `json:"data,omitempty"`
-	Code    int    `json:"code,omitempty"`
-}
-
 // Pane represents a single full-screen terminal pane.
 type Pane struct {
 	id   int
@@ -42,10 +33,6 @@ type Pane struct {
 	// Local shell
 	cmd *exec.Cmd
 	sin io.WriteCloser
-
-	// 9p pipe session (Yuan)
-	pipeIn  *os.File // JS→mux
-	pipeOut *os.File // mux→JS
 
 	mu       sync.Mutex
 	activity bool
@@ -71,6 +58,9 @@ type Mux struct {
 
 	// Escape sequence parser for resize: \x1b[8;rows;colst
 	escBuf []byte
+
+	// Bash exec: tracks forked background processes by ID for kill support
+	bashProcs map[string]*exec.Cmd
 }
 
 func main() {
@@ -97,11 +87,12 @@ func main() {
 	}
 
 	m := &Mux{
-		rows:     rows,
-		cols:     cols,
-		renderCh: make(chan struct{}, 8),
-		stopCh:   make(chan struct{}),
-		saved:    saved,
+		rows:      rows,
+		cols:      cols,
+		renderCh:  make(chan struct{}, 8),
+		stopCh:    make(chan struct{}),
+		saved:     saved,
+		bashProcs: make(map[string]*exec.Cmd),
 	}
 	defer m.restore()
 
@@ -109,9 +100,6 @@ func main() {
 	if err := m.newLocalShell(); err != nil {
 		os.Exit(1)
 	}
-
-	// Pane 1: Yuan chat (optional, requires sessionfs)
-	m.tryYuanChat()
 
 	// Clear screen and start
 	os.Stdout.Write([]byte("\x1b[2J\x1b[H"))
@@ -230,212 +218,11 @@ func (m *Mux) newLocalShell() error {
 	return nil
 }
 
-func (m *Mux) tryYuanChat() {
-	// Pipe routing (both ends use "out" = Port2):
-	//   mux writes to "out" → buffer1 → JS reads from "in" (buffer1)
-	//   JS writes to "in" → buffer2 → mux reads from "out" (buffer2)
-	pipeOut, err := os.OpenFile("/#sessions/0/out", os.O_WRONLY, 0)
-	if err != nil {
-		pipeOut, err = os.OpenFile("/sessions/0/out", os.O_WRONLY, 0)
-	}
-	if err != nil {
-		return
-	}
-	pipeIn, err := os.OpenFile("/#sessions/0/out", os.O_RDONLY, 0)
-	if err != nil {
-		pipeIn, err = os.OpenFile("/sessions/0/out", os.O_RDONLY, 0)
-	}
-	if err != nil {
-		pipeOut.Close()
-		return
-	}
-
-	h := m.rows - 1
-	emu := vt.NewSafeEmulator(m.cols, h)
-
-	p := &Pane{
-		id:      1,
-		name:    "yuan",
-		emu:     emu,
-		pipeIn:  pipeIn,
-		pipeOut: pipeOut,
-	}
-	m.panes = append(m.panes, p)
-
-	// Debug: show pipe state
-	p.emu.Write([]byte(fmt.Sprintf("[yuan] pipes opened: out=%v in=%v\r\n", pipeOut != nil, pipeIn != nil)))
-
-	// Read Yuan JSON messages
-	go m.readYuanMsgs(p)
-}
-
-func (m *Mux) spawnYuanShell() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if len(m.panes) >= maxPanes {
-		return
-	}
-
-	id := len(m.panes)
-	h := m.rows - 1
-	emu := vt.NewSafeEmulator(m.cols, h)
-
-	// Open single pipe file bidirectionally (mux side = c1 = "in")
-	pipePath := fmt.Sprintf("/#sessions/%d/in", id)
-	pipe, err := os.OpenFile(pipePath, os.O_RDWR, 0)
-	if err != nil {
-		// Pipe not available, spawn local shell instead
-		m.spawnWatchShell(id, emu)
-		return
-	}
-
-	name := fmt.Sprintf("shell-%d", id-1)
-	p := &Pane{
-		id:      id,
-		name:    name,
-		emu:     emu,
-		pipeIn:  pipe,
-		pipeOut: pipe,
-	}
-	m.panes = append(m.panes, p)
-
-	// Fork/exec shell with mux-mediated I/O
-	cmd := exec.Command("/bin/sh", "-i")
-	cmd.Env = append(os.Environ(),
-		"TERM=xterm",
-		fmt.Sprintf("COLUMNS=%d", m.cols),
-		fmt.Sprintf("LINES=%d", h),
-		"PS1=/ # ",
-	)
-
-	sin, _ := cmd.StdinPipe()
-	sout, _ := cmd.StdoutPipe()
-	serr, _ := cmd.StderrPipe()
-	p.sin = sin
-	p.cmd = cmd
-
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Start()
-
-	// Shell output → emulator + 9p pipe out
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := sout.Read(buf)
-			if n > 0 {
-				p.emu.Write(buf[:n])
-				p.mu.Lock()
-				p.activity = true
-				p.mu.Unlock()
-				// Forward to Yuan via 9p pipe
-				msg := YuanMsg{Type: "output", Session: id, Data: string(buf[:n])}
-				if data, err := json.Marshal(msg); err == nil {
-					data = append(data, '\n')
-					pipe.Write(data)
-				}
-				m.triggerRender()
-			}
-			if err != nil {
-				break
-			}
-		}
-	}()
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := serr.Read(buf)
-			if n > 0 {
-				p.emu.Write(buf[:n])
-				p.mu.Lock()
-				p.activity = true
-				p.mu.Unlock()
-				msg := YuanMsg{Type: "output", Session: id, Data: string(buf[:n])}
-				if data, err := json.Marshal(msg); err == nil {
-					data = append(data, '\n')
-					pipe.Write(data)
-				}
-				m.triggerRender()
-			}
-			if err != nil {
-				break
-			}
-		}
-	}()
-
-	// 9p pipe in → shell stdin (Yuan writes commands)
-	go func() {
-		dec := json.NewDecoder(pipe)
-		for {
-			var msg YuanMsg
-			if err := dec.Decode(&msg); err != nil {
-				break
-			}
-			if msg.Type == "write" && msg.Session == id {
-				sin.Write([]byte(msg.Data))
-			}
-		}
-	}()
-
-	go func() {
-		cmd.Wait()
-		p.mu.Lock()
-		p.exited = true
-		p.mu.Unlock()
-		// Notify Yuan
-		msg := YuanMsg{Type: "exited", Session: id, Code: cmd.ProcessState.ExitCode()}
-		if data, err := json.Marshal(msg); err == nil {
-			data = append(data, '\n')
-			pipe.Write(data)
-		}
-		m.triggerRender()
-	}()
-
-	// Notify Yuan that shell was spawned
-	spawned := YuanMsg{Type: "spawned", Session: id}
-	if data, err := json.Marshal(spawned); err == nil {
-		data = append(data, '\n')
-		if yuanPipe := m.yuanPipeOut(); yuanPipe != nil {
-			yuanPipe.Write(data)
-		}
-	}
-}
-
-func (m *Mux) spawnWatchShell(id int, emu *vt.SafeEmulator) {
-	// Fallback: spawn a local shell without 9p pipes
-	name := fmt.Sprintf("shell-%d", id-1)
-	cmd := exec.Command("/bin/sh", "-i")
-	cmd.Env = append(os.Environ(),
-		"TERM=xterm",
-		fmt.Sprintf("COLUMNS=%d", m.cols),
-		fmt.Sprintf("LINES=%d", m.rows-1),
-		"PS1=/ # ",
-	)
-	sin, _ := cmd.StdinPipe()
-	sout, _ := cmd.StdoutPipe()
-	serr, _ := cmd.StderrPipe()
-
-	p := &Pane{id: id, name: name, emu: emu, cmd: cmd, sin: sin}
-	m.panes = append(m.panes, p)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Start()
-
-	go m.feedOutput(p, sout)
-	go m.feedOutput(p, serr)
-	go func() {
-		cmd.Wait()
-		p.mu.Lock()
-		p.exited = true
-		p.mu.Unlock()
-		m.triggerRender()
-	}()
-}
-
 func (m *Mux) closePane(idx int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if idx <= 1 || idx >= len(m.panes) {
+	if idx <= 0 || idx >= len(m.panes) {
 		return
 	}
 
@@ -445,12 +232,6 @@ func (m *Mux) closePane(idx int) {
 	}
 	if p.sin != nil {
 		p.sin.Close()
-	}
-	if p.pipeIn != nil {
-		p.pipeIn.Close()
-	}
-	if p.pipeOut != nil {
-		p.pipeOut.Close()
 	}
 
 	m.panes = append(m.panes[:idx], m.panes[idx+1:]...)
@@ -473,15 +254,6 @@ func (m *Mux) switchPane(idx int) {
 	m.triggerRender()
 }
 
-func (m *Mux) yuanPipeOut() *os.File {
-	for _, p := range m.panes {
-		if p.id == 1 && p.pipeOut != nil {
-			return p.pipeOut
-		}
-	}
-	return nil
-}
-
 // --- I/O ---
 
 func (m *Mux) feedOutput(p *Pane, r io.Reader) {
@@ -500,56 +272,6 @@ func (m *Mux) feedOutput(p *Pane, r io.Reader) {
 		if err != nil {
 			break
 		}
-	}
-}
-
-func (m *Mux) readYuanMsgs(p *Pane) {
-	p.emu.Write([]byte("[yuan] readYuanMsgs started\r\n"))
-	m.triggerRender()
-	for {
-		// Read from response buffer file (regular file, no blocking)
-		data, err := os.ReadFile("/#sessions/0/response")
-		if err != nil {
-			data, err = os.ReadFile("/sessions/0/response")
-		}
-		if err == nil && len(data) > 0 {
-			for _, line := range bytes.Split(data, []byte{'\n'}) {
-				if len(line) == 0 {
-					continue
-				}
-				var msg YuanMsg
-				if json.Unmarshal(line, &msg) == nil {
-					m.handleYuanMsg(p, &msg)
-				}
-			}
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-}
-
-func (m *Mux) handleYuanMsg(p *Pane, msg *YuanMsg) {
-	switch msg.Type {
-	case "chat":
-		text := bytes.ReplaceAll([]byte(msg.Text), []byte("\n"), []byte("\r\n"))
-		line := fmt.Sprintf("Yuan: %s\r\n", text)
-		p.emu.Write([]byte(line))
-		p.mu.Lock()
-		p.activity = true
-		p.mu.Unlock()
-		m.triggerRender()
-	case "spawn":
-		m.spawnYuanShell()
-	case "write":
-		m.mu.Lock()
-		for _, pp := range m.panes {
-			if pp.id == msg.Session && pp.sin != nil {
-				pp.sin.Write([]byte(msg.Data))
-				break
-			}
-		}
-		m.mu.Unlock()
-	case "kill":
-		m.closePane(msg.Session)
 	}
 }
 
@@ -576,8 +298,14 @@ func (m *Mux) handleInputByte(b byte) {
 			m.escBuf = m.escBuf[:0]
 			return
 		}
+		// Check for OSC 89 (bash exec) — terminated by BEL (0x07)
+		if b == 0x07 && len(m.escBuf) >= 6 && m.escBuf[0] == 0x1b && m.escBuf[1] == ']' {
+			m.handleBashExec()
+			m.escBuf = m.escBuf[:0]
+			return
+		}
 		// Timeout: if buffer gets too long without matching, flush
-		if len(m.escBuf) > 20 {
+		if len(m.escBuf) > 512 {
 			for _, eb := range m.escBuf {
 				m.handleKey(eb)
 			}
@@ -613,10 +341,6 @@ func (m *Mux) handleResizeSeq() {
 	m.cols = cols
 	m.mu.Unlock()
 
-	// Log resize to active pane
-	if len(m.panes) > m.active {
-		m.panes[m.active].emu.Write([]byte(fmt.Sprintf("\r\n[mux] resize: %dx%d\r\n", cols, rows)))
-	}
 	for _, p := range m.panes {
 		h := rows - 1
 		if p.emu.IsAltScreen() {
@@ -625,6 +349,74 @@ func (m *Mux) handleResizeSeq() {
 		p.emu.Resize(cols, h)
 	}
 	m.triggerRender()
+}
+
+func (m *Mux) handleBashExec() {
+	// Parse: \x1b]89;<base64>\x07
+	s := string(m.escBuf)
+	if !strings.HasPrefix(s, "\x1b]89;") {
+		// Not our sequence, forward as keystrokes
+		for _, b := range m.escBuf {
+			m.handleKey(b)
+		}
+		return
+	}
+	payload := s[5 : len(s)-1] // strip "\x1b]89;" and "\x07"
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return
+	}
+	parts := strings.SplitN(string(decoded), ":", 3)
+	if len(parts) != 3 {
+		return
+	}
+	id, cwd, command := parts[0], parts[1], parts[2]
+
+	// Check for kill command: \x1b]89;<base64("kill:ID")>\x07
+	if cwd == "kill" {
+		m.mu.Lock()
+		if cmd, ok := m.bashProcs[id]; ok {
+			if cmd.Process != nil {
+				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+			delete(m.bashProcs, id)
+		}
+		m.mu.Unlock()
+		return
+	}
+
+	resultDir := "/tmp/bash-exec/" + id
+	os.MkdirAll(resultDir, 0755)
+
+	// Build shell script: cd to cwd, run command, capture stdout+exitcode
+	script := fmt.Sprintf("cd '%s' && %s > '%s/stdout' 2>&1; echo $? > '%s/exitcode'",
+		shellEscape(cwd), command, resultDir, resultDir)
+	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		// Write error to exitcode so the poller gets a result
+		os.WriteFile(resultDir+"/exitcode", []byte("126"), 0644)
+		os.WriteFile(resultDir+"/stdout", []byte("bash-exec: "+err.Error()), 0644)
+		return
+	}
+
+	m.mu.Lock()
+	m.bashProcs[id] = cmd
+	m.mu.Unlock()
+
+	// Cleanup when command finishes
+	go func() {
+		cmd.Wait()
+		m.mu.Lock()
+		delete(m.bashProcs, id)
+		m.mu.Unlock()
+	}()
+}
+
+// shellEscape wraps a string in single quotes, escaping any embedded single quotes.
+func shellEscape(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func (m *Mux) handleKey(b byte) {
@@ -643,12 +435,6 @@ func (m *Mux) handleKey(b byte) {
 	m.mu.Lock()
 	p := m.panes[m.active]
 	m.mu.Unlock()
-
-	if p.id == 1 {
-		// Yuan chat: buffer until Enter, send as JSON
-		m.handleYuanInput(p, b)
-		return
-	}
 
 	// Alt screen mode (vi, less, etc): raw passthrough, no line editing
 	if p.emu.IsAltScreen() {
@@ -676,7 +462,7 @@ func (m *Mux) handleKey(b byte) {
 		return
 	}
 
-	// Local shell / Yuan shell: line editing + local echo
+	// Local shell: line editing + local echo
 	// (shell has no TTY so we handle line editing ourselves)
 	if p.sin != nil {
 		switch {
@@ -706,41 +492,6 @@ func (m *Mux) handleKey(b byte) {
 	}
 }
 
-func (m *Mux) handleYuanInput(p *Pane, b byte) {
-	if b == 0x0d || b == 0x0a { // Enter
-		text := string(p.lineBuf)
-		p.lineBuf = p.lineBuf[:0]
-		p.emu.Write([]byte("\r\n"))
-		m.triggerRender()
-		// Async pipe write — never block input loop
-		if p.pipeOut != nil && text != "" {
-			msg := YuanMsg{Type: "chat", Text: text}
-			if data, err := json.Marshal(msg); err == nil {
-				data = append(data, '\n')
-				p.pipeOut.Write(data)
-			}
-		}
-		return
-	}
-
-	switch {
-	case b == 0x7f || b == 0x08: // Backspace
-		if len(p.lineBuf) > 0 {
-			p.lineBuf = p.lineBuf[:len(p.lineBuf)-1]
-			p.emu.Write([]byte("\b \b"))
-		}
-	case b == 0x15: // Ctrl+U: clear line
-		for range p.lineBuf {
-			p.emu.Write([]byte("\b \b"))
-		}
-		p.lineBuf = p.lineBuf[:0]
-	case b >= 0x20 && b < 0x7f: // Printable
-		p.lineBuf = append(p.lineBuf, b)
-		p.emu.Write([]byte{b})
-	}
-	m.triggerRender()
-}
-
 func (m *Mux) handleCtrlB(b byte) {
 	switch {
 	case b >= '0' && b <= '9':
@@ -758,7 +509,7 @@ func (m *Mux) handleCtrlB(b byte) {
 		}
 		m.switchPane(prev)
 	case b == 'd':
-		if m.active > 1 {
+		if m.active > 0 {
 			m.closePane(m.active)
 		}
 	case b == 'c':
@@ -784,7 +535,7 @@ func (m *Mux) showHelp() {
 		"Ctrl+B 0-9  Switch to pane\r\n" +
 		"Ctrl+B n/p  Next/prev pane\r\n" +
 		"Ctrl+B c    New shell\r\n" +
-		"Ctrl+B d    Close pane (>1)\r\n" +
+		"Ctrl+B d    Close pane (>0)\r\n" +
 		"Ctrl+B ?    This help\r\n" +
 		"------------------------\r\n\r\n"
 	m.mu.Lock()

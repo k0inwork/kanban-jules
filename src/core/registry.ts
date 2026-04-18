@@ -22,6 +22,9 @@ import githubExecutorManifest from '../modules/executor-github/manifest.json';
 import localAnalyzerManifest from '../modules/knowledge-local-analyzer/manifest.json';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
 
+import bashExecutorManifest from '../modules/bash-executor/manifest.json';
+import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -33,6 +36,7 @@ export class ModuleRegistry {
     { ...localExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...githubExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...localAnalyzerManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...bashExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

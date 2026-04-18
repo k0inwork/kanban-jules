@@ -14,6 +14,7 @@ import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
 import { GithubHandler } from '../modules/executor-github/GithubHandler';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
+import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -166,6 +167,7 @@ export class ModuleHost {
     const userHandler = new UserHandler();
     const localHandler = new LocalHandler();
     const githubHandler = new GithubHandler();
+    const bashHandler = new BashExecutorHandler();
 
     registry.registerModuleHandlers('executor-jules', julesHandler.handleRequest.bind(julesHandler));
     registry.registerModuleHandlers('channel-user-negotiator', userHandler.handleRequest.bind(userHandler));
@@ -176,6 +178,7 @@ export class ModuleHost {
     registry.registerModuleHandlers('architect-codegen', ArchitectTool.handleRequest);
     registry.registerModuleHandlers('process-project-manager', ProcessAgent.handleRequest);
     registry.registerModuleHandlers('knowledge-local-analyzer', LocalAnalyzer.handleRequest.bind(LocalAnalyzer));
+    registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
 
     // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
