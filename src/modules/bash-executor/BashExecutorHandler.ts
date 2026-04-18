@@ -4,8 +4,13 @@ export class BashExecutorHandler {
   private static _config: { repoUrl: string; repoBranch: string; githubToken: string } | null = null;
 
   static init(config: any) {
+    let url: string = config.repoUrl || '';
+    // Normalize owner/repo → https://github.com/owner/repo.git
+    if (url && !url.startsWith('http') && !url.startsWith('git@')) {
+      url = `https://github.com/${url}.git`;
+    }
     BashExecutorHandler._config = {
-      repoUrl: config.repoUrl || '',
+      repoUrl: url,
       repoBranch: config.repoBranch || 'main',
       githubToken: config.githubToken || '',
     };
