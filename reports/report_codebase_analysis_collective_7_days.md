@@ -1,0 +1,717 @@
+# Activity Report: docs/codebase-analysis-collective (7 Days)
+
+## Total Commits: 90
+
+## Summary of Changes
+
+* **feat: KB constitutions tab + editable constitution view + conflict-pending projection block** (2026-04-18) - Yanis Tabuns
+- Add Constitutions sub-view in KB browser showing project + role constitutions
+- Click constitution row opens editable tab with save to IndexedDB
+- Block conflict-pending decisions from knowledge projector
+- Fix micro-dream insight survival in sessionDream
+- Add conflict severity prompt helper and ESCALATE type
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: evidence-based conflict classification, auto-resolve, resolution audit trail (136 tests)** (2026-04-17) - Yanis Tabuns
+- 7-signal evidence scoring (provenance, duration, corroboration, verification,
+  conflict survivor, supersession breadth, constitutional)
+- 5 conflict types: constitutional-override, guiding (auto), self-correcting,
+  doubtful (user), constitutional-amendment
+- Auto-resolve for guiding (higher wins) and constitutional overrides
+- Resolution audit entries (category: 'resolution') with both conflicting
+  decisions, evidence scores, type/method tags for queryability
+- Projector bypass for conflict-resolved entries at L2/L3
+- Layer cascade: resolutions get union of both decisions' layers
+- Conflict typology design doc with signal explanations and examples
+- KBBrowser: resolution category color
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Merge pull request #12 from k0inwork/test-proposal-doc-3531426997528947166** (2026-04-17) - k0inwork
+docs: add proposal for missing test coverage areas
+
+* **fix: KB pipeline routing bugs + conflict resolution lifecycle (130 tests)** (2026-04-17) - Yanis Tabuns
+BUG 2 (critical): sessionDream Phase 4b now preserves decision entries —
+verified decisions survive to reach deepDream/decision log.
+BUG 4: orchestrator fires executor:completed BEFORE microDream so
+commit-harvest writes decisions before verifyDecisions runs.
+BUG 1: sessionDream gathering excludes micro-dream insight output.
+BUG 6: idempotency guards on microDream and sessionDream prevent
+duplicate processing.
+Conflict resolution: conflict-pending tags prevent re-escalation,
+user:reply handler resolves conflicts via (a) pick / (b) pick / (c) merge,
+merged decisions inherit combined tags + supersedes chain.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: Phase 1f conflict detection + Phase 1h decision log (8 tests)** (2026-04-17) - Yanis Tabuns
+Phase 1f: detectConflicts() in sessionDream compares verified decisions
+across tasks, escalates direct contradictions via AgentMessage with 3-option
+resolution UI, creates conflict KB entries. Runs before Phase 4b deactivation.
+
+Phase 1h: generateDecisionLog() in deepDream creates decision-log KB doc
+grouped by classification with superseded history traces, upserts on repeat.
+
+125 tests passing.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: Phase 1d micro dream verification + Phase 1e superseded tracing (16 tests)** (2026-04-17) - Yanis Tabuns
+Phase 1d: verifyDecisions() in microDream classifies/verifies harvested
+decisions via LLM — confirms or reclassifies tags, adds 'verified' tag,
+gracefully handles malformed responses.
+
+Phase 1e: supersedeEntries() with chain flattening + abstraction monotonicity
+validation, traceDecisionChain() for O(1) full history lookup, both routed
+through KBHandler.handleRequest().
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: add proposal for missing test coverage areas** (2026-04-17) - google-labs-jules[bot]
+Added a document proposing comprehensive testing strategies for areas beyond the currently well-tested KB module. The proposal covers testing core filesystem services (e.g., GitFs) with mocked HTTP, the isolated sandbox environment, frontend UI components using React Testing Library, the terminal WASM management system, and independent orchestrator executors.
+
+Co-authored-by: k0inwork <5244356+k0inwork@users.noreply.github.com>
+
+* **test: add commit-harvest and eventBus executor:completed tests (12 tests)** (2026-04-17) - Yanis Tabuns
+Tests cover the event-driven decision extraction pipeline:
+- Local executor path: moduleLogs → LLM extraction → KB entries
+- Jules path: GitHub API commits → LLM extraction → KB entries
+- Edge cases: short logs, malformed LLM response, empty results, API errors
+- Lifecycle: init/destroy stops listening
+- EventBus: emit/receive, multiple listeners, off
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: unified decision harvest — both agent types via event listener** (2026-04-17) - Yanis Tabuns
+No recordDecision() needed in agent code. Decision harvest is a
+background dreamer that analyzes traces in a separate LLM context:
+- Jules: fetches GitHub commits on executor:completed, extracts decisions
+- Yuan: reads moduleLogs on executor:completed, extracts decisions
+Orchestrator now emits executor:completed for local tasks too.
+Shared extraction prompt, same KB schema, no branching logic.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: event-driven commit harvest — Jules decisions flow to KB** (2026-04-17) - Yanis Tabuns
+- Add executor:completed event to SystemEvent types (event-bus.ts)
+- JulesPostman emits executor:completed on session COMPLETED
+- New commit-harvest.ts: listens for event, fetches commits from
+  GitHub API, LLM extracts decisions, stores in KB (source: dream:micro)
+- Wired into ModuleHost init/stop lifecycle
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **refactor: two separate decision paths — no branching logic** (2026-04-17) - Yanis Tabuns
+External (Jules): fires executor:completed event → dream engine fetches
+commits from GitHub API → extracts decisions. Internal (Yuan): calls
+recordDecision() directly during execution, no event. Completely
+separate paths, no runtime branching needed.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: event-driven commit harvest for external agent decisions** (2026-04-17) - Yanis Tabuns
+Micro dream listens to executor:completed events instead of polling git.
+JulesPostman emits event on session COMPLETED, handler fetches commits
+via GitHub API (githubToken already in HostConfig). Internal agents
+trigger same event from Orchestrator. Extract vs verify mode depends
+on whether KB declarations exist.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: dual-source decision capture — commit messages for external agents** (2026-04-17) - Yanis Tabuns
+External agents (Jules etc.) can't call KB API, so micro dream extracts
+decisions from their git commit messages + diffs. Internal agents (Yuan)
+declare via API + commit messages as backup. Dream classifies agent type
+and runs extract vs verify mode accordingly.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: MVP1 Decision Harvest doc + projector focus field + FixedKBSource stub** (2026-04-17) - Yanis Tabuns
+- Add docs/mvp-phase1-decision-harvest.md: agent decision declaration,
+  conditional task branching, superseded DAG tracing, conflict escalation,
+  constitution feedback loop
+- Add focus field to TaskStep, pass to ProjectorHandler for scoped projections
+- Add FixedKBSource test stub and setExternalSources() for test injection
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix: add missing fast-glob shim delegating to Go WASM glob** (2026-04-17) - Yanis Tabuns
+The collective branch referenced fast-glob-shim.js but never committed it.
+Delegates to boardVM.fsBridge.glob (Go WASM) with empty fallback.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Merge remote-tracking branch 'origin/collective'** (2026-04-17) - Yanis Tabuns
+
+* **fix: use [] brackets in tool call format prompts, add []+<> extraction** (2026-04-17) - Yanis Tabuns
+Prompt examples now use [] brackets with instruction to replace with <>
+to avoid XML mangling. Added Pass 1b extraction for [tool_call]NAME
+format with both [] and <> bracket support in openai-shim and
+BoardVMContext parsers.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix: build pipeline for @yuaone bundles with manifest tracking** (2026-04-17) - Yanis Tabuns
+Bundle script now gracefully handles missing node_modules/@yuaone/*
+(reuses pre-built bundles), adds SHA-256 manifest for change detection,
+and agent-bootstrap loads bundles via manifest instead of hardcoded file lists.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: doc RAG chunking, search, CRUD + GUI improvements (106 tests)** (2026-04-17) - Yanis Tabuns
+- Add doc chunking to projectRAG: split by h1/h2 headers with parent context
+- Add full-text search to queryDocs backend + chunk-based RAG search in GUI
+- Add updateDocument/deleteDocument to KB handler + manifest
+- Add content validation (non-empty markdown required)
+- Add doc delete button, scroll-to-chunk on search click in GUI
+- Fix PreviewPane scroll layout (parent flex container)
+- Add 9 new tests: search, content validation, chunking, tag boost
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Merge remote-tracking branch 'origin/collective' into docs/codebase-analysis-collective** (2026-04-17) - Yanis Tabuns
+
+* **refactor: consolidate KB to 5 categories + tabbed table view** (2026-04-17) - Yanis Tabuns
+Reduce KB categories from 12 implicit to 5 explicit (error, observation,
+insight, decision, correction) with tags for disambiguation. Add DB
+migration v22 to rename old categories. Replace collapsible tree KB
+browser with minimal sidebar overview + full table view as a tab.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **test: add GlobalVars persistence + analyze forwarding integration tests (85 total)** (2026-04-17) - Yanis Tabuns
+- Flow 9: agentContext persists across task steps (2 tests)
+  - Context set in step 1 survives into step 2 prompt
+  - Context accumulates across 3 steps without loss
+- Flow 10: analyze() output forwarded to subsequent steps (3 tests)
+  - host.analyze result persisted to task.analysis, appears in next prompt
+  - Multiple analyze() calls accumulate across steps
+  - addToContext key-value pairs visible in later step prompts
+- Update gap analysis: 14 integration tests, all MVP flows covered
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: add infrastructure + big lifecycle integration test (80 tests)** (2026-04-17) - Yanis Tabuns
+- Add KB convenience writers (recordExecution, recordObservation, recordDecision, recordError)
+- Add RepoScanner for project init tech stack detection and doc discovery
+- Add board-idle trigger → sessionDream in host.ts
+- Add on-task-complete → microDream + KB recording in orchestrator.ts
+- Add sandbox KB bindings (KB.record, KB.queryLog, KB.saveDoc, KB.queryDocs)
+- Add Flow 8: full e-commerce checkout lifecycle integration test (6 phases)
+- Fix recordError source to 'execution' for sessionDream visibility
+- Fix sessionDream to preserve errors for reflection (deactivate non-error only)
+- Fix reflection Rule 5 KNOWN-GAP to use update() instead of bulkPut()
+- 80 tests passing (71 unit + 9 integration)
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Fix Yuan agent boot: local bundles, ESM→CJS transform, XML tool calls, missing shims** (2026-04-17) - Yanis Tabuns
+- Replace npm registry installs with pre-built local JSON bundles (scripts/bundle-yuaone.mjs)
+- Fix ESM→CJS transform bug where trailing commas in export {} produced empty identifiers
+- Add SSE delta chunk support in openai-shim for BYOKClient.chatStream()
+- Add XML tool call extraction for arbitrary tag names (not just <tool_call name="...">)
+- Add shims for fast-glob, node-pty, playwright, node:fs/promises, ollama
+- Wire Yuan built-in tools via createDefaultRegistry alongside Fleet tools
+- Add BoardVMContext provider and YuanChatPanel for standalone Yuan chat UI
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: update test docs for 59 tests (53 unit + 6 integration)** (2026-04-16) - Yanis Tabuns
+Updated coverage analysis (knowledge-kb 90%, process-dream 71%,
+process-reflection 100%) and test suite explanation with all new
+unit tests and integration pipeline descriptions.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **test: add 17 new tests — unit coverage gaps + 6 integration pipelines** (2026-04-16) - Yanis Tabuns
+Unit tests (11 new): queryLog project filter, queryDocs source/layer/limit,
+microDream supersedes + tag union, reflection rule 3/4/5 negation,
+custom threshold, KNOWN-GAP tag-only behavior.
+
+Integration tests (6 new): multi-task failure → self-healing,
+dream propagation with abstraction climb, constitution evolution via deep-dream,
+knowledge gap lifecycle, full agent session lifecycle, deep-dream pruning + amendment.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: add test coverage gap analysis against MVP proposals** (2026-04-16) - Yanis Tabuns
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: rewrite explanation doc to cover test suite** (2026-04-16) - Yanis Tabuns
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: explain knowledge-kb, process-dream, and process-reflection systems** (2026-04-16) - Yanis Tabuns
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **test: add 42 tests for knowledge-kb, process-dream, process-reflection modules** (2026-04-16) - Yanis Tabuns
+- applyRules (10 tests): all 5 reflection rules, negation cases, multi-rule firing
+- ReflectionHandler (7 tests): reclassify, self-task creation, reflection logging, entry filtering
+- DreamHandler (8 tests): micro/session/deep dream consolidation, pruning, constitution amendments, malformed JSON
+- KBHandler (14 tests): recordEntry, queryLog (category/active/tags/source/layer/limit/sort), updateEntries, saveDocument (create/upsert/project isolation), queryDocs
+- Fix IndexedDB boolean query bugs (.where('active').equals(1) → .filter(e => e.active)) across all 3 modules
+- Fix missing 'title' index on kbDocs (v21 schema) — saveDocument upsert was broken without it
+- Remove 4 dead imports from orchestrator.ts
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **test: add headless e2e projector tests and fix KB queries** (2026-04-16) - Yanis Tabuns
+- Add puppeteer-based e2e test (46 assertions across 4 suites)
+  covering base projections, RAG retrieval, experience logs, and
+  edge cases for the knowledge projector
+- Fix KBBrowser and Handler queries: .where('active').equals(1) →
+  .filter(d => d.active) for IndexedDB boolean compat
+- Fix projector test data: add missing executor tags and layer
+  entries so all assertions pass
+- Make server port configurable via PORT env var
+- Add vitest config, fake-indexeddb setup, test:e2e script
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: unify constitutions through projector with 3-part context model** (2026-04-16) - Yanis Tabuns
+Move all constitution/knowledge injection into the projector's BASE section:
+- L1 (ProcessAgent): project constitution + overseer constitution
+- L2 (Architect): architect constitution only
+- L3 (Programmer): programmer constitution + executor knowledge
+Add OVERSEER_CONSTITUTION, wire ProcessAgent to projector, update
+ConstitutionEditor GUI with Overseer tab, and remove duplicate
+constitution loading from compose functions.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: add self-healing agent design and Phase 0 KB+context propagation** (2026-04-15) - Yanis Tabuns
+Self-healing agent: N+1 project model, 4 new Fleet modules (knowledge-kb,
+knowledge-projector, process-dream, process-reflection), reflection rules,
+mailbox proposal reuse. ~480 LOC estimate.
+
+Phase 0 KB+context: three knowledge tiers, seven data flows, context
+propagation engine with token budgets, dream engine levels.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Pre-boot VM at module load, resize via escape sequences, XML tool calling** (2026-04-15) - Yanis Tabuns
+- Auto-preboot Wanix VM at module import time (fetch wanix + bundle + WASM
+  in parallel) so terminal is near-instant when user clicks the tab
+- Dynamic resize via CSI escape sequences (\x1b[8;rows;colst) intercepted
+  by session-mux, replacing static termCols/termRows in boardVM
+- Handle hidden terminal container (display:none) gracefully with defaults
+- ResizeObserver sends resize to VM when terminal tab becomes visible
+- XML-based tool calling for providers without native function calling (Zhipu):
+  inject tool schema as XML in prompt, parse <tool_call/> from response
+- Fix termSizeRef for boardVM (no longer depends on xterm instance)
+- Fix session-bridge efd.write/efd.close → w.write/w.close bug
+- Bump BUILD to 37
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: add Phase 0 MVP -- tagged log with dreaming appends** (2026-04-15) - Roo Code
+Simplest viable PKB: append-only log where every entry gets tags, abstraction
+level (0-10), and layer flags. Dreaming appends consolidated entries at higher
+abstraction and marks raw entries inactive.
+
+~100 LOC to implement. Upgradeable to graph index in later phases.
+Migration path: log (Phase 0) -> graph index (Phase 1) -> token-budgeted
+traversal (Phase 2) -> full module (Phase 3).
+
+* **docs: explore PKB implementation approaches (graph, RAG, hybrid, event sourcing)** (2026-04-15) - Roo Code
+5 approaches analyzed for building the Project Knowledge Base:
+
+1. Knowledge Graph (IndexedDB-backed) -- graph traversal with abstraction filters
+2. RAG (TF-IDF or embeddings) -- vector similarity search over text chunks
+3. Multi-Structure Store -- different stores for different knowledge types
+4. Code Graph (novel) -- single-table denormalized graph with token-budgeted traversal
+5. Event Sourcing -- immutable event log with materialized views
+
+Recommendation: Code Graph (#4) + Event Feed (#5) as a new knowledge-project-kb module.
+Key innovation: token-budgeted projection (greedy traversal that stops at context window limit).
+~600 LOC estimate as self-contained module with manifest.
+
+* **docs: add Project Knowledge Base (PKB) with layer projections** (2026-04-15) - Roo Code
+Constitution is the seed. As the system works, it accumulates:
+- Architecture (structure, tech stack, patterns)
+- Decisions (what was decided, why, rejected approaches)
+- Experience (executor profiles, task patterns, error log)
+- Wrong paths (approaches that failed and why)
+- User model (preferences, corrections, communication style)
+
+Each layer sees the PKB at its appropriate zoom level:
+- L0 Yuan: strategic view (~2000 tokens) -- full arch, all decisions, exec profiles
+- L1 Planner: tactical view (~1500 tokens) -- stage map, gaps, routing
+- L2 Task: operational view (~1000 tokens) -- relevant files, exec tips, error context
+
+Implemented as a read/write layer over existing Dexie tables with project() function.
+
+* **docs: add control layers and context propagation design** (2026-04-15) - Roo Code
+Covers the two fields of work:
+
+1. Layers of responsibility (L0 Yuan -> L1 Process Planner -> L2 Task -> L3 Step -> L4 Executor)
+   - Independence levels per layer
+   - Why tasks should NOT spawn each other (only L0/L1 create tasks)
+   - Layer interaction map
+
+2. Context/data/experience propagation
+   - Downward flow: instructions, constraints, knowledge
+   - Upward flow: results, learnings, experience
+   - Cross-task context transfer rules
+   - Memory collections: Experience Store, Project Understanding, Constitution
+   - Dreaming: micro-dream (post-task), session-dream (idle), deep-dream (scheduled)
+   - Implementation sketch for all three dream levels
+
+* **docs: rewrite MVP section -- Yuan as board planning agent, not coding agent** (2026-04-15) - Roo Code
+- Correct Yuan role: brain/supervisor that controls Fleet, not a coder
+- Document current state of all integration pieces (what exists, what is not wired)
+- Analyze OBSERVE->THINK->PLAN->ACT loop from AGENT_HARNESS_ANALYSIS.md
+- 4-phase wiring plan: activate ReAct loop, board monitoring, constitution-aware planning, multi-task orchestration
+- Build priority table (~280 LOC across 8 components)
+- Architecture diagram showing Yuan as brain, Fleet as hands
+
+* **docs: add MVP functionality expansion section, move improvements to tech debt** (2026-04-15) - Roo Code
+
+* **docs: add comprehensive codebase analysis for collective branch** (2026-04-15) - Roo Code
+
+* **Wire Yuan agent (almostnode + @yuaone/core) to WASM terminal chat** (2026-04-15) - Yanis Tabuns
+- Add bridge layer: agent-bootstrap, openai-shim, fleet-tools-shim
+- Init almostnode container in TerminalPanel, replacing yuan.send stub
+- Route agent tool calls through boardVM.dispatchTool -> toolfs.callTool
+- Stub Ollama embeddings (fetch intercept for localhost:11434)
+- Force stream:false in openai shim with async iterable fallback
+- Export OpenAI error classes for instanceof checks in @yuaone/core
+- Add zlib polyfill to vite config for almostnode/just-bash
+- Copy runtime-worker to public/assets for build resolution
+- Return actual LLM text instead of generic "Task completed"
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Add proper terminal sizing, vi raw passthrough, and alt screen support** (2026-04-15) - Yanis Tabuns
+- Pass xterm.js cols/rows to VM via boardVM config with 80x24 minimum
+- Read terminal size from env vars in session-mux instead of broken ioctl
+- Add raw passthrough mode when alt screen is active (vi, less, etc.)
+- Update init-terminal to read COLUMNS/LINES from boot profile
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Fix session-mux terminal: add local echo, line editing, and newline translation** (2026-04-15) - Yanis Tabuns
+Shell runs without TTY (pipe stdin), so session-mux now handles:
+- Local echo for typed characters
+- Backspace/Delete line editing with Ctrl+U support
+- \\n to \\r\\n translation for proper VT column alignment
+- Removed stderr debug prints that garbled the display
+- Silenced idbfs log spam with debug flag gate
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Wire session-mux to JS via 9p session pipes with LLM chat bridge** (2026-04-14) - Yanis Tabuns
+Fix bidirectional pipe model in session-mux: each side opens a single
+file (mux opens "in" with O_RDWR) instead of two separate files. Add
+boardVM.yuan config and session pipe bridge in TerminalPanel that reads
+mux JSON messages from #sessions/0/out, processes chat via LLM, and
+writes responses back to #sessions/0/in.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Add session-mux terminal multiplexer and sessionfs module** (2026-04-14) - Yanis Tabuns
+Custom VT100 terminal multiplexer (unixshells/vt-go) that replaces
+tmux/dvtm which require kernel PTY/AF_UNIX support v86 lacks. Full-screen
+panes with tab bar, Ctrl+B keybindings, alt screen detection, and 9p pipe
+pairs for Yuan agent communication. Includes sessionfs wanix module (#sessions)
+exposing pipe pairs as /sessions/N/in|out via 9p.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Add devpts mount and TERM env for dvtm/PTY support** (2026-04-14) - Yanis Tabuns
+Mount /dev/pts (devpts) in both init-executor and init-terminal so
+dvtm and other PTY-dependent tools can allocate pseudo-terminals.
+Set TERM=xterm and COLUMNS/LINES in init-terminal for ncurses support.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Replace idbfs OpenFileFS with CreateFS (memfs pattern)** (2026-04-14) - Yanis Tabuns
+idbfs had a custom OpenFileFS with writableFile buffer that caused
+tmux/htop segfaults. memfs works because it uses CreateFS and returns
+writable nodeFile handles. Restructured idbfs to match: removed
+OpenFileFS, added CreateFS, made Open return writable idbFile handles
+(like memfs's nodeFile). This lets the generic fs.OpenFile fallback
+handle the create/write path the same way memfs does.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **re-enable idbfs OpenFileFS** (2026-04-14) - Yanis Tabuns
+Reverted the OpenFileFS disabling test — it broke the write path.
+The nlink=1 vendor patch is confirmed working (stat shows Links: 1).
+Segfault root cause is still unknown.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **test: disable idbfs OpenFileFS to use fs.OpenFile fallback** (2026-04-14) - Yanis Tabuns
+Testing hypothesis: the segfault is caused by idbfs's custom OpenFile
+implementation. With this disabled, fs.OpenFile fallback is used (same
+path as memfs). Remove NOIDBFS from localStorage to test with idbfs.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **NOIDBFS mode: use memfs overlay instead of raw base** (2026-04-14) - Yanis Tabuns
+memfs provides a writable overlay like idbfs but in-memory only.
+This lets us compare memfs vs idbfs behavior for debugging segfaults.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **build with -mod=vendor to use patched pstat** (2026-04-14) - Yanis Tabuns
+Previous vendor patch for nlink=1 was ignored because go build
+used modules by default, not the vendor directory.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **use localStorage for NOIDBFS flag** (2026-04-14) - Yanis Tabuns
+Set localStorage.setItem('NOIDBFS','true') in console to persist
+across page reloads.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **add NOIDBFS flag to disable idbfs overlay for testing** (2026-04-14) - Yanis Tabuns
+Set window.NOIDBFS=true in browser console before loading to bind
+envBase directly without idbfs overlay. Useful for comparing behavior
+with/without idbfs.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix nlink=0: patch pstat.SysToStat to return Nlink=1 on js/wasm** (2026-04-14) - Yanis Tabuns
+Vendored wanix pstat and patched stat_other.go to check if Sys()
+returns a *Stat (use it), otherwise default to Nlink=1 instead of 0.
+This fixes kernel VFS inode WARN at fs/inode.c:417 that caused
+segfaults in tmux/screen/htop.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix idbfs: set nlink=1 in Sys() to fix kernel VFS inode warnings** (2026-04-14) - Yanis Tabuns
+On js/wasm, pstat.SysToStat returns &Stat{} with Nlink=0. The 9p server
+uses this value, causing the kernel to see files with 0 hard links,
+triggering WARN at fs/inode.c:417 and subsequent segfaults in tmux/screen.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs** (2026-04-14) - Yanis Tabuns
+
+* **fix idbfs: follow symlinks within overlay before falling back to base** (2026-04-14) - Yanis Tabuns
+openFollow resolves symlink chains inside idbfs. If the target exists
+in the overlay, returns it. If not, returns ErrNotExist so cowfs falls
+back to base. This handles both apk-installed symlinks (target in
+overlay) and base-layer symlinks correctly.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix idbfs: return ErrNotExist for symlinks in Open/OpenFile** (2026-04-14) - Yanis Tabuns
+Symlinks have no data. Returning them as files gave cowfs a 0-byte
+handle, preventing fallback to base layer. Now return ErrNotExist so
+cowfs falls back to base, which handles symlink resolution correctly.
+Should fix tmux/screen/htop segfaults.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix idbfs: remove symlink following from Open to fix segfaults** (2026-04-14) - Yanis Tabuns
+OpenContext and OpenFile now return symlink records as-is instead of
+following them. The 9p/cowfs layer handles Readlink and symlink
+resolution. Previously, openFollow tried to resolve symlinks to targets
+that only exist in the base layer (not idbfs), causing ErrNotExist and
+segfaults in tmux/screen/htop.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Add statFollow logging, reduce PATH search noise** (2026-04-14) - Yanis Tabuns
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Add debug logging to idbfs openFollow/StatContext/Readlink** (2026-04-14) - Yanis Tabuns
+Logs symlink resolution, misses, and readlink calls to diagnose
+tmux/screen segfaults.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Add symlink following to idbfs Open/Stat** (2026-04-14) - Claude
+When opening or stating a path that is a symlink, idbfs now resolves
+the target recursively (up to 10 hops) instead of returning the
+empty symlink record. This fixes segfaults when binaries are loaded
+via symlinks (e.g. apk-created .so version links).
+
+* **Add SymlinkFS/ReadlinkFS to idbfs, remove debug logging from nswrap** (2026-04-14) - Claude
+idbfs now stores symlink targets in IndexedDB records, enabling apk to
+create symlinks for shared library versioning.
+
+* **Add debug logging to nsWrapper.Rename to trace apk rename failures** (2026-04-14) - Claude
+
+* **fix: use create op context for rename destination resolution** (2026-04-14) - yanistabuns
+NS ResolveFS only allows create/mkdir/symlink ops for new-file lookup.
+Rename of temp files (like apk does) failed because the destination
+could not be resolved without an allowed op context.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix: add nsWrapper to fix NUL bytes on write and I/O errors in WASM VM** (2026-04-13) - yanistabuns
+vfs.NS was missing OpenFileFS and other write interfaces, causing fs.OpenFile
+to fall back to a broken path that returned read-only handles. The nsWrapper
+resolves through the namespace with correct op context before delegating.
+Also rebuilds sys.tar.gz to fix Alpine UNTRUSTED signature issue.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix: add nsWrapper to fix NUL bytes on write and I/O errors in WASM VM** (2026-04-13) - yanistabuns
+vfs.NS was missing OpenFileFS and other write interfaces, causing fs.OpenFile
+to fall back to a broken path that returned read-only handles. The nsWrapper
+resolves through the namespace with correct op context before delegating.
+Also rebuilds sys.tar.gz to fix Alpine UNTRUSTED signature issue.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix: add nsWrapper to fix NUL bytes on write and I/O errors in WASM VM** (2026-04-13) - yanistabuns
+vfs.NS was missing OpenFileFS and other write interfaces, causing fs.OpenFile
+to fall back to a broken path that returned read-only handles. The nsWrapper
+resolves through the namespace with correct op context before delegating.
+Also rebuilds sys.tar.gz to fix Alpine UNTRUSTED signature issue.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **docs: add collective branch overview (2026-04-13)** (2026-04-13) - Yanis Tabuns
+Status snapshot of merged main + feat/wasm-executor content,
+architecture stack, and pending items.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Merge remote-tracking branch 'origin/feat/wasm-executor' into collective** (2026-04-13) - Yanis Tabuns
+# Conflicts:
+#	.gitignore
+
+* **Merge remote-tracking branch 'origin/main' into collective** (2026-04-13) - Yanis Tabuns
+
+* **chore: rebuild sys.tar.gz from fresh Docker build** (2026-04-13) - Yanis Tabuns
+Fixes UNTRUSTED signature errors by using freshly built Alpine rootfs
+with valid signing keys instead of stale cached extraction.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: add repack.sh pipeline for sys.tar.gz builds** (2026-04-13) - Yanis Tabuns
+Single source of truth: Docker builds the base Alpine image,
+repack.sh overlays wasm/system/bin/ files and tars the result.
+Without --docker it just re-overlays and repacks from .build/.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix: enable job control and Ctrl+C by binding shell to ttyS0** (2026-04-13) - Yanis Tabuns
+Shell now runs with setsid and stdin/stdout/stderr bound to /dev/ttyS0,
+giving it a controlling terminal so SIGINT (Ctrl+C) works properly.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **chore: update WASM assets [skip ci]** (2026-04-12) - github-actions[bot]
+
+* **fix: restore networking with default udhcpc script and rebuild sys.tar.gz** (2026-04-13) - Yanis Tabuns
+- Fix init-terminal and init-executor to use default udhcpc script
+  instead of nonexistent /bin/post-dhcp, restoring DHCP and gateway
+- Rebuild sys.tar.gz with proper Alpine signing keys
+- Add wispURL debug log for network troubleshooting
+- Restore missing lsfs.wasm and wexec binaries
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix(idbfs): add WriteAt/ReadAt, Chtimes/Chmod, and immediate persist on create** (2026-04-13) - Yanis Tabuns
+Fixes I/O errors on file creation in the VM:
+- writableFile now implements io.WriterAt and io.ReaderAt for p9 protocol
+- Implement ChtimesFS and ChmodFS interfaces for touch/chmod support
+- Immediately persist new file records in OpenFile so Stat finds them
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: Enhance data integrity and context persistence** (2026-04-12) - k0inwork
+Introduce "Self-Verification" checks for steps to ensure critical data is saved. Add immediate persistence of agent context to the database after updates to prevent data loss during long-running tasks. Refine `host.analyze` tool to support different output formats.
+
+* **fix(idbfs): set ModeDir flag in recordToInfo for directory records** (2026-04-12) - Yanis Tabuns
+recordToInfo was only using r.mode (the unix permissions) without
+OR-ing in fs.ModeDir when r.isDir was true. This made directories
+appear as regular files to cowfs and the kernel, causing "Not a
+directory" errors when traversing paths through the overlay.
+
+Also make #yuan vmBinding conditional on cfg.yuan to avoid fatal
+error when yuan is not configured.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **Merge remote-tracking branch 'origin/main' into collective** (2026-04-12) - Yanis Tabuns
+
+* **feat: Refactor constitutions and improve logging** (2026-04-12) - k0inwork
+Introduces dedicated constitution files for Architect and Programmer agents.
+Improves logging verbosity and truncation in TaskCard for better debugging.
+Enhances ConstitutionEditor to load system constitutions and adds system tab indicators.
+Adjusts hover delay in TaskCard for better user experience.
+
+* **Merge feat/wasm-executor into collective** (2026-04-12) - Yanis Tabuns
+Integrates WASM executor, xterm terminal, WISP networking, and Go agent
+source from feat/wasm-executor branch with latest main branch features
+(module manifests, negotiators, GitFs, Dexie v18, agentContext).
+
+Conflicts resolved:
+- package.json: union of both dep lists (isomorphic-git + xterm)
+- package-lock.json: removed, needs npm install to regenerate
+- Removed cert.pem/key.pem from tracking, added *.pem/*.key to .gitignore
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **fix(idbfs): resolve mutex deadlock in openDir → ReadDir** (2026-04-12) - Yanis Tabuns
+OpenContext holds fsys.mu then calls openDir which called ReadDir
+that tried to acquire the same mutex again. Extract readDirLocked
+for the internal call path.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: add idbfs persistent overlay, YuanFS, and WISP networking** (2026-04-12) - Yanis Tabuns
+Replace memfs cowfs overlay with IndexedDB-backed idbfs so writes
+survive page reloads. Add YuanFS for yuan integration (optional).
+Switch VM networking from fetch adapter to WISP relay for full
+TCP tunneling.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: Add module knowledge base integration** (2026-04-12) - k0inwork
+Introduces a persistent storage for module-specific knowledge and integrates it into prompts for agents. This allows agents to reference contextually relevant information beyond the immediate task, improving their reasoning and execution capabilities.
+
+Includes:
+- New `moduleKnowledge` table in the database.
+- Updates `ConstitutionEditor` to display and potentially manage module knowledge.
+- Modifies `composeProgrammerPrompt` to include module-specific knowledge.
+- Updates `Architect` to pass module knowledge to its prompt.
+- Enhances `TaskCard` with hover effects for potential future tooltip integration.
+
+* **feat: WISP networking relay for v86 VM TCP tunneling** (2026-04-12) - Yanis Tabuns
+Add WISP protocol relay over WebSocket to enable full TCP connectivity
+from the v86 VM through the browser to the Node.js server. This enables
+wget, curl, and other network tools inside the VM to reach external hosts.
+
+- WISP relay on /wisp with CONNECT/DATA/CONTINUE/CLOSE frame handling
+- Initial CONTINUE frame to stream 0 (unblocks v86 congestion control)
+- HTTP /proxy endpoint for fetch adapter fallback
+- Switch from app.listen to httpServer for WebSocket upgrade support
+- Disable ESC[27] in wanix.js (fixes xterm.js parsing errors)
+- Add docs/v86-networking.md with architecture and protocol reference
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+
+* **feat: Implement tool call history recording and replay** (2026-04-12) - k0inwork
+Introduces a mechanism to record and replay tool call results within the sandbox. This allows for more efficient execution by skipping redundant tool calls when their outcomes are already known. The changes include:
+
+- **Orchestrator:** Modified to utilize `sandbox.setHistoryRecorder` and persist `executionHistory` for steps.
+- **Sandbox:** Enhanced to accept and manage a history recorder, and to pass the `index` of tool calls to the worker.
+- **Sandbox Worker:** Updated to include `executionHistory` in its initialization and to pass the `index` along with tool call requests.
+- **History Recording/Replay:** The sandbox now intercepts tool call responses, records them if a handler is set, and can replay them if provided.
+
+* **feat: Introduce replay mode and task recovery** (2026-04-12) - k0inwork
+Adds support for replaying previously executed code snippets, enabling more robust task execution.
+Introduces a recovery mechanism to reset tasks stuck in an "EXECUTING" state on application startup.
+Enhances the sandbox with deterministic random number generation and stubbed `Date.now` for improved testability and replayability.
+Updates task types to include `currentCode`, `executionHistory`, and `seed`.
+
+* **feat: Add YAML support and refactor handler registration** (2026-04-11) - k0inwork
+Introduces YAML parsing capabilities and refactors the handler registration mechanism to be more modular.
+
+The `yaml` package is now a dependency, enabling YAML processing.
+
+Handler registration has been updated to use `registerModuleHandlers`, allowing handlers to be registered based on module IDs. This simplifies the `host.ts` file and makes the registry more extensible.
+
+Prompting instructions have been refined to clarify the appropriate use of `executor-github` and `executor-jules`, particularly regarding file creation and workflow execution. This prevents misuse of Jules for simple local tasks and emphasizes the use of `runAndWait` for GitHub actions.
+
+Additionally, the sandbox worker's timer permissions have been adjusted to be more robust, and the GitFs initialization logic has been improved for better error handling and cache management.
