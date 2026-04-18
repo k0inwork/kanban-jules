@@ -53,21 +53,28 @@ export class BashExecutorHandler {
         const exists = await boardVM.fsBridge.exists('/tmp/repo-root/.git');
         if (exists) {
           console.log('[bash-executor] /tmp/repo-root already exists, pulling latest');
-          await boardVM.bashExec({
+          const r = await boardVM.bashExec({
             command: `cd /tmp/repo-root && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
             cwd: '/tmp',
             timeout: 60000,
           });
+          if (r.exitCode !== 0) {
+            console.warn('[bash-executor] git fetch/reset failed (repo still usable):', r.stdout || r.error);
+          }
         } else {
           console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → /tmp/repo-root`);
           const authUrl = cfg.githubToken
             ? cfg.repoUrl.replace('https://', `https://${cfg.githubToken}@`)
             : cfg.repoUrl;
-          await boardVM.bashExec({
-            command: `git clone --branch ${cfg.repoBranch} ${authUrl} /tmp/repo-root`,
+          const r = await boardVM.bashExec({
+            command: `rm -rf /tmp/repo-root && git clone --branch ${cfg.repoBranch} ${authUrl} /tmp/repo-root`,
             cwd: '/tmp',
             timeout: 120000,
           });
+          if (r.exitCode !== 0) {
+            console.warn('[bash-executor] git clone failed:', r.stdout || r.error);
+            return;
+          }
         }
         console.log('[bash-executor] Prefetch complete');
       } catch (err: any) {
