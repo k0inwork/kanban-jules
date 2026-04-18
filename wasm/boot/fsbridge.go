@@ -57,6 +57,13 @@ func RegisterFSBridge(cfg js.Value, ns *nsWrapper, vmID string) {
 		if len(p) > len("/home/") && p[:len("/home/")] == "/home/" {
 			return fmt.Sprintf("vm/%s/fsys/home/%s", vmID, p[len("/home/"):])
 		}
+		// /tmp -> v86 /tmp (for bash-exec results, repo copies, etc.)
+		if p == "/tmp" || p == "/tmp/" {
+			return fmt.Sprintf("vm/%s/fsys/tmp", vmID)
+		}
+		if len(p) > len("/tmp/") && p[:len("/tmp/")] == "/tmp/" {
+			return fmt.Sprintf("vm/%s/fsys/tmp/%s", vmID, p[len("/tmp/"):])
+		}
 		return p
 	}
 
