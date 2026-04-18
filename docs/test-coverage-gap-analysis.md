@@ -1,6 +1,21 @@
 # Test Suite vs MVP Proposals — Coverage Gap Analysis
 
-Compares the 94 tests in `src/__tests__/modules.test.ts` (76 unit) and `src/__tests__/integration.test.ts` (18 integration) against:
+**Last updated: 2026-04-18 | 190 passed, 3 skipped, 0 failures**
+
+## Test Files
+
+| File | Tests | Status |
+|---|---|---|
+| `src/__tests__/modules.test.ts` | 137 | KB, dream, reflection, conflict, superseded, decision-log |
+| `src/__tests__/integration.test.ts` | 18 | Cross-module pipelines |
+| `src/__tests__/branching.test.ts` | 13 | BranchEvaluator, GitFs.taskDir, PushQueue, task DB |
+| `src/services/GitFs.test.ts` | 10 | URL parsing, getters, taskDir, constructor options |
+| `wasm/worker/WasmHandler.test.ts` | 8 | WASM module loading and execution |
+| `src/test-registry.test.ts` | 2 | Module registry + prompt composition |
+| `src/core/registry.test.ts` | 2 | Registry internals |
+| `src/core/sandbox.test.ts` | 3 | **Skipped** — requires browser Worker API |
+
+Compares the 190 tests against:
 - `docs/self-healing-agent.md` — 4 module specs
 - `docs/mvp-phase0-kb-context.md` — 10 implementation steps + 7 data flows
 - `docs/modules-testing.md` — per-module-type test strategy
@@ -111,11 +126,131 @@ Compares the 94 tests in `src/__tests__/modules.test.ts` (76 unit) and `src/__te
 
 **Coverage: 24/24 tested (100%)**
 
+### Phase 1e: Superseded Tracing
+
+| Behavior | Tested? | Tests |
+|---|---|---|
+| `supersedeEntries` creates new entry and deactivates targets | **Yes** | 1 test |
+| Flattens chains from targets | **Yes** | 1 test |
+| Rejects lower abstraction superseding higher | **Yes** | 1 test |
+| Rejects missing target | **Yes** | 1 test |
+| Rejects empty supersedes array | **Yes** | 1 test |
+| Allows same abstraction | **Yes** | 1 test |
+| `traceDecisionChain` returns entry + flattened ancestors | **Yes** | 1 test |
+| Returns single entry when no supersedes | **Yes** | 1 test |
+| Returns empty for missing entry | **Yes** | 1 test |
+| `handleRequest` routes supersedeEntries | **Yes** | 1 test |
+| `handleRequest` routes traceDecisionChain | **Yes** | 1 test |
+
+**Coverage: 11/11 tested (100%)**
+
+### Phase 1d: Decision Harvest Verification
+
+| Behavior | Tested? | Tests |
+|---|---|---|
+| Verifies harvested decisions and adds verified tag | **Yes** | 1 test |
+| Reclassifies decision tags when LLM says so | **Yes** | 1 test |
+| Skips verification when no harvested decisions exist | **Yes** | 1 test |
+| Gracefully handles malformed verification response | **Yes** | 1 test |
+| Skips already-verified decisions | **Yes** | 1 test |
+
+**Coverage: 5/5 tested (100%)**
+
+### Phase 1f: Session Conflict Detection + Evidence-based Classification
+
+| Behavior | Tested? | Tests |
+|---|---|---|
+| Escalates conflicting decisions via AgentMessage | **Yes** | 1 test |
+| Does not escalate when no conflicts found | **Yes** | 1 test |
+| Skips with fewer than 2 verified decisions | **Yes** | 1 test |
+| Handles malformed conflict response | **Yes** | 1 test |
+| Tags conflict-pending to prevent re-escalation | **Yes** | 1 test |
+| Resolves conflict option (a) — keeps D1, deactivates D2 | **Yes** | 1 test |
+| Resolves conflict option (c) — merges both into new decision | **Yes** | 1 test |
+| Guiding conflict — auto-resolves (strong vs weak evidence) | **Yes** | 1 test |
+| Constitutional override — auto-resolves, constitution wins | **Yes** | 1 test |
+| Self-correcting — escalates with recommendation | **Yes** | 1 test |
+| Doubtful — neutral escalation | **Yes** | 1 test |
+| Resolution audit entry on user pick | **Yes** | 1 test |
+| Resolution audit entry on user merge | **Yes** | 1 test |
+
+**Coverage: 13/13 tested (100%)**
+
+### Phase 1h: Deep Decision Log
+
+| Behavior | Tested? | Tests |
+|---|---|---|
+| Generates decision-log doc with grouped decisions | **Yes** | 1 test |
+| Decision log includes superseded history | **Yes** | 1 test |
+| Skips decision log when no decisions exist | **Yes** | 1 test |
+| Upserts decision-log on repeated deep dreams | **Yes** | 1 test |
+
+**Coverage: 4/4 tested (100%)**
+
+### Task Branching
+
+File: `src/__tests__/branching.test.ts` — 13 tests.
+
+| Area | Tests |
+|---|---|
+| BranchEvaluator — qualifies by protocol step count (>=3) | 1 |
+| BranchEvaluator — qualifies by scope keywords | 1 |
+| BranchEvaluator — qualifies by explicit flag | 1 |
+| BranchEvaluator — rejects small scope | 1 |
+| BranchEvaluator — rejects low step count | 1 |
+| BranchEvaluator — rejects when no criteria met | 1 |
+| BranchEvaluator — combined criteria | 1 |
+| GitFs.taskDir — short-id path | 1 |
+| GitFs.taskDir — short ID without truncation | 1 |
+| PushQueue — enqueue + flush | 1 |
+| PushQueue — deduplication by taskId | 1 |
+| PushQueue — auto-flush interval | 1 |
+| Task DB — branchName and branchDir fields | 1 |
+
+**Coverage: 13/13 tested (100%)**
+
+### GitFs (isomorphic-git)
+
+File: `src/services/GitFs.test.ts` — 10 tests.
+
+| Area | Tests |
+|---|---|
+| URL parsing — sources/github/owner/repo | 1 |
+| URL parsing — github.com with protocol | 1 |
+| URL parsing — github.com without protocol | 1 |
+| URL parsing — plain owner/repo | 1 |
+| Constructor defaults — branch defaults to main | 1 |
+| Constructor defaults — getters (token, repoUrl) | 1 |
+| taskDir static — short-id task directory | 1 |
+| taskDir static — short IDs | 1 |
+| taskDir static — github.com URLs | 1 |
+| taskDir constructor option | 1 |
+
+**Coverage: 10/10 tested (100%)**
+
+### WASM Handler
+
+File: `wasm/worker/WasmHandler.test.ts` — 8 tests.
+
+**Coverage: 8/8 tested (100%)**
+
+### Module Registry
+
+Files: `src/test-registry.test.ts` (2) + `src/core/registry.test.ts` (2) — 4 tests.
+
+**Coverage: 4/4 tested (100%)**
+
+### Sandbox (skipped)
+
+File: `src/core/sandbox.test.ts` — 3 tests skipped (requires browser Worker API).
+
+**Coverage: 0% — deferred to browser e2e**
+
 ---
 
 ## Integration Test Coverage
 
-File: `src/__tests__/integration.test.ts` — 18 tests exercising full cross-module pipelines.
+File: `src/__tests__/integration.test.ts` — 18 tests exercising full cross-module pipelines (unchanged).
 
 | Flow | What it tests | Data Flow |
 |---|---|---|
@@ -206,10 +341,23 @@ From the testing strategy doc §15:
 | **Implementation steps** | 10/10 | 0 | **100%** |
 | **Data flows** | 6/7 | 1 (background research) | **86%** |
 | **Integration tests** | 18 | 0 (all MVP flows covered) | **100%** |
+| **Conflict classification** | 5 | 0 | **100%** |
+| **Superseded tracing** | 9 | 0 | **100%** |
+| **Decision harvest/verification** | 5 | 0 | **100%** |
+| **Decision log (deep dream)** | 4 | 0 | **100%** |
+| **Task branching** | 13 | 0 | **100%** |
+| **GitFs (URL parsing, taskDir)** | 10 | 0 | **100%** |
+| **WASM handler** | 8 | 0 | **100%** |
+| **Module registry** | 4 | 0 | **100%** |
+| **Sandbox execution** | 0 | 3 (skipped) | **0%** (needs browser Worker) |
 
 ### Remaining gaps (not testable yet):
 
 1. **F7: Background research** — not implemented (requires async external polling)
+2. **Sandbox tests (3)** — skipped in Node.js vitest; require browser Worker API (Puppeteer e2e)
+3. **E2e browser tests** — `e2e/` directory excluded from vitest; terminal-lifecycle and terminal-tab tests run separately via `npx tsx`
+4. **Orchestrator → GitFs live integration** — task branching lifecycle (create branch → commit → merge → push) requires real GitHub API; tested at unit level only
+5. **Coverage report** — no coverage tooling configured; all coverage percentages above are manual analysis against spec
 
 ---
 
