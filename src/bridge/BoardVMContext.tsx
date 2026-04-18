@@ -410,6 +410,59 @@ export function BoardVMProvider({
         },
         status: () => (window as any).boardVM?.yuan?._status || 'not configured',
       },
+      bashExec: async (args: { command: string; cwd?: string; timeout?: number }): Promise<{
+        stdout: string; exitCode: number; error?: string; durationMs: number;
+      }> => {
+        const bvm = (window as any).boardVM;
+        const fs = bvm?.fsBridge;
+        if (!fs) return { stdout: '', exitCode: 1, error: 'fsBridge not available', durationMs: 0 };
+
+        const id = crypto.randomUUID().slice(0, 8);
+        const cwd = args.cwd || '/home/project';
+        const timeout = Math.min(args.timeout || 30000, 120000);
+        const start = Date.now();
+        const resultDir = `/tmp/bash-exec/${id}`;
+
+        // session-mux creates the result dir itself via os.MkdirAll
+        const payload = btoa(`${id}:${cwd}:${args.command}`);
+        const seq = new TextEncoder().encode(`\x1b]89;${payload}\x07`);
+        const sendRaw = (globalThis as any).__boardSendRaw;
+        if (!sendRaw) return { stdout: '', exitCode: 1, error: 'Serial console not ready', durationMs: Date.now() - start };
+        sendRaw(seq);
+
+        const deadline = start + timeout;
+        let exitCode = -1;
+        while (Date.now() < deadline) {
+          try {
+            const stat = await fs.stat(`${resultDir}/exitcode`);
+            if (stat && stat.exists) {
+              const codeStr = await fs.readFile(`${resultDir}/exitcode`);
+              exitCode = parseInt(codeStr.trim(), 10);
+              break;
+            }
+          } catch {}
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        if (exitCode === -1) {
+          const killPayload = btoa(`kill:${id}`);
+          const killSeq = new TextEncoder().encode(`\x1b]89;${killPayload}\x07`);
+          sendRaw(killSeq);
+          return { stdout: '', exitCode: -1, error: `timeout after ${timeout}ms`, durationMs: Date.now() - start };
+        }
+
+        let stdout = '';
+        try { stdout = await fs.readFile(`${resultDir}/stdout`); } catch {}
+
+        const MAX_OUTPUT = 65536;
+        if (stdout.length > MAX_OUTPUT) {
+          stdout = stdout.slice(0, MAX_OUTPUT) + `\n... truncated (${stdout.length} bytes total)`;
+        }
+
+        try { await fs.rm(resultDir); } catch {}
+
+        return { stdout, exitCode, durationMs: Date.now() - start };
+      },
     };
 
     console.log('[BoardVMProvider] boardVM set up on window');

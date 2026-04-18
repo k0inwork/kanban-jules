@@ -30,7 +30,8 @@ describe('BashExecutorHandler', () => {
   const handler = new BashExecutorHandler();
 
   describe('exec', () => {
-    it('should execute a command with default cwd /home/project', async () => {
+    it('should execute a command with default cwd /home when no repo cloned', async () => {
+      mockFsBridge.exists.mockResolvedValue(false);
       mockBashExec.mockResolvedValue({
         stdout: 'hello world\n',
         exitCode: 0,
@@ -41,7 +42,7 @@ describe('BashExecutorHandler', () => {
 
       expect(mockBashExec).toHaveBeenCalledWith({
         command: 'echo hello world',
-        cwd: '/home/project',
+        cwd: '/home',
         timeout: 30000,
       });
       expect(result).toEqual({
@@ -65,6 +66,20 @@ describe('BashExecutorHandler', () => {
         cwd: '/tmp',
         timeout: 5000,
       });
+    });
+
+    it('should default to repo dir when repo is cloned', async () => {
+      mockFsBridge.exists.mockResolvedValue(true);
+      mockBashExec.mockResolvedValue({ stdout: 'file.txt\n', exitCode: 0, durationMs: 50 });
+
+      const result = await handler.handleRequest('bash-executor.exec', [{ command: 'ls' }], makeContext());
+
+      expect(mockBashExec).toHaveBeenCalledWith({
+        command: 'ls',
+        cwd: '/tmp/test/repo',
+        timeout: 30000,
+      });
+      expect(result.exitCode).toBe(0);
     });
 
     it('should cap timeout at 120000ms', async () => {
@@ -118,12 +133,12 @@ describe('BashExecutorHandler', () => {
 
       expect(mockBashExec).toHaveBeenCalledTimes(2);
       expect(mockBashExec).toHaveBeenNthCalledWith(1, {
-        command: 'rm -rf /home/project && cp -r /tmp/repo-root /home/project',
+        command: 'mkdir -p /tmp/test && rm -rf /tmp/test/repo && cp -r /tmp/repo-root /tmp/test/repo',
         cwd: '/home',
         timeout: 60000,
       });
       expect(result).toEqual({
-        path: '/home/project',
+        path: '/tmp/test/repo',
         branch: 'main',
         commit: 'abc123',
       });

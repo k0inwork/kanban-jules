@@ -449,15 +449,28 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '   - code_search — symbol-based code search\\n';
       prompt += '\\n';
 
+      prompt += '4. BASH TOOLS (run shell commands inside the v86 VM):\\n';
+      prompt += '   - bash.exec(command, cwd, timeout) — execute a shell command\\n';
+      prompt += '   - bash.clone() — copy repo mirror to /tmp/<taskId>/repo for a task\\n';
+      prompt += '   Filesystem layout:\\n';
+      prompt += '   - /tmp/repo-root — main repo mirror (read-only, do not modify)\\n';
+      prompt += '   - /tmp/<taskId>/repo — per-task working copy (modify freely)\\n';
+      prompt += '   - /home — default cwd if no task repo exists\\n';
+      prompt += '   Use cwd parameter to target the right directory.\\n';
+      prompt += '\\n';
+
       prompt += 'CRITICAL DISTINCTION:\\n';
-      prompt += '- Fleet repo tools (repo.*) access GitHub repositories via the GitHub API. Use them to browse and edit code in GitHub repos.\\n';
-      prompt += '- Local file tools (file_read, glob, grep, etc.) access the local v86 workspace filesystem. Use them for local files only.\\n';
-      prompt += '- Do NOT use repo tools to search or read the local filesystem. They are for GitHub only.\\n\\n';
+      prompt += '- repo.* tools access the GitHub repository via API — use them when you need to commit changes (repo.writeFile).\\n';
+      prompt += '- bash.exec is your main tool for exploring and working with files. Use it freely: ls, cat, grep, find, git, build, test, etc.\\n';
+      prompt += '- The repo is cloned at /tmp/repo-root. After bash.clone(), your working copy is at /tmp/<taskId>/repo.\\n';
+      prompt += '- Local file tools (file_read, file_write, file_edit) access the v86 workspace filesystem too.\\n\\n';
 
       prompt += 'WORKFLOW:\\n';
       prompt += '1. Use Fleet repo tools to explore and understand the GitHub repository\\n';
-      prompt += '2. Use Fleet repo tools (repo.writeFile) or local file tools to make changes\\n';
-      prompt += '3. Use task_complete({"summary": "..."}) when done\\n\\n';
+      prompt += '2. For multi-step file changes (3+ steps), call bash.clone() first to get an isolated working copy\\n';
+      prompt += '3. Use Fleet repo tools (repo.writeFile) or local file tools to make changes\\n';
+      prompt += '4. Use bash.exec to run build/test/lint commands\\n';
+      prompt += '5. Use task_complete({"summary": "..."}) when done\\n\\n';
 
       prompt += '===== SCRIPTING COMPLEX TASKS WITH runScript =====\\n';
       prompt += 'For complex tasks that need multiple tool calls with logic between them,\\n';
@@ -474,7 +487,8 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
       prompt += 'RULES:\\n';
       prompt += '- Only use tools listed above. Do NOT invent tools.\\n';
-      prompt += '- shell_exec, bash, git_ops, test_run are NOT available.\\n';
+      prompt += '- shell_exec, git_ops, test_run are NOT available.\\n';
+      prompt += '- bash.exec IS available — use it for build, test, lint, and git operations inside the v86 VM.\\n';
       prompt += '- Think step by step. Gather information before making changes.\\n';
       prompt += '- If a tool call fails, read the error and try a different approach.';
       return prompt;

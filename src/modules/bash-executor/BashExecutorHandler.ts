@@ -4,8 +4,13 @@ export class BashExecutorHandler {
   private static _config: { repoUrl: string; repoBranch: string; githubToken: string } | null = null;
 
   static init(config: any) {
+    let url: string = config.repoUrl || '';
+    // Normalize owner/repo → https://github.com/owner/repo.git
+    if (url && !url.startsWith('http') && !url.startsWith('git@')) {
+      url = `https://github.com/${url}.git`;
+    }
     BashExecutorHandler._config = {
-      repoUrl: config.repoUrl || '',
+      repoUrl: url,
       repoBranch: config.repoBranch || 'main',
       githubToken: config.githubToken || '',
     };
@@ -20,10 +25,19 @@ export class BashExecutorHandler {
       return;
     }
     // Retry until boardVM is ready (Go WASM sets fsBridge asynchronously)
+    // v86 boot can take 30-90s, so we poll for up to 3 minutes
     const waitForBoardVM = async (): Promise<any> => {
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 180; i++) {
         const bvm = (globalThis as any).boardVM;
-        if (bvm?.bashExec && bvm?.fsBridge) return bvm;
+        if (bvm?.fsBridge && typeof bvm?.bashExec === 'function') {
+          // Verify fsBridge actually works (VM filesystem mounted)
+          try {
+            await bvm.fsBridge.exists('/home');
+            return bvm;
+          } catch {
+            // fsBridge registered but IDB not ready yet
+          }
+        }
         await new Promise(r => setTimeout(r, 1000));
       }
       return null;
@@ -39,21 +53,28 @@ export class BashExecutorHandler {
         const exists = await boardVM.fsBridge.exists('/tmp/repo-root/.git');
         if (exists) {
           console.log('[bash-executor] /tmp/repo-root already exists, pulling latest');
-          await boardVM.bashExec({
+          const r = await boardVM.bashExec({
             command: `cd /tmp/repo-root && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
             cwd: '/tmp',
             timeout: 60000,
           });
+          if (r.exitCode !== 0) {
+            console.warn('[bash-executor] git fetch/reset failed (repo still usable):', r.stdout || r.error);
+          }
         } else {
           console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → /tmp/repo-root`);
           const authUrl = cfg.githubToken
             ? cfg.repoUrl.replace('https://', `https://${cfg.githubToken}@`)
             : cfg.repoUrl;
-          await boardVM.bashExec({
-            command: `git clone --branch ${cfg.repoBranch} ${authUrl} /tmp/repo-root`,
+          const r = await boardVM.bashExec({
+            command: `rm -rf /tmp/repo-root && git clone --branch ${cfg.repoBranch} ${authUrl} /tmp/repo-root`,
             cwd: '/tmp',
             timeout: 120000,
           });
+          if (r.exitCode !== 0) {
+            console.warn('[bash-executor] git clone failed:', r.stdout || r.error);
+            return;
+          }
         }
         console.log('[bash-executor] Prefetch complete');
       } catch (err: any) {
@@ -73,12 +94,12 @@ export class BashExecutorHandler {
     }
   }
 
-  private async exec(args: any[], _context: RequestContext): Promise<any> {
+  private async exec(args: any[], context: RequestContext): Promise<any> {
     const unpack = (arg: any) =>
       arg && typeof arg === 'object' && !Array.isArray(arg) ? arg : null;
     const obj = unpack(args[0]);
     const command = obj ? obj.command : args[0];
-    const cwd = obj?.cwd || '/home/project';
+    const repoDir = `/tmp/${context.taskId || 'default'}/repo`;
     const timeout = Math.min(obj?.timeout || 30000, 120000);
 
     if (!command) {
@@ -88,6 +109,16 @@ export class BashExecutorHandler {
     const boardVM = (globalThis as any).boardVM;
     if (!boardVM?.bashExec) {
       return { stdout: '', exitCode: 1, error: 'bashExec bridge not available', durationMs: 0 };
+    }
+
+    // Default cwd: repo dir if cloned, otherwise /home
+    let cwd = obj?.cwd;
+    if (!cwd) {
+      try {
+        cwd = (await boardVM.fsBridge?.exists(repoDir)) ? repoDir : '/home';
+      } catch {
+        cwd = '/home';
+      }
     }
 
     return boardVM.bashExec({ command, cwd, timeout });
@@ -105,10 +136,11 @@ export class BashExecutorHandler {
       return { path: '', error: 'Repo not yet cloned (startup prefetch still running or failed)' };
     }
 
-    // Copy clean mirror → working directory
-    const targetDir = '/home/project';
+    // Copy clean mirror → per-task working directory
+    const taskId = context.taskId || 'default';
+    const targetDir = `/tmp/${taskId}/repo`;
     await boardVM.bashExec({
-      command: `rm -rf ${targetDir} && cp -r /tmp/repo-root ${targetDir}`,
+      command: `mkdir -p /tmp/${taskId} && rm -rf ${targetDir} && cp -r /tmp/repo-root ${targetDir}`,
       cwd: '/home',
       timeout: 60000,
     });
