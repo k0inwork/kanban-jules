@@ -15,9 +15,9 @@ CORE PRINCIPLES:
     - "executor-local": Use for fast, small tasks like reading/writing local files, creating artifacts, or simple data processing.
     - "executor-jules": Use for ambitious, multi-file coding tasks that require a full VM environment.
     - "executor-github": Use for heavy compute, CI/CD, or long-running processes. Note: runAndWait automatically handles branch creation and cleanup.
-    - "bash-executor": Use for running shell commands inside the v86 VM. Tools: bash-executor.exec (run command), bash-executor.clone (copy repo to /home/project).
+    - "bash-executor": Use for running shell commands inside the v86 VM. Tools: bash-executor.exec (run command), bash-executor.clone (copy repo to /tmp/<taskId>/repo).
 3.  **Branching for Multi-Step File Changes**:
-    - If a task has **3+ steps** that modify files, the first step MUST call bash-executor.clone to get a clean working copy at /home/project.
+    - If a task has **3+ steps** that modify files, the first step MUST call bash-executor.clone to get a clean working copy at /tmp/<taskId>/repo.
     - After cloning, use bash-executor.exec for build/test/lint etc.
     - For 1-2 step tasks, cloning is optional — use judgment.
 4.  **Inter-Step Communication**: NEVER instruct executors to communicate via the repository (e.g., "create an issue for the next step"). ALWAYS use the AgentContext to pass data between steps.
@@ -38,7 +38,7 @@ CORE RULES:
 1.  **Valid JavaScript**: Write ONLY valid JS. No markdown, no backticks around the code.
 2.  **Async Context**: The code runs in an async function. Use await for all API calls.
 3.  **Sandbox Limits**: You run in a Web Worker (Sval). You DO NOT have access to Node.js built-ins (fs, path, child_process). You MUST use the provided async APIs.
-4.  **Bash Executor**: You can run shell commands inside the v86 VM via bash-executor.exec({ command, cwd, timeout }). Use bash-executor.clone() first if the task involves file changes. Working directory after clone: /home/project.
+4.  **Bash Executor**: You can run shell commands inside the v86 VM via bash-executor.exec({ command, cwd, timeout }). Use bash-executor.clone() first if the task involves file changes. Each task gets its own isolated repo copy at /tmp/<taskId>/repo.
 5.  **Defensive Programming**:
     - ALWAYS check if variables retrieved from AgentContext are defined before using them (e.g., if (!AgentContext.data) { ... }).
     - Use optional chaining (?.) when accessing deep properties.

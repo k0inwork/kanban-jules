@@ -87,12 +87,12 @@ export class BashExecutorHandler {
     }
   }
 
-  private async exec(args: any[], _context: RequestContext): Promise<any> {
+  private async exec(args: any[], context: RequestContext): Promise<any> {
     const unpack = (arg: any) =>
       arg && typeof arg === 'object' && !Array.isArray(arg) ? arg : null;
     const obj = unpack(args[0]);
     const command = obj ? obj.command : args[0];
-    const cwd = obj?.cwd || '/home/project';
+    const cwd = obj?.cwd || `/tmp/${context.taskId || 'default'}/repo`;
     const timeout = Math.min(obj?.timeout || 30000, 120000);
 
     if (!command) {
@@ -119,10 +119,11 @@ export class BashExecutorHandler {
       return { path: '', error: 'Repo not yet cloned (startup prefetch still running or failed)' };
     }
 
-    // Copy clean mirror → working directory
-    const targetDir = '/home/project';
+    // Copy clean mirror → per-task working directory
+    const taskId = context.taskId || 'default';
+    const targetDir = `/tmp/${taskId}/repo`;
     await boardVM.bashExec({
-      command: `rm -rf ${targetDir} && cp -r /tmp/repo-root ${targetDir}`,
+      command: `mkdir -p /tmp/${taskId} && rm -rf ${targetDir} && cp -r /tmp/repo-root ${targetDir}`,
       cwd: '/home',
       timeout: 60000,
     });
