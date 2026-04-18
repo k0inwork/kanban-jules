@@ -28,6 +28,8 @@ import processDreamManifest from '../modules/process-dream/manifest.json';
 import processReflectionManifest from '../modules/process-reflection/manifest.json';
 
 import sandboxYuanManifest from '../modules/sandbox-yuan/manifest.json';
+import bashExecutorManifest from '../modules/bash-executor/manifest.json';
+import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
@@ -45,6 +47,7 @@ export class ModuleRegistry {
     { ...processDreamManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...processReflectionManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

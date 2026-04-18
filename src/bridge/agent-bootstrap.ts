@@ -48,7 +48,7 @@ async function createAlmostnodeContainer(): Promise<AlmostNodeContainer> {
   if (!createContainer) throw new Error('almostnode.createContainer not found');
 
   const c = createContainer({
-    cwd: '/workspace',
+    cwd: '/home',
     env: { NODE_ENV: 'production' },
     onConsole: (method: string, args: any[]) => {
       console.log(`[almostnode:${method}]`, ...args);
@@ -63,31 +63,17 @@ async function createAlmostnodeContainer(): Promise<AlmostNodeContainer> {
 async function installPackages(c: AlmostNodeContainer): Promise<void> {
   console.log('[yuan-bootstrap] installing @yuaone/core + @yuaone/tools from local bundle...');
 
-  // Pipeline: scripts/bundle-yuaone.mjs → public/assets/wasm/yuaone-bundles/*.json + manifest.json
-  // Runtime: fetch manifest → fetch each bundle → write into almostnode VFS
+  // Instead of hitting npm registry, load pre-built bundles from public assets.
+  // The bundles are created by `npm run bundle:yuaone` which packs the dist/ files
+  // into self-contained JSON blobs that we write into VFS.
   const bundleBase = '/assets/wasm/yuaone-bundles';
 
-  // Load manifest to discover available bundles
-  let manifest: Record<string, { version: string; files: number; hash: string; bundleFile: string }> = {};
-  try {
-    const manifestResp = await fetch(`${bundleBase}/manifest.json`);
-    if (manifestResp.ok) {
-      manifest = await manifestResp.json();
-      console.log(`[yuan-bootstrap] manifest loaded: ${Object.keys(manifest).join(', ')}`);
-    }
-  } catch {
-    console.warn('[yuan-bootstrap] manifest.json not found, loading bundles by convention');
-  }
-
-  for (const [pkg] of [
-    ['@yuaone/core'],
-    ['@yuaone/tools'],
-  ] as const) {
-    const entry = manifest[pkg];
-    const bundleFile = entry?.bundleFile || `${pkg.replace('/', '_')}.json`;
-
+  for (const [pkg, main] of [
+    ['@yuaone/core', 'dist/agent-loop.js, dist/llm-client.js, dist/types.js, dist/constants.js, dist/errors.js, dist/debug-logger.js, dist/index.js, dist/context-manager.js, dist/token-budget.js, dist/prompt-defense.js, dist/budget-governor.js, dist/cost-optimizer.js, dist/skill-loader.js, dist/vision-intent.js, dist/reasoning-aggregator.js, dist/reasoning-tree.js'],
+    ['@yuaone/tools', 'dist/index.js, dist/registry.js, dist/base-tool.js, dist/file-read.js, dist/file-write.js, dist/file-edit.js, dist/glob-tool.js, dist/grep-tool.js, dist/code-search.js, dist/web-search.js, dist/task-complete.js'],
+  ]) {
     try {
-      const resp = await fetch(`${bundleBase}/${bundleFile}`);
+      const resp = await fetch(`${bundleBase}/${pkg.replace('/', '_')}.json`);
       if (resp.ok) {
         const files: Record<string, string> = await resp.json();
         const dir = `/node_modules/${pkg}`;
@@ -97,11 +83,11 @@ async function installPackages(c: AlmostNodeContainer): Promise<void> {
           const fullPath = `${dir}/${path}`;
           c.vfs.writeFileSync(fullPath, content);
         }
-        // Write package.json with manifest version if available
+        // Write package.json
         c.vfs.writeFileSync(`${dir}/package.json`, JSON.stringify({
-          name: pkg, version: entry?.version || '0.0.0-local', main: 'dist/index.js',
+          name: pkg, version: '0.0.0-local', main: 'dist/index.js',
         }));
-        console.log(`[yuan-bootstrap] ${pkg}: ${Object.keys(files).length} files from bundle (hash ${entry?.hash || 'n/a'}, v${entry?.version || 'unknown'})`);
+        console.log(`[yuan-bootstrap] ${pkg}: ${Object.keys(files).length} files from bundle`);
         continue;
       }
     } catch (e: any) {
@@ -243,21 +229,21 @@ function injectShims(c: AlmostNodeContainer): void {
     main: 'index.js',
   }));
 
-  // FS bridge shim: node:fs/promises and node:fs → boardVM.fsBridge (v86 filesystem)
-  // This makes Yuan file tools (file_read, file_write, file_edit, glob, grep) operate
-  // on the real v86 filesystem instead of almostnode's empty in-memory VFS.
-  c.vfs.mkdirSync('/node_modules/node:fs', { recursive: true });
-  c.vfs.writeFileSync('/node_modules/node:fs/promises.js', fsBridgeShimSource);
-  c.vfs.writeFileSync('/node_modules/node:fs/promises/package.json', JSON.stringify({
-    name: 'node:fs/promises',
+  // FS bridge shim: fs/promises and fs → boardVM.fsBridge (v86 filesystem)
+  // almostnode strips "node:" prefix before resolving, so we write under /node_modules/fs/ not /node_modules/node:fs/
+  c.vfs.mkdirSync('/node_modules/fs', { recursive: true });
+  c.vfs.mkdirSync('/node_modules/fs/promises', { recursive: true });
+  c.vfs.writeFileSync('/node_modules/fs/promises.js', fsBridgeShimSource);
+  c.vfs.writeFileSync('/node_modules/fs/promises/package.json', JSON.stringify({
+    name: 'fs/promises',
     version: '0.0.0-shim',
     main: 'index.js',
   }));
-  c.vfs.writeFileSync('/node_modules/node:fs/promises/index.js', fsBridgeShimSource);
-  // node:fs uses the same bridge (sync calls are rare in the tools)
-  c.vfs.writeFileSync('/node_modules/node:fs/index.js', fsBridgeShimSource);
-  c.vfs.writeFileSync('/node_modules/node:fs/package.json', JSON.stringify({
-    name: 'node:fs',
+  c.vfs.writeFileSync('/node_modules/fs/promises/index.js', fsBridgeShimSource);
+  // fs (base module) uses the same bridge
+  c.vfs.writeFileSync('/node_modules/fs/index.js', fsBridgeShimSource);
+  c.vfs.writeFileSync('/node_modules/fs/package.json', JSON.stringify({
+    name: 'fs',
     version: '0.0.0-shim',
     main: 'index.js',
   }));
@@ -280,6 +266,44 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       return _origFetch.apply(this, arguments);
     };
 
+    // Patch almostnode built-in fsShim.promises with missing open function.
+    // almostnode createFsShim has readFile/writeFile/stat etc but NOT open.
+    // @yuaone/tools imports { open as fsOpen } from node:fs/promises which
+    // resolves to fsShim.promises - without this patch, fsOpen is undefined.
+    var _fsp = require('fs/promises');
+    if (!_fsp.open) {
+      _fsp.open = async function open(path, flags, mode) {
+        var b = globalThis.boardVM && globalThis.boardVM.fsBridge;
+        if (!b) throw new Error('boardVM.fsBridge not available for open()');
+        var content = await b.readFile(path);
+        if (content instanceof Error) throw content;
+        return {
+          _path: path,
+          readFile: async function() {
+            var r = await b.readFile(path);
+            if (r instanceof Error) throw r;
+            return { toString: function() { return r; }, length: r.length };
+          },
+          writeFile: async function(data) {
+            var c = typeof data === 'string' ? data : String(data);
+            var r = await b.writeFile(path, c);
+            if (r instanceof Error) throw r;
+          },
+          close: function() {},
+          stat: async function() {
+            var info = await b.stat(path);
+            if (!info.exists) throw new Error('ENOENT');
+            return {
+              isFile: function() { return !info.isDir; },
+              isDirectory: function() { return info.isDir; },
+              size: info.size,
+            };
+          },
+        };
+      };
+      console.log('[yuan-runner] patched fsShim.promises.open');
+    }
+
     const { AgentLoop, BYOKClient } = require('@yuaone/core');
     const { createDefaultRegistry } = require('@yuaone/tools');
 
@@ -291,7 +315,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       return d && typeof d.name === 'string' && d.name.length > 0;
     });
     var yuanToolNames = new Set(yuanDefs.map(function(d) { return d.name; }));
-    var yuanExecutor = yuanRegistry.toExecutor('/workspace');
+    var yuanExecutor = yuanRegistry.toExecutor('/home');
     console.log('[yuan-runner] Yuan built-in tools:', yuanToolNames.size, '(' + Array.from(yuanToolNames).join(', ') + ')');
 
     // Fleet tool definitions from outside via globalThis._fleetToolDefs
@@ -397,93 +421,43 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         }
       }
 
-      var prompt = 'You are Yuan, an autonomous coding agent embedded in Fleet — a kanban board for orchestrating software engineering tasks.\\n\\n';
-      prompt += '**IMPORTANT: Always respond in English only. Never use Korean or any other language.**\\n\\n';
+      var prompt = 'You are Yuan, an autonomous coding agent inside Fleet.\\n';
+      prompt += '**IMPORTANT: Always respond in English only.**\\n\\n';
+      prompt += 'Use the provided tools via native function calling. Do not output tool calls as text.\\n\\n';
+      prompt += 'TOOL CATEGORIES:\\n\\n';
 
-      prompt += '===== WHAT IS FLEET =====\\n';
-      prompt += 'Fleet is a kanban-style task board where each card represents a coding task (bug fix, feature, refactor, etc.).\\n';
-      prompt += 'Tasks flow through columns: Backlog → Planning → In-Progress → Review → Done.\\n';
-      prompt += 'An orchestrator agent picks tasks from the board and delegates them to executors:\\n';
-      prompt += '  - Local executor: runs code in a browser sandbox (you have access to similar tools).\\n';
-      prompt += '  - Jules (Google): cloud-based autonomous coding agent, pushes branches to GitHub.\\n';
-      prompt += '  - GitHub Actions: runs CI/CD workflows, tests, and heavy compute.\\n';
-      prompt += 'A knowledge base (KB) stores learned insights, patterns, and project documentation.\\n';
+      prompt += '1. FLEET REPO TOOLS (access GitHub repositories directly via GitHub API):\\n';
+      if (toolDescs.length > 0) {
+        prompt += toolDescs.join('\\n') + '\\n';
+      } else {
+        prompt += '   (none registered)\\n';
+      }
+      prompt += '   These are your PRIMARY way to read and write repository files. They go directly to GitHub.\\n';
+      prompt += '   Use repo.listFiles, repo.readFile, repo.headFile to browse and read repo files.\\n';
+      prompt += '   Use repo.writeFile to commit changes back to the repo.\\n';
       prompt += '\\n';
 
-      prompt += '===== YOUR ROLE =====\\n';
-      prompt += 'You are a chat-based assistant embedded in the Fleet board UI. The user talks to you directly.\\n';
-      prompt += 'You can:\\n';
-      prompt += '  - Read, write, and edit files in the project repository.\\n';
-      prompt += '  - Search the codebase (glob, grep, code search).\\n';
-      prompt += '  - Access the Knowledge Base to read or store insights.\\n';
-      prompt += '  - Access stored Artifacts (design specs, analysis results).\\n';
-      prompt += '  - Browse the GitHub repository (list files, read files, write files via commits).\\n';
-      prompt += '  - Delegate to external executors: ask Jules to code, trigger GitHub Actions.\\n';
-      prompt += '  - Ask the user questions or send them messages via the board.\\n';
+      prompt += '2. LOCAL FILE TOOLS (v86 workspace filesystem — NOT the GitHub repo):\\n';
+      prompt += '   - file_read, file_write, file_edit — read/write/edit local workspace files\\n';
+      prompt += '   - glob, grep — search local filesystem\\n';
+      prompt += '   - security_scan — scan local files for vulnerabilities\\n';
+      prompt += '   Only use these for local workspace files, NOT for accessing the GitHub repository.\\n';
       prompt += '\\n';
 
-      prompt += '===== TOOL CALL FORMAT (CRITICAL) =====\\n';
-      prompt += 'each tool_call is:\\n  [tool_call]TOOL_NAME[arg_name]ARG_NAME[/arg_name][arg_value]ARG_VALUE[/arg_value]...[/tool_call]\\nReplace [] with <> when calling tools.\\n';
-      prompt += 'Examples:\\n';
-      prompt += '  [tool_call]glob[arg_name]pattern[/arg_name][arg_value]*[/arg_value][/tool_call]\\n';
-      prompt += '  [tool_call]file_read[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][/tool_call]\\n';
-      prompt += '  [tool_call]file_edit[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][arg_name]old_string[/arg_name][arg_value]foo[/arg_value][arg_name]new_string[/arg_name][arg_value]bar[/arg_value][/tool_call]\\n';
-      prompt += '  [tool_call]task_complete[arg_name]summary[/arg_name][arg_value]done[/arg_value][/tool_call]\\n';
-      prompt += 'One call per block. Do NOT use any other format.\\n';
-      prompt += '=========================================\\n\\n';
-
-      prompt += '===== YOUR TOOLS =====\\n\\n';
-
-      prompt += '1. FILE TOOLS (read/write/search the project in your /workspace VFS):\\n';
-      prompt += '   - file_read(path, offset?, limit?) — read file with line numbers, 50KB limit\\n';
-      prompt += '   - file_write(path, content, createDirectories?) — write/create file, auto-mkdir\\n';
-      prompt += '   - file_edit(path, old_string, new_string, replace_all?) — exact string replacement\\n';
-      prompt += '   - glob(pattern, path?, maxResults?) — find files by glob pattern\\n';
-      prompt += '   - grep(pattern, path?, glob?, maxResults?, context?) — search file contents\\n';
-      prompt += '   - code_search(query, mode?, language?) — symbol search (definitions, references)\\n';
-      prompt += '   - security_scan(operation?, path?) — scan for vulnerabilities\\n';
-      prompt += '   - web_search(operation, query?, url?) — web search or fetch URL\\n';
-      prompt += '   - parallel_web_search(queries) — multiple web searches in parallel\\n';
-      prompt += '   - task_complete(summary) — MUST call when you finish your task\\n';
-      prompt += '   - spawn_sub_agent(prompt, model?) — spawn a sub-agent for a subtask\\n';
+      prompt += '3. SEARCH TOOLS:\\n';
+      prompt += '   - web_search — search the web or fetch URLs\\n';
+      prompt += '   - code_search — symbol-based code search\\n';
       prompt += '\\n';
 
-      prompt += '2. BOARD INTERACTION TOOLS (talk to the user and delegate work):\\n';
-      prompt += '   - askUser(question, format?) — ask the user a question and WAIT for their reply\\n';
-      prompt += '   - sendUser(message) — send a message to the user (no reply expected)\\n';
-      prompt += '   - askJules(prompt, successCriteria?) — delegate a coding task to Google Jules (cloud agent that pushes branches)\\n';
-      prompt += '   - runWorkflow(workflowYaml, workflowName, branch?) — trigger a GitHub Actions workflow\\n';
-      prompt += '   - runAndWait(workflowYaml, workflowName, branch?, timeoutMs?) — trigger workflow and wait for result\\n';
-      prompt += '   - fetchLogs(runId) — fetch logs from a completed GitHub Actions run\\n';
-      prompt += '   - getRunStatus(runId) — check status of a GitHub Actions run\\n';
-      prompt += '   - fetchArtifacts(runId) — download artifacts from a GitHub Actions run\\n';
-      prompt += '\\n';
+      prompt += 'CRITICAL DISTINCTION:\\n';
+      prompt += '- Fleet repo tools (repo.*) access GitHub repositories via the GitHub API. Use them to browse and edit code in GitHub repos.\\n';
+      prompt += '- Local file tools (file_read, glob, grep, etc.) access the local v86 workspace filesystem. Use them for local files only.\\n';
+      prompt += '- Do NOT use repo tools to search or read the local filesystem. They are for GitHub only.\\n\\n';
 
-      prompt += '3. KNOWLEDGE BASE TOOLS (Fleet\\'s shared memory):\\n';
-      prompt += '   - KB.record(text, category, abstraction, layer, tags, source) — store a learned insight\\n';
-      prompt += '   - KB.queryLog(category?, tags?, limit?) — search the insight log\\n';
-      prompt += '   - KB.queryDocs(type?, tags?, search?, limit?) — search documentation\\n';
-      prompt += '   - KB.saveDoc(title, type, content, summary, tags, layer, source) — save a document\\n';
-      prompt += '   - KB.updateDoc(id, changes) — update an existing document\\n';
-      prompt += '   - KB.deleteDoc(id) — soft-delete a document\\n';
-      prompt += '\\n';
-
-      prompt += '4. ARTIFACT TOOLS (named storage for specs, analysis, etc.):\\n';
-      prompt += '   - Artifacts.saveArtifact(name, content) — save a named artifact\\n';
-      prompt += '   - Artifacts.readArtifact(name) — read an artifact by name\\n';
-      prompt += '   - Artifacts.listArtifacts(taskId?) — list stored artifacts\\n';
-      prompt += '\\n';
-
-      prompt += '5. REPOSITORY BROWSER TOOLS (read files from the GitHub repo directly):\\n';
-      prompt += '   - repo.listFiles(path) — list files in a repo directory\\n';
-      prompt += '   - repo.readFile(path) — read a file from the GitHub repo\\n';
-      prompt += '   - repo.headFile(path, lines?) — read first N lines of a repo file\\n';
-      prompt += '   - repo.writeFile(path, content, commitMessage?) — write file to repo (creates a commit)\\n';
-      prompt += '\\n';
-
-      prompt += '6. ANALYSIS TOOLS:\\n';
-      prompt += '   - scan(patterns?) — scan the repository for secrets and patterns\\n';
-      prompt += '\\n';
+      prompt += 'WORKFLOW:\\n';
+      prompt += '1. Use Fleet repo tools to explore and understand the GitHub repository\\n';
+      prompt += '2. Use Fleet repo tools (repo.writeFile) or local file tools to make changes\\n';
+      prompt += '3. Use task_complete({"summary": "..."}) when done\\n\\n';
 
       prompt += '===== SCRIPTING COMPLEX TASKS WITH runScript =====\\n';
       prompt += 'For complex tasks that need multiple tool calls with logic between them,\\n';
@@ -497,32 +471,12 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '  - Use runScript for: loops, conditionals, error handling, chaining 3+ dependent calls, data transformation.\\n';
       prompt += '  - Use individual tool calls for: simple single operations, asking the user a question.\\n';
       prompt += '\\n';
-      prompt += 'Example — search codebase then conditionally update files:\\n';
-      prompt += '  runScript({ code: "const files = await glob({ pattern: \\"src/**/*.ts\\" }); const results = []; for (const file of files) { const content = await readFile({ path: file }); if (content.includes(\\"oldFunction\\")) { await writeFile({ path: file, content: content.replace(/oldFunction/g, \\"newFunction\\") }); results.push(file); } } return \\"Updated: \\" + results.join(\\", \\");" })\\n';
-      prompt += '\\n';
-      prompt += 'Example — query KB, then ask user if uncertain:\\n';
-      prompt += '  runScript({ code: "const log = await KB_queryLog({ category: \\"error\\", tags: [\\"auth\\"], limit: 5 }); if (log.length === 0) { return await askUser({ prompt: \\"No auth errors found. Check repo?\\" }); } return JSON.stringify(log);" })\\n';
-      prompt += '\\n';
 
-      prompt += '===== DYNAMICALLY REGISTERED TOOLS =====\\n';
-      if (toolDescs.length > 0) {
-        prompt += 'Additional tools available from active board modules:\\n';
-        prompt += toolDescs.join('\\n') + '\\n';
-      } else {
-        prompt += '(no additional tools registered)\\n';
-      }
-      prompt += '\\n';
-
-      prompt += '===== IMPORTANT RULES =====\\n';
+      prompt += 'RULES:\\n';
       prompt += '- Only use tools listed above. Do NOT invent tools.\\n';
-      prompt += '- shell_exec, bash, git_ops, test_run are NOT available — do NOT attempt to use them.\\n';
-      prompt += '- For file operations in your workspace, use file_read/file_write/file_edit.\\n';
-      prompt += '- For reading the actual GitHub repo, use repo.readFile/repo.listFiles.\\n';
-      prompt += '- Always call task_complete({"summary": "..."}) when you finish your task.\\n';
-      prompt += '- Think step by step. Use tools to gather information before making changes.\\n';
-      prompt += '- If a tool call fails, read the error and try a different approach.\\n';
-      prompt += '- Use KB tools to store important findings — other board agents can read them.\\n';
-      prompt += '- Use askUser when you need clarification from the user before proceeding.';
+      prompt += '- shell_exec, bash, git_ops, test_run are NOT available.\\n';
+      prompt += '- Think step by step. Gather information before making changes.\\n';
+      prompt += '- If a tool call fails, read the error and try a different approach.';
       return prompt;
     }
 
@@ -538,7 +492,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
           totalTokenBudget: 100000,
           tools: allDefs,
           systemPrompt: systemPrompt,
-          projectPath: '/workspace',
+          projectPath: '/home',
           indexing: false,
         },
       };
@@ -549,27 +503,37 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         governorConfig: { planTier: 'standard', maxIterations: 25, maxTokenBudget: 100000 },
       });
 
-      // Patch contextManager.replaceSystemMessage so our JS format block is always prepended
-      // (criticalInit() calls replaceSystemMessage with buildPrompt output, discarding our instructions)
-      var _jsFormatBlock = '===== TOOL CALL FORMAT (CRITICAL) =====\\n'
-        + 'each tool_call is:\\n  [tool_call]TOOL_NAME[arg_name]ARG_NAME[/arg_name][arg_value]ARG_VALUE[/arg_value]...[/tool_call]\\nReplace [] with <> when calling tools.\\n'
-        + 'Examples:\\n'
-        + '  [tool_call]glob[arg_name]pattern[/arg_name][arg_value]*[/arg_value][/tool_call]\\n'
-        + '  [tool_call]file_read[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][/tool_call]\\n'
-        + '  [tool_call]file_edit[arg_name]path[/arg_name][arg_value]src/main.ts[/arg_value][arg_name]old_string[/arg_name][arg_value]foo[/arg_value][arg_name]new_string[/arg_name][arg_value]bar[/arg_value][/tool_call]\\n'
-        + '  [tool_call]task_complete[arg_name]summary[/arg_name][arg_value]done[/arg_value][/tool_call]\\n'
-        + 'One call per block. Do NOT use any other format.\\n'
-        + '=========================================\\n\\n';
-      var _origReplace = agent.contextManager.replaceSystemMessage.bind(agent.contextManager);
-      agent.contextManager.replaceSystemMessage = function(content) {
-        _origReplace(_jsFormatBlock + content);
-      };
+      // Native function calling — no text-format injection needed
 
-      agent.on('agent:thinking', function(ev) { console.log('[yuan] thinking:', ev.content); try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:thinking', content: ev.content }); } catch(_e) {} });
-      agent.on('agent:tool_call', function(ev) { console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200)); try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_call', tool: ev.tool, args: ev.args }); } catch(_e) {} });
-      agent.on('agent:tool_result', function(ev) { console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200)); try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_result', tool: ev.tool, success: ev.success, output: String(ev.output || '').substring(0, 200) }); } catch(_e) {} });
-      agent.on('agent:completed', function(ev) { console.log('[yuan] completed:', ev.summary); try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:completed', summary: ev.summary }); } catch(_e) {} });
-      agent.on('agent:error', function(ev) { console.error('[yuan] error:', ev.message); try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:error', message: ev.message }); } catch(_e) {} });
+      // AgentLoop events — log + forward to boardVM
+      agent.on('event', function(ev) {
+        if (!ev || !ev.kind) return;
+        switch (ev.kind) {
+          case 'agent:thinking':
+            console.log('[yuan] thinking:', ev.content);
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:thinking', content: ev.content }); } catch(_e) {}
+            break;
+          case 'agent:tool_call':
+            console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200));
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_call', tool: ev.tool, args: ev.args }); } catch(_e) {}
+            break;
+          case 'agent:tool_result':
+            console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200));
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_result', tool: ev.tool, success: ev.success, output: String(ev.output || '').substring(0, 200) }); } catch(_e) {}
+            break;
+          case 'agent:completed':
+            console.log('[yuan] completed:', ev.summary);
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:completed', summary: ev.summary }); } catch(_e) {}
+            break;
+          case 'agent:error':
+            console.error('[yuan] error:', ev.message);
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:error', message: ev.message }); } catch(_e) {}
+            break;
+          case 'agent:start':
+            console.log('[yuan] start:', ev.goal);
+            break;
+        }
+      });
 
       globalThis._yuanAgent = agent;
       globalThis._yuanReady = true;
@@ -579,7 +543,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     globalThis._yuanRun = async function(message) {
       if (!globalThis._yuanAgent) throw new Error('Agent not initialized');
       try {
-        var result = await globalThis._yuanAgent.run(message);
+        var result = await globalThis._yuanAgent.run(enrichedMessage);
         return (result && (result.summary || result.reason)) || 'completed';
       } catch(err) {
         return 'error: ' + (err.message || String(err));
@@ -606,22 +570,46 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       return resp;
     };
 
-    // Callback-based runner for sync execute() bridge
-    globalThis._yuanRunWithCallback = function(message, resolve, reject) {
-      if (!globalThis._yuanAgent) { reject(new Error('Agent not initialized')); return; }
+    // Callback-based runner: result goes through boardVM.yuan._onResult.
+    // almostnode Runtime shares the browser's globalThis, so boardVM.yuan._onResult is reachable.
+    globalThis._yuanRunWithCallback = function(message) {
+      if (!globalThis._yuanAgent) {
+        var cb = globalThis.boardVM && globalThis.boardVM.yuan;
+        if (cb && cb._onError) cb._onError(new Error('Agent not initialized'));
+        return;
+      }
       // Clear context history so each message starts fresh (no accumulation)
       try {
         globalThis._yuanAgent.contextManager.clear();
-        // Re-add system prompt (clear() removes it, and run() doesn't re-add it)
+        // Re-add system prompt (clear() removes it; run() will replaceSystemMessage via criticalInit)
         globalThis._yuanAgent.contextManager.addMessage({
           role: 'system',
           content: globalThis._yuanAgent.config.loop.systemPrompt
         });
       } catch(e) { console.warn('[yuan-runner] contextManager.clear failed:', e); }
+      // Prepend English-only instruction to user message so it survives criticalInit's system prompt replacement
+      var englishPrefix = '[System: You MUST respond in English only.]\\n\\n';
+      var enrichedMessage = englishPrefix + message;
+
       console.log('═══════ [yuan-runner] INCOMING MESSAGE ═══════');
       console.log(message);
       console.log('═══════ [yuan-runner] END INCOMING ═══════');
-      globalThis._yuanAgent.run(message).then(function(result) {
+
+      // Run with a 2-minute timeout so the UI never hangs forever
+      var _runTimeout = setTimeout(function() {
+        console.error('[yuan-runner] TIMEOUT — aborting agent after 120s');
+        try { globalThis._yuanAgent.abort(); } catch(e) {}
+        var cbt = globalThis.boardVM && globalThis.boardVM.yuan;
+        var fallbackText = globalThis._lastLLMText || 'Agent timed out after 120 seconds.';
+        if (cbt && cbt._onResult) cbt._onResult(fallbackText);
+      }, 120000);
+
+      Promise.race([
+        globalThis._yuanAgent.run(message),
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 125000); })
+      ]).then(function(result) {
+        console.log('═══════ [yuan-runner] RUN RESULT ═══════');
+        clearTimeout(_runTimeout);
         console.log('═══════ [yuan-runner] RUN RESULT ═══════');
         console.log('reason:', result && result.reason);
         console.log('summary:', result && result.summary);
@@ -630,17 +618,20 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         console.log('═══════ [yuan-runner] END RESULT ═══════');
         // Prefer the actual LLM content over generic summaries like "Task completed"
         var text = globalThis._lastLLMText || (result && result.summary) || '';
-        resolve(text || 'completed');
+        var cb = globalThis.boardVM && globalThis.boardVM.yuan;
+        if (cb && cb._onResult) cb._onResult(text || 'completed');
       }).catch(function(err) {
+        clearTimeout(_runTimeout);
         console.error('═══════ [yuan-runner] RUN ERROR ═══════');
         console.error('message:', err.message);
         console.error('stack:', err.stack);
         console.error('_lastLLMText:', globalThis._lastLLMText);
         console.error('═══════ [yuan-runner] END ERROR ═══════');
+        var cb2 = globalThis.boardVM && globalThis.boardVM.yuan;
         if (globalThis._lastLLMText) {
-          resolve(globalThis._lastLLMText);
+          if (cb2 && cb2._onResult) cb2._onResult(globalThis._lastLLMText);
         } else {
-          resolve('error: ' + (err.message || String(err)));
+          if (cb2 && cb2._onError) cb2._onError(err);
         }
       });
     };
@@ -648,7 +639,6 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     console.log('[yuan-runner] agent runner loaded');
   `;
 
-  c.vfs.mkdirSync('/workspace', { recursive: true });
   c.vfs.writeFileSync('/yuan-runner.js', runnerCode);
 }
 
@@ -729,16 +719,18 @@ export async function sendToYuanAgent(message: string): Promise<string> {
   const bvm = getBoardVM();
   if (bvm?.yuan) bvm.yuan._status = 'running';
   try {
-    // Use callback bridge: pass resolve/reject into almostnode's sync execute
-    // so the async agent.run() can call back when done
+    // Use boardVM.yuan callback bridge — the worker can't access browser's globalThis,
+    // but it CAN access boardVM (which is injected into the worker by almostnode).
     const result = await new Promise<string>((resolve, reject) => {
-      // Expose the resolve/reject on globalThis so the runner can call them
-      (globalThis as any).__yuanResolve = resolve;
-      (globalThis as any).__yuanReject = reject;
+      const bvm = getBoardVM();
+      if (!bvm?.yuan) { reject(new Error('boardVM.yuan not available')); return; }
+
+      bvm.yuan._onResult = (text: string) => { resolve(text); };
+      bvm.yuan._onError = (err: any) => { reject(err); };
 
       const escapedMsg = JSON.stringify(message);
       container!.execute(
-        `globalThis._yuanRunWithCallback(${escapedMsg}, globalThis.__yuanResolve, globalThis.__yuanReject)`
+        `globalThis._yuanRunWithCallback(${escapedMsg})`
       );
     });
 

@@ -1,0 +1,58 @@
+{
+  "id": "bash-executor",
+  "name": "Bash Executor",
+  "version": "0.1.0",
+  "type": "executor",
+  "description": "Execute shell commands inside the v86 VM via session-mux OSC 89 escape sequences. File-based result capture via fsBridge.",
+  "tools": [
+    {
+      "name": "bash-executor.exec",
+      "description": "Execute a shell command in the v86 VM workspace. Returns stdout, stderr, and exit code.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Working directory (default: /home)"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in milliseconds (default 30000, max 120000)"
+          }
+        },
+        "required": ["command"]
+      }
+    },
+    {
+      "name": "bash-executor.clone",
+      "description": "Clone the configured repository into the v86 VM. Uses mirror+checkout strategy for speed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repoUrl": {
+            "type": "string",
+            "description": "Repository URL (defaults to board config)"
+          },
+          "branch": {
+            "type": "string",
+            "description": "Branch to checkout (defaults to board config)"
+          },
+          "targetDir": {
+            "type": "string",
+            "description": "Target directory in v86 (default: /home/project)"
+          }
+        }
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "bash.exec": "bash-executor.exec",
+    "bash.clone": "bash-executor.clone"
+  },
+  "permissions": [],
+  "enabled": true
+}

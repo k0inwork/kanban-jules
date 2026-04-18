@@ -83,23 +83,43 @@ function parseXMLToolCalls(content: string, knownTools?: string[]): any[] {
   }
 
   // Pass 1b: [tool_call]NAME[arg_name]ARG[/arg_name][arg_value]VAL[/arg_value]...[/tool_call]
-  // Handles both [] and <> brackets. Name is text content after opening tag.
+  // Handles both [] and <> brackets, mixed brackets in args, arg_name/arg_key, dots in tool names.
+  const _ao = '(?:\\[|<)';
+  const _ac = '(?:\\]|>)';
   const bracketPairs = [
     { o: '\\[', c: '\\]' },
     { o: '<', c: '>' },
   ];
   for (const bp of bracketPairs) {
-    const tcRe = new RegExp(bp.o + 'tool_call' + bp.c + '\\s*(\\w+)\\s*((?:' + bp.o + 'arg_name' + bp.c + '[\\s\\S]*?' + bp.o + '/arg_name' + bp.c + bp.o + 'arg_value' + bp.c + '[\\s\\S]*?' + bp.o + '/arg_value' + bp.c + ')+)\\s*' + bp.o + '/tool_call' + bp.c, 'gm');
+    const tcRe = new RegExp(bp.o + 'tool_call' + bp.c + '\\s*([\\w.]+)\\s*((?:' + _ao + 'arg_\\w+' + _ac + '[\\s\\S]*?' + _ao + '/arg_\\w+' + _ac + _ao + 'arg_value' + _ac + '[\\s\\S]*?' + _ao + '/arg_value' + _ac + ')+)\\s*' + bp.o + '/tool_call' + bp.c, 'gm');
     while ((match = tcRe.exec(content)) !== null) {
       const tcName = match[1];
       const tcBody = match[2];
       const tcArgs: any = {};
-      const pairRe = new RegExp(bp.o + 'arg_name' + bp.c + '([\\s\\S]*?)' + bp.o + '/arg_name' + bp.c + bp.o + 'arg_value' + bp.c + '([\\s\\S]*?)' + bp.o + '/arg_value' + bp.c, 'gm');
+      const pairRe = new RegExp(_ao + 'arg_(\\w+)' + _ac + '([\\s\\S]*?)' + _ao + '/arg_\\w+' + _ac + _ao + 'arg_value' + _ac + '([\\s\\S]*?)' + _ao + '/arg_value' + _ac, 'gm');
       let pm;
       while ((pm = pairRe.exec(tcBody)) !== null) {
         tcArgs[pm[1].trim()] = pm[2].trim();
       }
       calls.push({ id: `call_${idx++}`, type: 'function', function: { name: tcName, arguments: JSON.stringify(tcArgs) } });
+      cleaned = cleaned.replace(match[0], '');
+    }
+  }
+
+  // Pass 1c: [toolname][arg_name]ARG[/arg_name][arg_value]VAL[/arg_value][/toolname] — bare [] tags
+  const bareBrRe = /\[(\w+)((?:\[arg_name\][\s\S]*?\[\/arg_name\]\[arg_value\][\s\S]*?\[\/arg_value\])+)\[\/\1\]/gm;
+  while ((match = bareBrRe.exec(content)) !== null) {
+    const bbName = match[1];
+    const bbBody = match[2];
+    if (skipTags.has(bbName)) continue;
+    const bbArgs: any = {};
+    const bbPairRe = /\[arg_name\]([\s\S]*?)\[\/arg_name\]\[arg_value\]([\s\S]*?)\[\/arg_value\]/gm;
+    let bbm;
+    while ((bbm = bbPairRe.exec(bbBody)) !== null) {
+      bbArgs[bbm[1].trim()] = bbm[2].trim();
+    }
+    if (Object.keys(bbArgs).length > 0 || (knownSet && knownSet.has(bbName))) {
+      calls.push({ id: `call_${idx++}`, type: 'function', function: { name: bbName, arguments: JSON.stringify(bbArgs) } });
       cleaned = cleaned.replace(match[0], '');
     }
   }
@@ -325,38 +345,8 @@ export function BoardVMProvider({
               };
               return JSON.stringify(openaiResp);
             } else {
-              // OpenAI-compatible provider — strip tools, inject JS function call schema
+              // OpenAI-compatible provider — pass tools natively for function calling
               const cleanReq: any = { ...req };
-              const tools = cleanReq.tools;
-              let toolSchema = '';
-
-              if (tools && tools.length > 0) {
-                const lines = ['\n\n===== AVAILABLE TOOLS (CRITICAL) ====='];
-                for (const t of tools) {
-                  const fn = t.function;
-                  const params = fn.parameters?.properties
-                    ? Object.keys(fn.parameters.properties).join(', ')
-                    : '';
-                  lines.push(`- ${fn.name}(${params}): ${fn.description || ''}`);
-                }
-                lines.push('To invoke a tool, use JS function call syntax: tool_name({"key": "value"})');
-                lines.push('Examples: glob({"pattern": "**/*.ts"}) or file_read({"path": "src/main.ts"})');
-                lines.push('One call per line. Do NOT use XML tags. This format is MANDATORY.');
-                lines.push('You can make multiple tool calls. After tool results, continue your response.');
-                lines.push('========================================');
-                toolSchema = lines.join('\n');
-                delete cleanReq.tools;
-                delete cleanReq.tool_choice;
-              }
-
-              if (toolSchema && cleanReq.messages?.length > 0) {
-                const lastMsg = cleanReq.messages[cleanReq.messages.length - 1];
-                if (lastMsg.role === 'user') {
-                  lastMsg.content = (lastMsg.content || '') + toolSchema;
-                } else {
-                  cleanReq.messages.push({ role: 'user', content: toolSchema });
-                }
-              }
 
               const response = await fetch(`${openaiUrlRef.current}/chat/completions`, {
                 method: 'POST',
@@ -369,14 +359,6 @@ export function BoardVMProvider({
 
               if (response.ok) {
                 const data = await response.json();
-                const content = data.choices?.[0]?.message?.content || '';
-                const toolNames = buildToolDefinitions().map(t => t.name);
-                const tc = parseXMLToolCalls(content, toolNames);
-                if (tc.length > 0) {
-                  data.choices[0].message.content = (parseXMLToolCalls as any)._lastCleaned || null;
-                  data.choices[0].message.tool_calls = tc;
-                  data.choices[0].finish_reason = 'tool_calls';
-                }
                 return JSON.stringify(data);
               } else {
                 const error = await response.text();

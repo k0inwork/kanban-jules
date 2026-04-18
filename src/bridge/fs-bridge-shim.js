@@ -2,14 +2,8 @@
  * fs-bridge-shim — replaces node:fs/promises and node:fs in almostnode
  * so Yuan file tools operate on the real v86 filesystem via boardVM.fsBridge.
  *
- * boardVM.fsBridge is registered by Go WASM (fsbridge.go) and exposes:
- *   readFile(path)        → string
- *   stat(path)            → {exists, isDir, size, mtime, mode}
- *   writeFile(path, data) → true | throws
- *   mkdir(path)           → true | throws
- *   readdir(path)         → [string]
- *   readdirWithInfo(path) → [{name, isDir, size}]
- *   exists(path)          → boolean
+ * boardVM.fsBridge methods return Promises (Go WASM runs IDB ops in goroutines
+ * to avoid deadlocking the JS event loop).
  */
 
 function getBridge() {
@@ -18,15 +12,11 @@ function getBridge() {
   return b;
 }
 
-function isErr(v) {
-  return v instanceof Error;
-}
+// --- node:fs/promises shim (all async) ---
 
-// --- node:fs/promises shim ---
-
-function stat(path) {
+async function stat(path) {
   var b = getBridge();
-  var info = b.stat(path);
+  var info = await b.stat(path);
   if (!info.exists) {
     var err = new Error('ENOENT: no such file or directory, stat \'' + path + '\'');
     err.code = 'ENOENT';
@@ -42,30 +32,28 @@ function stat(path) {
   };
 }
 
-function readFile(path, encoding) {
+async function readFile(path, encoding) {
   var b = getBridge();
-  var result = b.readFile(path);
-  if (isErr(result)) throw result;
+  var result = await b.readFile(path);
+  if (result instanceof Error) throw result;
   if (encoding === 'utf-8' || encoding === 'utf8') {
     return result;
   }
-  // Return as Buffer-like string for binary compatibility
   return result;
 }
 
-function writeFile(path, data, opts) {
+async function writeFile(path, data, opts) {
   var b = getBridge();
   var content = typeof data === 'string' ? data : String(data);
-  var result = b.writeFile(path, content);
-  if (isErr(result)) throw result;
+  var result = await b.writeFile(path, content);
+  if (result instanceof Error) throw result;
   return;
 }
 
-function mkdir(path, opts) {
+async function mkdir(path, opts) {
   var b = getBridge();
-  var result = b.mkdir(path);
-  if (isErr(result)) {
-    // If recursive and already exists, that's ok
+  var result = await b.mkdir(path);
+  if (result instanceof Error) {
     if (opts && opts.recursive && result.message && result.message.indexOf('exists') >= 0) {
       return;
     }
@@ -74,11 +62,10 @@ function mkdir(path, opts) {
   return;
 }
 
-function readdir(path) {
+async function readdir(path) {
   var b = getBridge();
-  var result = b.readdir(path);
-  if (isErr(result)) throw result;
-  // Convert JS array to regular array
+  var result = await b.readdir(path);
+  if (result instanceof Error) throw result;
   var arr = [];
   for (var i = 0; i < result.length; i++) {
     arr.push(result[i]);
@@ -86,39 +73,62 @@ function readdir(path) {
   return arr;
 }
 
-function copyFile(src, dst) {
-  // Best-effort: read then write
-  var content = readFile(src);
-  writeFile(dst, content);
+async function copyFile(src, dst) {
+  var content = await readFile(src);
+  await writeFile(dst, content);
   return;
 }
 
-function open(path, flags, mode) {
-  // Return a file handle object that the tools use
+async function open(path, flags, mode) {
   var b = getBridge();
+  var content = await b.readFile(path);
+  if (content instanceof Error) throw content;
   return {
     _path: path,
-    _flags: flags,
-    _content: null,
-    _dirty: false,
-    readFile: function() {
-      var result = b.readFile(path);
-      if (isErr(result)) throw result;
-      // Return Buffer-like object
-      var str = result;
-      // Simulate Buffer from string
-      return { toString: function(enc) { return str; }, length: str.length };
+    readFile: async function() {
+      var r = await b.readFile(path);
+      if (r instanceof Error) throw r;
+      return { toString: function() { return r; }, length: r.length };
     },
-    writeFile: function(data, enc) {
-      var content = typeof data === 'string' ? data : String(data);
-      var result = b.writeFile(path, content);
-      if (isErr(result)) throw result;
-      return;
+    writeFile: async function(data) {
+      var c = typeof data === 'string' ? data : String(data);
+      var r = await b.writeFile(path, c);
+      if (r instanceof Error) throw r;
     },
-    close: function() {
-      return;
-    },
+    close: function() {},
   };
+}
+
+// --- node:fs sync shim (uses internal cache, falls back to sync bridge if available) ---
+
+// Sync variants: these try the bridge synchronously. If the bridge is async-only,
+// they throw. Yuan's tools mostly use the async API, but some internal code
+// may call sync variants.
+function readFileSync(path, encoding) {
+  // Sync not supported with async bridge — tools should use async readFile
+  throw new Error('readFileSync not supported: use fs.promises.readFile (async)');
+}
+
+function writeFileSync(path, data, opts) {
+  throw new Error('writeFileSync not supported: use fs.promises.writeFile (async)');
+}
+
+function readdirSync(path) {
+  throw new Error('readdirSync not supported: use fs.promises.readdir (async)');
+}
+
+function statSync(path) {
+  throw new Error('statSync not supported: use fs.promises.stat (async)');
+}
+
+function existsSync(path) {
+  // Best-effort: try async exists (won't block, just returns promise)
+  // Sync callers should migrate to async
+  throw new Error('existsSync not supported: use fs.promises.stat (async)');
+}
+
+function mkdirSync(path, opts) {
+  throw new Error('mkdirSync not supported: use fs.promises.mkdir (async)');
 }
 
 // Export as node:fs/promises
@@ -130,9 +140,25 @@ module.exports = {
   readdir: readdir,
   copyFile: copyFile,
   open: open,
+  // Sync stubs
+  readFileSync: readFileSync,
+  writeFileSync: writeFileSync,
+  readdirSync: readdirSync,
+  statSync: statSync,
+  existsSync: existsSync,
+  mkdirSync: mkdirSync,
+  // Promise-based access
+  promises: {
+    stat: stat,
+    readFile: readFile,
+    writeFile: writeFile,
+    mkdir: mkdir,
+    readdir: readdir,
+    copyFile: copyFile,
+    open: open,
+  },
 };
 
-// Also export node:fs constants and sync variants
 module.exports.constants = {
   O_RDONLY: 0,
   O_WRONLY: 1,

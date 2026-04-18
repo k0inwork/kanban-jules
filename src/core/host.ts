@@ -21,6 +21,7 @@ import { DreamHandler } from '../modules/process-dream/Handler';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
 import { pushQueue } from '../services/PushQueue';
+import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -212,6 +213,7 @@ export class ModuleHost {
     const userHandler = new UserHandler();
     const localHandler = new LocalHandler();
     const githubHandler = new GithubHandler();
+    const bashHandler = new BashExecutorHandler();
 
     registry.registerModuleHandlers('executor-jules', julesHandler.handleRequest.bind(julesHandler));
     registry.registerModuleHandlers('channel-user-negotiator', userHandler.handleRequest.bind(userHandler));
@@ -230,6 +232,7 @@ export class ModuleHost {
     // Yuan sandbox — runScript tool for batching tool calls
     const yuanSandboxHandler = new YuanSandboxHandler();
     registry.registerModuleHandlers('sandbox-yuan', yuanSandboxHandler.handleRequest.bind(yuanSandboxHandler));
+    registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
 
     // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));

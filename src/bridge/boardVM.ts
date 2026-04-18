@@ -297,6 +297,78 @@ export const boardVM = {
   on: (event: string, callback: (...args: any[]) => void) => eventBus.on(event as any, callback as any),
   emit: (event: string, data: any) => eventBus.emit(event as any, data),
 
+  // Bash execution via OSC 89 escape sequence → session-mux
+  async bashExec(args: { command: string; cwd?: string; timeout?: number }): Promise<{
+    stdout: string;
+    exitCode: number;
+    error?: string;
+    durationMs: number;
+  }> {
+    const id = crypto.randomUUID().slice(0, 8);
+    const cwd = args.cwd || '/home';
+    const timeout = Math.min(args.timeout || 30000, 120000);
+    const start = Date.now();
+    const resultDir = `/tmp/bash-exec/${id}`;
+    const fs = (boardVM as any).fsBridge;
+
+    // 1. Create result directory via fsBridge
+    await fs.mkdir(resultDir);
+
+    // 2. Send OSC 89 escape sequence via serial console
+    //    \x1b]89;<base64(id:cwd:command)>\x07
+    const payload = btoa(`${id}:${cwd}:${args.command}`);
+    const seq = new TextEncoder().encode(`\x1b]89;${payload}\x07`);
+    const sendRaw = (globalThis as any).__boardSendRaw;
+    if (!sendRaw) {
+      return { stdout: '', exitCode: 1, error: 'Serial console not ready', durationMs: Date.now() - start };
+    }
+    sendRaw(seq);
+
+    // 3. Poll for exitcode file (with timeout)
+    const deadline = start + timeout;
+    let exitCode = -1;
+    while (Date.now() < deadline) {
+      try {
+        const stat = await fs.stat(`${resultDir}/exitcode`);
+        if (stat && stat.exists) {
+          const codeStr = await fs.readFile(`${resultDir}/exitcode`);
+          exitCode = parseInt(codeStr.trim(), 10);
+          break;
+        }
+      } catch {
+        // stat not ready yet, keep polling
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    // 4. Timeout: send kill via OSC 89
+    if (exitCode === -1) {
+      const killPayload = btoa(`kill:${id}`);
+      const killSeq = new TextEncoder().encode(`\x1b]89;${killPayload}\x07`);
+      sendRaw(killSeq);
+      return { stdout: '', exitCode: -1, error: `timeout after ${timeout}ms`, durationMs: Date.now() - start };
+    }
+
+    // 5. Read stdout
+    let stdout = '';
+    try {
+      stdout = await fs.readFile(`${resultDir}/stdout`);
+    } catch {
+      // stdout file may not exist if command produced no output
+    }
+
+    // 6. Truncate if too large
+    const MAX_OUTPUT = 65536;
+    if (stdout.length > MAX_OUTPUT) {
+      stdout = stdout.slice(0, MAX_OUTPUT) + `\n... truncated (${stdout.length} bytes total)`;
+    }
+
+    // 7. Cleanup result dir (best-effort)
+    try { await fs.rm(resultDir); } catch {}
+
+    return { stdout, exitCode, durationMs: Date.now() - start };
+  },
+
   // Mode (consumed by main.go)
   mode: 'terminal',
 };
