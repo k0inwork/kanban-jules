@@ -12,7 +12,11 @@
     }
   ],
   "sandboxBindings": {
-    "askJules": "executor-jules.execute"
+    "askJules": "executor-jules.execute",
+    "KB_record": "knowledge-kb.recordEntry",
+    "KB_queryLog": "knowledge-kb.queryLog",
+    "KB_queryDocs": "knowledge-kb.queryDocs",
+    "KB_saveDoc": "knowledge-kb.saveDocument"
   },
   "permissions": ["network", "jules-api", "timers"],
   "configFields": [

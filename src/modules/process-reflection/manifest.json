@@ -1,0 +1,26 @@
+{
+  "id": "process-reflection",
+  "name": "Reflection Engine",
+  "version": "1.0.0",
+  "type": "process",
+  "description": "Applies reflection rules to batch-error analysis. Reclassifies target errors as self-errors when the agent itself is the common factor. Creates self-tasks for approved self-healing.",
+  "tools": [
+    {
+      "name": "process-reflection.reclassify",
+      "description": "Analyze a set of error entries and apply reflection rules. Returns reclassification results.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entryIds": {
+            "type": "array",
+            "items": { "type": "number" },
+            "description": "Specific entries to analyze. If omitted, analyzes all active target errors."
+          }
+        }
+      }
+    }
+  ],
+  "sandboxBindings": {},
+  "permissions": [],
+  "enabled": true
+}

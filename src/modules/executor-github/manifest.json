@@ -127,7 +127,11 @@
     "fetchLogs": "executor-github.fetchLogs",
     "getRunStatus": "executor-github.getRunStatus",
     "fetchArtifacts": "executor-github.fetchArtifacts",
-    "askUser": "channel-user-negotiator.askUser"
+    "askUser": "channel-user-negotiator.askUser",
+    "KB_record": "knowledge-kb.recordEntry",
+    "KB_queryLog": "knowledge-kb.queryLog",
+    "KB_queryDocs": "knowledge-kb.queryDocs",
+    "KB_saveDoc": "knowledge-kb.saveDocument"
   },
   "permissions": ["network", "storage", "timers"],
   "enabled": true

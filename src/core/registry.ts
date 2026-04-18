@@ -22,6 +22,12 @@ import githubExecutorManifest from '../modules/executor-github/manifest.json';
 import localAnalyzerManifest from '../modules/knowledge-local-analyzer/manifest.json';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
 
+import knowledgeKbManifest from '../modules/knowledge-kb/manifest.json';
+import knowledgeProjectorManifest from '../modules/knowledge-projector/manifest.json';
+import processDreamManifest from '../modules/process-dream/manifest.json';
+import processReflectionManifest from '../modules/process-reflection/manifest.json';
+
+import sandboxYuanManifest from '../modules/sandbox-yuan/manifest.json';
 import bashExecutorManifest from '../modules/bash-executor/manifest.json';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 
@@ -39,6 +45,11 @@ export class ModuleRegistry {
     { ...localExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...githubExecutorManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...localAnalyzerManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...knowledgeKbManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...knowledgeProjectorManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...processDreamManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...processReflectionManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
     { ...claudeExecutorManifest, enabled: true, init: ClaudeExecutorHandler.init, destroy: () => {} },
   ] as ModuleManifest[];

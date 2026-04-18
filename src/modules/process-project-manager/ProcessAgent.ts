@@ -1,47 +1,41 @@
 import { db } from '../../services/db';
 import { RequestContext } from '../../core/types';
+import { ProjectorHandler } from '../knowledge-projector/Handler';
 
 export class ProcessAgent {
   async runReview(context: RequestContext): Promise<void> {
     console.log('[ProcessAgent] Starting project review...');
-    
+
     // 1. Get all tasks, artifacts, and unread messages
     const tasks = await db.tasks.toArray();
     const repoName = context.repoUrl.split('/').pop() || context.repoUrl;
     let artifacts = await db.taskArtifacts.where({ repoName, branchName: context.repoBranch }).toArray();
     artifacts = artifacts.filter(a => typeof a.name !== 'string' || !a.name.startsWith('_'));
     const unreadMessages = await db.messages.where('status').equals('unread').toArray();
-    
-    // Load Constitution
-    const configId = `${context.repoUrl}:${context.repoBranch}`;
-    const config = await db.projectConfigs.get(configId);
-    const constitution = config?.constitution || 'No specific project rules defined.';
+
+    // 2. Project knowledge for L1 (project constitution + overseer constitution)
+    const projectedKnowledge = await ProjectorHandler.project({ layer: 'L1', project: 'target', taskDescription: 'project review board analysis' });
 
     const data = {
       tasks: tasks.map(t => ({ title: t.title, workflowStatus: t.workflowStatus, agentState: t.agentState, description: t.description })),
       artifacts: artifacts.map(a => ({ name: a.name, content: (a.content || '').substring(0, 500) })),
-      unreadMessages: unreadMessages.map(m => ({ sender: m.sender, content: m.content, type: m.type })),
-      constitution
+      unreadMessages: unreadMessages.map(m => ({ sender: m.sender, content: m.content, type: m.type }))
     };
 
     const prompt = `
-      You are the Project Manager Agent for this Kanban board.
-      Your goal is to analyze the current state of the project and propose new tasks if necessary.
-      
-      PROJECT CONSTITUTION (Rules and Stage-Artifact Mapping):
-      ${data.constitution}
+      ${projectedKnowledge}
 
       Current Tasks:
       ${JSON.stringify(data.tasks, null, 2)}
-      
+
       Artifacts Produced:
       ${JSON.stringify(data.artifacts, null, 2)}
 
       Unread Messages in Mailbox:
       ${JSON.stringify(data.unreadMessages, null, 2)}
-      
+
       Based on the artifacts (like design specs, research, or code analysis), existing messages, and the PROJECT CONSTITUTION, what should be the next steps?
-      
+
       ANALYSIS STEPS:
       1. Identify the current PROJECT STAGE based on the artifacts present and the mapping in the CONSTITUTION.
       2. Determine if any required artifacts for the current or previous stages are missing.
@@ -53,7 +47,7 @@ export class ProcessAgent {
       3. Do NOT propose tasks that are already on the board or have already been proposed in unread messages.
       4. If a message already contains a proposal you agree with, do not repeat it.
       5. Strictly adhere to the PROJECT CONSTITUTION provided above.
-      
+
       Respond in JSON format:
       {
         "proposals": [
@@ -67,7 +61,7 @@ export class ProcessAgent {
           }
         ]
       }
-      
+
       If no new tasks are needed, return an empty list of proposals.
     `;
 

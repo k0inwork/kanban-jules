@@ -1,0 +1,7 @@
+{
+  "tool_name": "Glob",
+  "tool_input_preview": "{\"pattern\":\"**/*.txt\",\"path\":\"/Users/yanistabuns/opencluade/kanban-jules-clone\"}",
+  "error": "ripgrep (rg) is required for file search but could not be started. This install could not locate its packaged ripgrep fallback. Install ripgrep and confirm `rg --version` works in the same terminal. macOS: `brew install ripgrep`. Original error: spawn /opt/homebrew/lib/node_modules/@gitlawb/openclaude/dist/vendor/ripgrep/arm64-darwin/rg ENOENT",
+  "timestamp": "2026-04-15T17:37:51.474Z",
+  "retry_count": 1
+}

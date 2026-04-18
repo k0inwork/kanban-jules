@@ -1,0 +1,27 @@
+{
+  "id": "knowledge-projector",
+  "name": "Context Projector",
+  "version": "1.0.0",
+  "type": "knowledge",
+  "description": "Assembles layer-specific context projections from KB data. Distills upward for Yuan (L0), narrows downward for executors (L2). Token-budgeted.",
+  "tools": [
+    {
+      "name": "knowledge-projector.project",
+      "description": "Generate a context projection for a given layer and project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "layer": { "type": "string", "enum": ["L0", "L1", "L2"] },
+          "project": { "type": "string", "default": "target" },
+          "taskId": { "type": "string" },
+          "executor": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["layer"]
+      }
+    }
+  ],
+  "sandboxBindings": {},
+  "permissions": [],
+  "enabled": true
+}

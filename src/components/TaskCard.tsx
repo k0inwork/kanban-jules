@@ -194,7 +194,12 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
           isOver && "ring-2 ring-blue-500 ring-offset-2 ring-offset-neutral-950 scale-[1.02]"
         )}
       >
-        <h4 className="font-medium text-neutral-100 mb-2 truncate pr-12">{task.title}</h4>
+        <h4 className="font-medium text-neutral-100 mb-2 truncate pr-12">
+          {task.project === 'self' && (
+            <span className="text-[10px] font-mono bg-fuchsia-500/20 text-fuchsia-400 px-1.5 py-0.5 rounded mr-1.5 align-middle">self</span>
+          )}
+          {task.title}
+        </h4>
         
         <div className="absolute top-3 right-3 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {(task.workflowStatus === 'TODO' || (task.workflowStatus === 'IN_PROGRESS' && task.agentState !== 'EXECUTING')) && onStartTask && (

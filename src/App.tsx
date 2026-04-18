@@ -27,6 +27,8 @@ import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
 import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User, Terminal } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
+import KBBrowser from './components/KBBrowser';
+import { AgentTreePanel } from './components/AgentTree/AgentTreePanel';
 import MailboxView from './components/MailboxView';
 import ConstitutionEditor from './components/ConstitutionEditor';
 import PreviewTabs, { Tab } from './components/PreviewTabs';
@@ -126,6 +128,7 @@ export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isViewingBoard, setIsViewingBoard] = useState(true);
+  const [isAgentTreeOpen, setIsAgentTreeOpen] = useState(false);
   const [isConstitutionOpen, setIsConstitutionOpen] = useState(false);
 
   // LLM Settings
@@ -513,6 +516,89 @@ export default function App() {
     setIsViewingBoard(false);
   };
 
+  const handleKBDocSelect = (doc: any, section?: string) => {
+    const tabId = `kb-doc-${doc.id}`;
+    const existing = tabs.find(t => t.id === tabId);
+    if (existing) {
+      // Update scrollToSection on existing tab and reactivate
+      if (section) {
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, scrollToSection: section } : t));
+      }
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+
+    const newTab: Tab = {
+      id: tabId,
+      name: doc.title,
+      content: doc.content,
+      type: 'kb-doc',
+      kbDoc: doc,
+      scrollToSection: section,
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
+  const handleKBEntrySelect = (entry: any) => {
+    const tabId = `kb-log-${entry.id}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+
+    const newTab: Tab = {
+      id: tabId,
+      name: `[${entry.category}] ${entry.text.substring(0, 40)}`,
+      content: entry.text,
+      type: 'kb-log',
+      kbEntry: entry
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
+  const handleConstitutionSelect = (id: string, label: string) => {
+    const tabId = `kb-const-${id}`;
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+    const newTab: Tab = {
+      id: tabId,
+      name: label,
+      content: '',
+      type: 'kb-constitution',
+      constitutionId: id,
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
+  const handleBrowseKB = () => {
+    const tabId = 'kb-table';
+    if (tabs.find(t => t.id === tabId)) {
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+      return;
+    }
+    const newTab: Tab = {
+      id: tabId,
+      name: 'Knowledge Base',
+      content: '',
+      type: 'kb-table',
+    };
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(tabId);
+    setIsViewingBoard(false);
+  };
+
   const handleDeclineProposal = async (messageId: number) => {
     await db.messages.delete(messageId);
     handleTabClose(`mail-${messageId}`);
@@ -871,6 +957,18 @@ export default function App() {
             <Plus className="w-4 h-4 mr-2" />
             New Task
           </button>
+          <button
+            onClick={() => setIsAgentTreeOpen(o => !o)}
+            className={`flex items-center px-3 py-2 rounded-md text-sm transition-colors ${isAgentTreeOpen ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200 hover:bg-neutral-800'}`}
+            title="Agent Tree"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <line x1="4" y1="2" x2="4" y2="14" />
+              <line x1="4" y1="4" x2="8" y2="4" />
+              <line x1="4" y1="8" x2="8" y2="8" />
+              <line x1="4" y1="12" x2="10" y2="12" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -902,11 +1000,20 @@ export default function App() {
                 </CollapsiblePane>
 
                 <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
-                  <GithubWorkflowMonitor 
-                    repoUrl={repoUrl} 
-                    branch={repoBranch || 'main'} 
-                    token={githubToken || import.meta.env.VITE_GITHUB_TOKEN || ''} 
+                  <GithubWorkflowMonitor
+                    repoUrl={repoUrl}
+                    branch={repoBranch || 'main'}
+                    token={githubToken || import.meta.env.VITE_GITHUB_TOKEN || ''}
                   />
+                </CollapsiblePane>
+
+                <CollapsiblePane title="Knowledge Base" defaultExpanded={false}>
+                  <div className="p-1">
+                    <KBBrowser
+                      onBrowseKB={handleBrowseKB}
+                      onDocSelect={handleKBDocSelect}
+                    />
+                  </div>
                 </CollapsiblePane>
               </>
             ) : (
@@ -951,7 +1058,7 @@ export default function App() {
               onSave={() => setIsConstitutionOpen(false)}
             />
           ) : (
-            <div className="flex-1 min-h-0 relative">
+            <div className="flex-1 min-h-0 relative flex flex-col">
               {/* Workspace: Yuan Chat + Terminal in a tabbed view */}
               <div
                 className="absolute inset-0"
@@ -970,6 +1077,9 @@ export default function App() {
                   onAcceptProposal={handleAcceptProposal}
                   onDeclineProposal={handleDeclineProposal}
                   onReplyToMail={handleReplyToMail}
+                  onKBEntrySelect={handleKBEntrySelect}
+                  onKBDocSelect={handleKBDocSelect}
+                  onConstitutionSelect={handleConstitutionSelect}
                   autonomyMode={autonomyMode}
                   apiProvider={apiProvider}
                   geminiModel={geminiModel}
@@ -991,6 +1101,7 @@ export default function App() {
             </div>
           )}
         </div>
+        <AgentTreePanel open={isAgentTreeOpen} onClose={() => setIsAgentTreeOpen(false)} />
       </div>
 
       {/* Modals */}

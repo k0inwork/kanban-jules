@@ -14,18 +14,55 @@ import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
 import { GithubHandler } from '../modules/executor-github/GithubHandler';
 import { LocalAnalyzer } from '../modules/knowledge-local-analyzer/LocalAnalyzer';
+import { YuanSandboxHandler } from '../modules/sandbox-yuan/YuanSandboxHandler';
+import { KBHandler } from '../modules/knowledge-kb/Handler';
+import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
+import { DreamHandler } from '../modules/process-dream/Handler';
+import { ReflectionHandler } from '../modules/process-reflection/Handler';
+import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
+import { pushQueue } from '../services/PushQueue';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
   private config: HostConfig | null = null;
+  private stopPushFlush: (() => void) | null = null;
 
   constructor() {
     this.setupListeners();
   }
 
   private setupListeners() {
+    // Background trigger: board idle → sessionDream (self-healing §5.5)
+    let boardIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    eventBus.on('module:log', async ({ taskId, moduleId }) => {
+      if (moduleId === 'orchestrator') {
+        // Reset idle timer on any orchestrator activity
+        if (boardIdleTimer) clearTimeout(boardIdleTimer);
+        boardIdleTimer = setTimeout(async () => {
+          if (!this.config) return;
+          const tasks = await db.tasks.toArray();
+          const inProgress = tasks.filter(t => t.workflowStatus === 'IN_PROGRESS').length;
+          if (inProgress === 0) {
+            try {
+              const context: RequestContext = {
+                taskId: '',
+                repoUrl: this.config.repoUrl,
+                repoBranch: this.config.repoBranch,
+                githubToken: this.config.githubToken,
+                llmCall: this.llmCall.bind(this),
+                moduleConfig: this.config.moduleConfigs['process-dream'] || {}
+              };
+              await registry.invokeHandler('process-dream.sessionDream', [], context);
+            } catch {
+              // Session dream failure is non-critical
+            }
+          }
+        }, 5 * 60 * 1000); // 5 minutes idle threshold
+      }
+    });
+
     eventBus.on('project:review', async () => {
       if (!this.config) return;
       console.log('Project review triggered.');
@@ -55,11 +92,14 @@ export class ModuleHost {
     eventBus.on('module:request', async ({ requestId, taskId, toolName, args }) => {
       try {
         const moduleId = toolName.split('.')[0];
+        const task = taskId ? await db.tasks.get(taskId) : null;
         const context: RequestContext = {
           taskId,
           repoUrl: this.config?.repoUrl || '',
           repoBranch: this.config?.repoBranch || '',
           githubToken: this.config?.githubToken || '',
+          taskDir: task?.branchDir,
+          branchName: task?.branchName,
           llmCall: this.llmCall.bind(this),
           moduleConfig: this.config?.moduleConfigs?.[moduleId] || {}
         };
@@ -158,6 +198,12 @@ export class ModuleHost {
       }
     }
 
+    // Initialize commit harvest listener (dream engine extracts decisions from Jules commits)
+    initCommitHarvest(config, this.llmCall.bind(this));
+
+    // Start push queue auto-flush (flushes pending pushes on connectivity)
+    this.stopPushFlush = pushQueue.startAutoFlush();
+
     // Instantiate and register handlers
     const julesConfig = config.moduleConfigs['executor-jules'] || {};
     const julesHandler = new JulesHandler({ 
@@ -182,6 +228,14 @@ export class ModuleHost {
     registry.registerModuleHandlers('architect-codegen', ArchitectTool.handleRequest);
     registry.registerModuleHandlers('process-project-manager', ProcessAgent.handleRequest);
     registry.registerModuleHandlers('knowledge-local-analyzer', LocalAnalyzer.handleRequest.bind(LocalAnalyzer));
+    registry.registerModuleHandlers('knowledge-kb', KBHandler.handleRequest);
+    registry.registerModuleHandlers('knowledge-projector', ProjectorHandler.handleRequest);
+    registry.registerModuleHandlers('process-dream', DreamHandler.handleRequest);
+    registry.registerModuleHandlers('process-reflection', ReflectionHandler.handleRequest);
+
+    // Yuan sandbox — runScript tool for batching tool calls
+    const yuanSandboxHandler = new YuanSandboxHandler();
+    registry.registerModuleHandlers('sandbox-yuan', yuanSandboxHandler.handleRequest.bind(yuanSandboxHandler));
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
     registry.registerModuleHandlers('executor-claude', claudeHandler.handleRequest.bind(claudeHandler));
 
@@ -194,6 +248,11 @@ export class ModuleHost {
   }
 
   stop() {
+    destroyCommitHarvest();
+    if (this.stopPushFlush) {
+      this.stopPushFlush();
+      this.stopPushFlush = null;
+    }
     const modules = registry.getEnabled();
     for (const module of modules) {
       if (module.destroy) {

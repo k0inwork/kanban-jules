@@ -4,12 +4,13 @@ import { composeProgrammerPrompt } from './prompt';
 import { eventBus } from './event-bus';
 import { db } from '../services/db';
 import { OrchestratorConfig } from './types';
-import { JulesNegotiator } from '../services/negotiators/JulesNegotiator';
-import { UserNegotiator } from '../services/negotiators/UserNegotiator';
-import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
-import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { agentContext } from '../services/AgentContext';
 import { Sandbox, injectBindings } from './sandbox';
+import { GitFs } from '../services/GitFs';
+import { evaluateBranch } from '../services/BranchEvaluator';
+import { pushQueue } from '../services/PushQueue';
+import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
+import { KBHandler } from '../modules/knowledge-kb/Handler';
 
 export class Orchestrator {
   private config: OrchestratorConfig | null = null;
@@ -167,14 +168,10 @@ export class Orchestrator {
       attempt++;
       
       const modules = registry.getEnabled();
-      
-      const knowledgeRecords = await db.moduleKnowledge.toArray();
-      const moduleKnowledge: Record<string, string> = {};
-      for (const record of knowledgeRecords) {
-        moduleKnowledge[record.id] = record.content;
-      }
 
-      const prompt = composeProgrammerPrompt(modules, task, step, errorContext, moduleKnowledge);
+      const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', project: 'target', taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}`, focus: step.focus });
+
+      const prompt = composeProgrammerPrompt(modules, task, step, errorContext, projectedKnowledge);
       
       try {
         let code: string;
@@ -277,7 +274,11 @@ export class Orchestrator {
       'askUser': 'channel-user-negotiator.askUser',
       'sendUser': 'channel-user-negotiator.sendUser',
       '__agentContextGet': 'host.agentContextGet',
-      '__agentContextSet': 'host.agentContextSet'
+      '__agentContextSet': 'host.agentContextSet',
+      'KB.record': 'knowledge-kb.recordEntry',
+      'KB.queryLog': 'knowledge-kb.queryLog',
+      'KB.saveDoc': 'knowledge-kb.saveDocument',
+      'KB.queryDocs': 'knowledge-kb.queryDocs',
     };
 
     this.context.accumulatedAnalysis = [];
@@ -387,7 +388,29 @@ export class Orchestrator {
       }
 
       await appendLog(`> [Orchestrator] Initializing Orchestrator...\n`);
-      
+
+      // Branch evaluation: create isolated branch if task qualifies
+      let branchName: string | undefined;
+      let branchDir: string | undefined;
+      if (!currentTask.branchName && this.config.githubToken) {
+        const evaluation = evaluateBranch(task);
+        if (evaluation.qualifies) {
+          try {
+            const gitFs = new GitFs(this.config.repoUrl, this.config.repoBranch, this.config.githubToken);
+            branchName = await gitFs.createTaskBranch(task.id);
+            branchDir = gitFs.getDir();
+            await db.tasks.update(task.id, { branchName, branchDir });
+            currentTask = { ...currentTask, branchName, branchDir };
+            await appendLog(`> [Orchestrator] Created task branch: ${branchName} (${evaluation.reason})\n`);
+          } catch (e: any) {
+            await appendLog(`> [Orchestrator] Branch creation failed: ${e.message}. Continuing on main.\n`);
+          }
+        }
+      } else if (currentTask.branchName) {
+        branchName = currentTask.branchName;
+        branchDir = currentTask.branchDir;
+      }
+
       let status = 'DONE';
       
       let pendingStep = currentTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
@@ -429,12 +452,67 @@ export class Orchestrator {
         nextAgentState = 'IDLE';
       }
 
-      await db.tasks.update(task.id, { 
+      await db.tasks.update(task.id, {
         workflowStatus: nextWorkflowStatus,
         agentState: nextAgentState,
         agentId: 'local-agent'
       });
-      
+
+      // KB hook: record outcome + save architect decisions + trigger decision harvest then microDream
+      if (status === 'DONE' && this.config) {
+        // Merge task branch and enqueue push
+        if (branchName && branchDir && this.config.githubToken) {
+          try {
+            const gitFs = new GitFs(this.config.repoUrl, this.config.repoBranch, this.config.githubToken, branchDir);
+            await gitFs.mergeTaskBranch(task.id, branchName);
+            await pushQueue.enqueue({
+              dir: branchDir,
+              branch: this.config.repoBranch,
+              repoUrl: this.config.repoUrl,
+              token: this.config.githubToken,
+              taskId: task.id,
+            });
+            await appendLog(`> [Orchestrator] Merged branch ${branchName} and enqueued push.\n`);
+          } catch (e: any) {
+            await appendLog(`> [Orchestrator] Branch merge failed: ${e.message}. Branch left for retry.\n`);
+          }
+        }
+
+        try {
+          await KBHandler.recordExecution(
+            `Task ${task.id} completed successfully: ${task.title}`,
+            [task.id],
+            task.project
+          );
+
+          // Save architect's declared decisions to KB (only on success)
+          const protocol = currentTask?.protocol;
+          if (protocol?.decisions && Array.isArray(protocol.decisions)) {
+            for (const decision of protocol.decisions) {
+              if (decision.text) {
+                await KBHandler.recordDecision(
+                  decision.text,
+                  [...(decision.tags || []), task.id, 'architect-declared'],
+                  task.project
+                );
+              }
+            }
+          }
+
+          // Emit event for decision harvest FIRST so commit-harvest writes decisions
+          // to DB before microDream's verifyDecisions runs
+          eventBus.emit('executor:completed', {
+            taskId: task.id,
+            executor: 'executor-local',
+            startedAt: task.createdAt,
+          });
+
+          await this.moduleRequest(task.id, 'process-dream.microDream', [{ taskId: task.id }]);
+        } catch {
+          // KB recording / dream failure must not affect task status
+        }
+      }
+
       return status;
     } catch (error: any) {
       const isSessionMissing = error.status === 404 || error.message?.includes('not found');

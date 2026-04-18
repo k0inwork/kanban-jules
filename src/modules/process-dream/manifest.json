@@ -1,0 +1,39 @@
+{
+  "id": "process-dream",
+  "name": "Dream Engine",
+  "version": "1.0.0",
+  "type": "process",
+  "description": "Consolidates raw KB entries into higher-abstraction insights. Three levels: micro (post-task), session (idle), deep (daily). Manages external KB stubs.",
+  "tools": [
+    {
+      "name": "process-dream.microDream",
+      "description": "Run micro-dream consolidation for a completed task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "taskId": { "type": "string" }
+        },
+        "required": ["taskId"]
+      }
+    },
+    {
+      "name": "process-dream.sessionDream",
+      "description": "Run session-dream consolidation. Gathers all active entries, finds patterns, calls reflection for reclassification.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "process-dream.deepDream",
+      "description": "Run deep-dream full consolidation. Reviews everything, resolves gaps via external KB, proposes constitution amendments, prunes.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "sandboxBindings": {},
+  "permissions": ["network"],
+  "enabled": true
+}

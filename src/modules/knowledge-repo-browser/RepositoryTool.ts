@@ -22,9 +22,14 @@ export const RepositoryTool = {
     return content.split('\n').slice(0, lines).join('\n');
   },
 
-  writeFile: async (repoUrl: string, branch: string, token: string, path: string, content: string, commitMessage: string): Promise<boolean> => {
-    const gitFs = new GitFs(repoUrl, branch, token);
-    await gitFs.writeFile(path, content, commitMessage);
+  writeFile: async (repoUrl: string, branch: string, token: string, path: string, content: string, commitMessage: string, taskDir?: string): Promise<boolean> => {
+    const gitFs = new GitFs(repoUrl, branch, token, taskDir);
+    if (taskDir) {
+      // Task-scoped: commit locally, don't push yet
+      await gitFs.commitOnly(path, content, commitMessage);
+    } else {
+      await gitFs.writeFile(path, content, commitMessage);
+    }
     return true;
   },
 
@@ -38,14 +43,17 @@ export const RepositoryTool = {
         const repoUrl = obj ? obj.repoUrl : args[0];
         const branch = obj ? obj.branch : args[1];
         const path = obj ? obj.path : args[2];
-        return await RepositoryTool.listFiles(repoUrl || context.repoUrl, branch || context.repoBranch, token, path || '');
+        const gitFs = new GitFs(repoUrl || context.repoUrl, branch || context.repoBranch, token, context.taskDir);
+        const files = await gitFs.listFiles(path || '');
+        return files.map(f => f.path);
       }
       case 'knowledge-repo-browser.readFile': {
         const obj = unpack(args[0]);
         const repoUrl = obj ? obj.repoUrl : args[0];
         const branch = obj ? obj.branch : args[1];
         const path = obj ? obj.path : args[2];
-        return await RepositoryTool.readFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path);
+        const gitFs = new GitFs(repoUrl || context.repoUrl, branch || context.repoBranch, token, context.taskDir);
+        return await gitFs.getFile(path);
       }
       case 'knowledge-repo-browser.headFile': {
         const obj = unpack(args[0]);
@@ -53,7 +61,9 @@ export const RepositoryTool = {
         const branch = obj ? obj.branch : args[1];
         const path = obj ? obj.path : args[2];
         const lines = obj ? obj.lines : args[3];
-        return await RepositoryTool.headFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path, lines);
+        const gitFs = new GitFs(repoUrl || context.repoUrl, branch || context.repoBranch, token, context.taskDir);
+        const content = await gitFs.getFile(path);
+        return content.split('\n').slice(0, lines).join('\n');
       }
       case 'knowledge-repo-browser.writeFile': {
         const obj = unpack(args[0]);
@@ -62,7 +72,7 @@ export const RepositoryTool = {
         const path = obj ? obj.path : args[2];
         const content = obj ? obj.content : args[3];
         const commitMessage = obj ? obj.commitMessage : args[4];
-        return await RepositoryTool.writeFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path, content, commitMessage || `Update ${path}`);
+        return await RepositoryTool.writeFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path, content, commitMessage || `Update ${path}`, context.taskDir);
       }
       default:
         throw new Error(`Tool not found: ${toolName}`);

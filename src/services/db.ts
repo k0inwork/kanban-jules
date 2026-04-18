@@ -65,6 +65,47 @@ export interface ModuleKnowledge {
   updatedAt: number;
 }
 
+export interface KBEntry {
+  id?: number;
+  timestamp: number;
+  text: string;
+  category: string; // 'error' | 'observation' | 'insight' | 'decision' | 'correction'
+  abstraction: number; // 0=raw, 5=synthesized, 10=strategic
+  layer: string[]; // ['L0'] | ['L1'] | ['L2'] | ['L0','L1'] | ...
+  tags: string[];
+  source: string; // 'execution' | 'dream:micro' | 'dream:session' | 'dream:deep' | 'user' | 'external:*'
+  supersedes?: number[];
+  active: boolean;
+  project: string; // 'self' | 'target' (default: 'target')
+}
+
+export interface PushQueueItem {
+  id?: number;
+  dir: string;        // Lightning-FS directory to push from
+  branch: string;     // branch name to push
+  repoUrl: string;    // remote URL
+  token: string;      // auth token
+  status: 'pending' | 'pushing' | 'failed';
+  error?: string;
+  timestamp: number;
+  taskId?: string;
+}
+
+export interface KBDoc {
+  id?: number;
+  timestamp: number;
+  title: string;
+  type: string; // 'spec' | 'design' | 'report' | 'reference' | 'constitution' | 'readme' | 'meeting-notes'
+  content: string;
+  summary: string;
+  tags: string[];
+  layer: string[];
+  source: string; // 'upload' | 'artifact' | 'repo-scan' | 'external:*'
+  active: boolean;
+  version: number;
+  project: string; // 'self' | 'target' (default: 'target')
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -74,6 +115,9 @@ export class MyDatabase extends Dexie {
   tasks!: Table<Task>;
   projectConfigs!: Table<ProjectConfig>;
   moduleKnowledge!: Table<ModuleKnowledge>;
+  kbLog!: Table<KBEntry>;
+  kbDocs!: Table<KBDoc>;
+  pushQueue!: Table<PushQueueItem>;
 
   constructor() {
     super('AgentKanbanDB');
@@ -159,6 +203,72 @@ export class MyDatabase extends Dexie {
       tasks: 'id, workflowStatus, agentState, createdAt',
       projectConfigs: 'id',
       moduleKnowledge: 'id'
+    });
+    this.version(20).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, type, active, source, project'
+    });
+    this.version(21).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project'
+    });
+    this.version(22).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project'
+    }).upgrade(tx => {
+      return tx.table('kbLog').toCollection().modify(entry => {
+        const tagSet = new Set(entry.tags || []);
+        if (entry.category === 'dream') {
+          entry.category = 'insight';
+          tagSet.add('consolidation');
+        } else if (entry.category === 'pattern') {
+          entry.category = 'insight';
+        } else if (entry.category === 'constitution') {
+          entry.category = 'decision';
+          tagSet.add('constitution-amendment');
+        } else if (entry.category === 'execution') {
+          entry.category = 'observation';
+          tagSet.add('execution');
+        }
+        entry.tags = [...tagSet];
+      });
+    });
+    this.version(23).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project',
+      pushQueue: '++id, branch, status, timestamp'
     });
   }
 }

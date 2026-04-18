@@ -1,7 +1,6 @@
 import { ModuleManifest } from './types';
 import { Task, TaskStep } from '../types';
 import { GoogleGenAI } from '@google/genai';
-import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION } from './constitution';
 
 export const parseTasksFromMessage = async (
   messageContent: string,
@@ -73,11 +72,11 @@ Output ONLY valid JSON matching this schema:
   }];
 };
 
-export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, step: TaskStep, errorContext: string, moduleKnowledge: Record<string, string> = {}): string {
+export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, step: TaskStep, errorContext: string, projectedKnowledge?: string): string {
   const enabledModules = modules.filter(m => m.enabled !== false);
   const executorId = step.executor || 'executor-local';
   const executor = enabledModules.find(m => m.id === executorId);
-  
+
   const apiSection = Object.entries(executor?.sandboxBindings || {}).map(([alias, toolName]) => {
     const module = enabledModules.find(m => m.tools.some(t => t.name === toolName));
     const tool = module?.tools.find(t => t.name === toolName);
@@ -88,14 +87,15 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
     "- askUser(prompt): Asks the user for input or clarification. Pauses execution until they reply.",
     "- sendUser(message): Sends a message to the user without waiting for a reply. Use this to report final results.",
     "- analyze(data, options?): Analyzes the provided data using an LLM and adds the summary to the AgentContext. options: { includeContext?: boolean } (default: true). Set includeContext: false for a 'clean' analysis of only the provided data.",
-    "- addToContext(key, value): Directly adds a key-value pair to the AgentContext. If only one argument is provided, it directly appends the data to the context without an LLM call."
+    "- addToContext(key, value): Directly adds a key-value pair to the AgentContext. If only one argument is provided, it directly appends the data to the context without an LLM call.",
+    "- KB_record({ text, category, abstraction, layer, tags, source }): Record an observation in the knowledge base. Use categories: 'error', 'observation', 'insight', 'decision', 'correction'. abstraction: 0=raw, 5=synthesized, 10=strategic. source: 'execution'. layer: ['L0'].",
+    "- KB_queryLog({ category?, tags?, limit? }): Query the knowledge log for past observations, errors, or patterns.",
+    "- KB_queryDocs({ type?, tags?, limit? }): Query knowledge documents (specs, designs, references).",
+    "- KB_saveDoc({ title, type, content, summary, tags, layer, source }): Save a document to the knowledge base."
   ].join('\n');
 
-  const knowledge = moduleKnowledge[executorId] ? `\nMODULE KNOWLEDGE BASE:\n${moduleKnowledge[executorId]}\n` : '';
-  const constitution = moduleKnowledge['system:programmer'] || PROGRAMMER_CONSTITUTION;
-
   return `
-${constitution}
+${projectedKnowledge || ''}
 
 TASK CONTEXT:
 Task Title: ${task.title}
@@ -111,28 +111,33 @@ ${task.analysis ? `\nAccumulated Analysis Results:\n${task.analysis}\n` : ''}
 AVAILABLE APIS:
 ${apiSection}
 ${commonTools}
-${knowledge}
 
 ${errorContext ? `PREVIOUS EXECUTION FAILED:\n${errorContext}\nRewrite the code or use askUser().\n` : ''}
+
+ERROR RECORDING:
+When your code catches an error, record it so future executions can learn:
+  await KB_record({ text: "concise description of what went wrong", category: "error", abstraction: 2, layer: ["L2", "L3"], tags: ["${executorId}", "${task.id}"], source: "execution" });
+
+ESCALATION TO USER:
+If you are stuck after multiple attempts and cannot resolve the issue, escalate to the user with a structured report:
+  await askUser("ESCALATION REPORT:\\nTask: ${task.title}\\nStep: ${step.title}\\nAttempts: N\\nLast Error: <summary>\\nWhat I tried: <list>\\nWhat I need: <specific question or decision>");
+  This pauses execution and waits for the user's guidance.
   `;
 }
 
-export function composeArchitectPrompt(modules: ModuleManifest[], moduleKnowledge: Record<string, string> = {}): string {
+export function composeArchitectPrompt(modules: ModuleManifest[], projectedKnowledge?: string): string {
   const enabledModules = modules.filter(m => m.enabled !== false);
   const executors = enabledModules.filter(m => m.type === 'executor');
 
   const executorSection = executors.map(e => {
-    const knowledge = moduleKnowledge[e.id] ? `\nKnowledge Base:\n${moduleKnowledge[e.id]}` : '';
     return `
 ## Executor ID: "${e.id}"
 Name: ${e.name}
-Description: ${e.description}${knowledge}
+Description: ${e.description}
   `}).join('\n---\n');
 
-  const constitution = moduleKnowledge['system:architect'] || ARCHITECT_CONSTITUTION;
-
   return `
-${constitution}
+${projectedKnowledge || ''}
 
 AVAILABLE EXECUTORS:
 ${executorSection}
@@ -145,9 +150,23 @@ Output ONLY valid JSON matching this schema:
       "title": "Short title",
       "description": "Detailed instructions",
       "executor": "The Executor ID (e.g., 'executor-local')",
-      "status": "pending"
+      "status": "pending",
+      "focus": ["keyword1", "keyword2"]
+    }
+  ],
+  "decisions": [
+    {
+      "text": "What you chose and why (include alternatives considered)",
+      "tags": ["classification"]
     }
   ]
 }
+The "focus" array narrows the knowledge context for each step. Include 3-7 specific keywords relevant to what that step needs to know about (e.g., technologies, modules, concepts, file names). Steps with good focus keywords will receive more relevant experience and documentation from the knowledge base.
+
+DECISIONS: List every non-obvious architectural or design decision you made in planning this task.
+A decision must have: what was chosen + why (or a clear choice between alternatives).
+Do NOT include: following existing patterns, default values, obvious implementations, style choices.
+Classification tags must be one of: architectural, api, dependency, pattern, local, infra, security
+If no non-obvious decisions were made, output: "decisions": []
   `;
 }

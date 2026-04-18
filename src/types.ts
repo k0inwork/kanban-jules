@@ -11,10 +11,17 @@ export interface TaskStep {
   currentCode?: string;
   executionHistory?: any[];
   seed?: number;
+  focus?: string[];
+}
+
+export interface ArchitectDecision {
+  text: string;
+  tags?: string[];
 }
 
 export interface TaskProtocol {
   steps: TaskStep[];
+  decisions?: ArchitectDecision[];
 }
 
 export interface Task {
@@ -38,4 +45,7 @@ export interface Task {
   moduleLogs?: Record<string, string>;
   analysis?: string;
   architectModel?: string;
+  project?: string; // 'self' | 'target' (default: 'target')
+  branchName?: string; // 'task/{taskId}' — set when task qualifies for branching
+  branchDir?: string; // '/owner/repo--{taskId}' — task-scoped Lightning-FS directory
 }

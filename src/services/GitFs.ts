@@ -1,4 +1,3 @@
-import { db } from './db';
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/web';
 import FS from '@isomorphic-git/lightning-fs';
@@ -21,7 +20,7 @@ export class GitFs {
   private repo: string;
   private dir: string;
 
-  constructor(repoUrl: string, branch: string = 'main', token: string) {
+  constructor(repoUrl: string, branch: string = 'main', token: string, taskDir?: string) {
     this.repoUrl = repoUrl;
     this.branch = branch;
     this.token = token;
@@ -47,8 +46,24 @@ export class GitFs {
         this.repo = this.repoUrl;
       }
     }
-    
-    this.dir = `/${this.owner}/${this.repo}`;
+
+    this.dir = taskDir || `/${this.owner}/${this.repo}`;
+  }
+
+  /** Get the working directory for this instance */
+  getDir(): string { return this.dir; }
+  /** Get the base branch */
+  getBranch(): string { return this.branch; }
+  /** Get the repo URL */
+  getRepoUrl(): string { return this.repoUrl; }
+  /** Get the auth token */
+  getToken(): string { return this.token; }
+
+  /** Build a task-scoped directory path from a task ID */
+  static taskDir(repoUrl: string, taskId: string): string {
+    const base = new GitFs(repoUrl, 'main', '').dir;
+    const shortId = taskId.length > 8 ? taskId.substring(0, 8) : taskId;
+    return `${base}--${shortId}`;
   }
 
   private static initPromises: Record<string, Promise<void>> = {};
@@ -221,5 +236,114 @@ export class GitFs {
       corsProxy: 'https://cors.isomorphic-git.org',
       onAuth: () => ({ username: this.token })
     });
+  }
+
+  /**
+   * Task Branching API
+   * Creates an isolated clone for a task, branches, and supports merge-back.
+   */
+
+  /** Clone the base repo into a task-scoped directory and create a branch */
+  async createTaskBranch(taskId: string): Promise<string> {
+    const taskDir = GitFs.taskDir(this.repoUrl, taskId);
+    const branchName = `task/${taskId.length > 8 ? taskId.substring(0, 8) : taskId}`;
+    const url = `https://github.com/${this.owner}/${this.repo}`;
+    const corsProxy = 'https://cors.isomorphic-git.org';
+
+    // Ensure parent dir exists
+    try { await pfs.mkdir(`/${this.owner}`); } catch (e) {}
+
+    // Wipe task dir if it exists (fresh start)
+    await this.wipeDir(taskDir);
+    try { await pfs.mkdir(taskDir); } catch (e) {}
+
+    // Clone base repo into task dir
+    console.log(`[GitFs] Cloning ${url} into task dir ${taskDir}...`);
+    await git.clone({
+      fs, http,
+      dir: taskDir,
+      url,
+      ref: this.branch,
+      singleBranch: true,
+      depth: 1,
+      corsProxy,
+      onAuth: () => ({ username: this.token })
+    });
+
+    // Create task branch
+    await git.branch({ fs, dir: taskDir, ref: branchName, checkout: true });
+    console.log(`[GitFs] Created branch ${branchName} in ${taskDir}`);
+
+    return branchName;
+  }
+
+  /** Merge the task branch back into the base branch within the task-scoped dir */
+  async mergeTaskBranch(taskId: string, branchName: string): Promise<void> {
+    const taskDir = GitFs.taskDir(this.repoUrl, taskId);
+
+    // Switch to base branch
+    await git.checkout({ fs, dir: taskDir, ref: this.branch });
+
+    // Merge task branch into base
+    try {
+      await git.merge({
+        fs,
+        dir: taskDir,
+        ours: this.branch,
+        theirs: branchName,
+        author: { name: 'Fleet', email: 'fleet@example.com' }
+      });
+      console.log(`[GitFs] Merged ${branchName} into ${this.branch}`);
+    } catch (e: any) {
+      if (e.code === 'MergeConflictError') {
+        console.error(`[GitFs] Merge conflict merging ${branchName} — leaving task dir for manual resolution`);
+        throw e;
+      }
+      throw e;
+    }
+  }
+
+  /** Commit without pushing — for local-only task work */
+  async commitOnly(path: string, content: string, message: string = 'Task commit'): Promise<void> {
+    const filepath = `${this.dir}/${path}`;
+
+    // Ensure directory exists
+    const parts = path.split('/');
+    parts.pop();
+    let currentDir = this.dir;
+    for (const part of parts) {
+      currentDir += `/${part}`;
+      try { await pfs.mkdir(currentDir); } catch (e) {}
+    }
+
+    // Write file
+    await pfs.writeFile(filepath, content, 'utf8');
+
+    // Git add + commit (no push)
+    await git.add({ fs, dir: this.dir, filepath: path });
+    await git.commit({
+      fs,
+      dir: this.dir,
+      message,
+      author: { name: 'Fleet', email: 'fleet@example.com' }
+    });
+  }
+
+  /** Push from a task-scoped directory */
+  async pushDir(dir: string, ref: string): Promise<void> {
+    await git.push({
+      fs, http,
+      dir,
+      ref,
+      corsProxy: 'https://cors.isomorphic-git.org',
+      onAuth: () => ({ username: this.token })
+    });
+  }
+
+  /** Clean up a task-scoped directory */
+  async cleanupTaskDir(taskId: string): Promise<void> {
+    const taskDir = GitFs.taskDir(this.repoUrl, taskId);
+    await this.wipeDir(taskDir);
+    console.log(`[GitFs] Cleaned up task dir ${taskDir}`);
   }
 }

@@ -170,11 +170,20 @@ export class JulesPostman {
 
         if (currentSession.state === 'COMPLETED' || currentSession.state === 'FAILED') {
           await db.julesSessions.update(session.id, { taskId: undefined });
-          
+
           eventBus.emit('module:log', { taskId: task.id, moduleId: 'postman', message: `Session ${currentSession.state}.` });
           const t = await db.tasks.get(task.id);
           if (t) {
             await db.tasks.update(t.id, { agentState: 'EXECUTING' });
+          }
+
+          if (currentSession.state === 'COMPLETED') {
+            eventBus.emit('executor:completed', {
+              taskId: task.id,
+              executor: 'executor-jules',
+              sessionName: session.name,
+              startedAt: task.createdAt,
+            });
           }
         }
       } catch (e: any) {

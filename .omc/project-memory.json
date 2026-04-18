@@ -1,0 +1,285 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1776274447300,
+  "projectRoot": "/Users/yanistabuns/opencluade/kanban-jules-clone",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "express",
+        "version": "4.21.2",
+        "category": "backend"
+      },
+      {
+        "name": "react",
+        "version": "19.0.0",
+        "category": "frontend"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.0.0",
+        "category": "frontend"
+      },
+      {
+        "name": "vite",
+        "version": "6.2.0",
+        "category": "build"
+      },
+      {
+        "name": "vitest",
+        "version": "4.1.2",
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "lintCommand": "npm run lint",
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "tsx server.ts",
+      "build": "vite build",
+      "preview": "vite preview",
+      "clean": "rm -rf dist",
+      "lint": "tsc --noEmit",
+      "test": "vitest run",
+      "start": "node server.ts"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": "type-based"
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 11,
+      "lastAccessed": 1776274447284,
+      "keyFiles": [
+        "DESIGN_PHILOSOPHY.md",
+        "agents.md",
+        "agents.spec.md",
+        "kb.md",
+        "modules-catalog.md"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 6,
+      "lastAccessed": 1776274447286,
+      "keyFiles": [
+        "App.tsx",
+        "index.css",
+        "main.tsx",
+        "test-git.ts",
+        "test-registry.test.ts"
+      ]
+    },
+    "src/components": {
+      "path": "src/components",
+      "purpose": "UI components",
+      "fileCount": 17,
+      "lastAccessed": 1776274447287,
+      "keyFiles": [
+        "ArtifactBrowser.tsx",
+        "ArtifactTree.tsx",
+        "CollapsiblePane.tsx"
+      ]
+    },
+    "src/lib": {
+      "path": "src/lib",
+      "purpose": "Library code",
+      "fileCount": 4,
+      "lastAccessed": 1776274447287,
+      "keyFiles": [
+        "data.ts",
+        "jules.ts",
+        "julesApi.ts"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "docs/self-healing-agent.md",
+      "accessCount": 8,
+      "lastAccessed": 1776279166617,
+      "type": "file"
+    },
+    {
+      "path": "docs/mvp-phase0-kb-context.md",
+      "accessCount": 3,
+      "lastAccessed": 1776276322206,
+      "type": "file"
+    },
+    {
+      "path": "AGENTS.md",
+      "accessCount": 3,
+      "lastAccessed": 1776276670598,
+      "type": "file"
+    },
+    {
+      "path": "docs/DESIGN_PHILOSOPHY.md",
+      "accessCount": 2,
+      "lastAccessed": 1776275871413,
+      "type": "file"
+    },
+    {
+      "path": "CONSTITUTION.md",
+      "accessCount": 2,
+      "lastAccessed": 1776275871469,
+      "type": "file"
+    },
+    {
+      "path": "docs/apptron-executors.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274693402,
+      "type": "file"
+    },
+    {
+      "path": "docs/CONTROL_LAYERS.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274693419,
+      "type": "file"
+    },
+    {
+      "path": "docs/universal-preliminary-phase.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274693438,
+      "type": "file"
+    },
+    {
+      "path": "docs/FLEET_AGENT_BRIEF.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274693456,
+      "type": "file"
+    },
+    {
+      "path": "docs/agent-migration-proposal.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274693474,
+      "type": "file"
+    },
+    {
+      "path": "docs/FLEET_INTEGRATION_ARCHITECTURE.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274693490,
+      "type": "file"
+    },
+    {
+      "path": "docs/AGENT_HARNESS_ANALYSIS.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274708758,
+      "type": "file"
+    },
+    {
+      "path": "docs/PKB_EXPLORATION.md",
+      "accessCount": 1,
+      "lastAccessed": 1776274708815,
+      "type": "file"
+    },
+    {
+      "path": "src/modules/knowledge-artifacts/manifest.json",
+      "accessCount": 1,
+      "lastAccessed": 1776276670514,
+      "type": "file"
+    },
+    {
+      "path": "src/modules/architect-codegen/manifest.json",
+      "accessCount": 1,
+      "lastAccessed": 1776276670537,
+      "type": "file"
+    },
+    {
+      "path": "src/modules/executor-local/manifest.json",
+      "accessCount": 1,
+      "lastAccessed": 1776276670568,
+      "type": "file"
+    },
+    {
+      "path": "src/modules/process-project-manager/manifest.json",
+      "accessCount": 1,
+      "lastAccessed": 1776276670649,
+      "type": "file"
+    },
+    {
+      "path": "src/modules/process-project-manager/ProcessAgent.ts",
+      "accessCount": 1,
+      "lastAccessed": 1776278913114,
+      "type": "file"
+    },
+    {
+      "path": "src/services/db.ts",
+      "accessCount": 1,
+      "lastAccessed": 1776278913140,
+      "type": "file"
+    },
+    {
+      "path": "src/core/registry.ts",
+      "accessCount": 1,
+      "lastAccessed": 1776278913170,
+      "type": "file"
+    },
+    {
+      "path": "src/core/orchestrator.ts",
+      "accessCount": 1,
+      "lastAccessed": 1776278913224,
+      "type": "file"
+    },
+    {
+      "path": "src/core/host.ts",
+      "accessCount": 1,
+      "lastAccessed": 1776278913280,
+      "type": "file"
+    },
+    {
+      "path": "src/components/MailboxView.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1776279143279,
+      "type": "file"
+    },
+    {
+      "path": "src/components/TaskDetailsModal.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1776279143334,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
