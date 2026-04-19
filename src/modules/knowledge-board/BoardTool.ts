@@ -1,6 +1,7 @@
 import { db } from '../../services/db';
 import { RequestContext } from '../../core/types';
 import { Task } from '../../types';
+import { sanitizeTaskUpdates } from '../../core/task-guards';
 
 function generateId(): string {
   return Math.random().toString(16).slice(2, 10) + Date.now().toString(36);
@@ -88,18 +89,8 @@ export const BoardTool = {
         const task = await resolveTask(taskRef);
         if (!task) throw new Error(`Task not found: "${taskRef}"`);
 
-        // Whitelist updatable fields
-        const allowed: (keyof Task)[] = [
-          'title', 'description', 'workflowStatus', 'agentState',
-          'agentContext', 'project', 'protocol', 'analysis',
-          'forwardExecutorMessages', 'pendingExecutorPrompt', 'pendingExecutorId',
-        ];
-        const safe: Record<string, any> = {};
-        for (const key of Object.keys(updates)) {
-          if ((allowed as string[]).includes(key)) {
-            safe[key] = updates[key];
-          }
-        }
+        // Whitelist updatable fields (shared with boardVM.tasks)
+        const safe = sanitizeTaskUpdates(updates);
 
         if (Object.keys(safe).length === 0) {
           return 'No valid fields to update.';
