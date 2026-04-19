@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, RefreshCw, Plus } from 'lucide-react';
+import { X, Save, RefreshCw, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { julesApi, Source } from '../lib/julesApi';
 import { cn } from '../lib/utils';
+import { db } from '../services/db';
 
 import { registry } from '../core/registry';
 import { HostConfig, ModuleManifest } from '../core/types';
@@ -46,7 +47,7 @@ export default function SettingsModal({
   const [githubToken, setGithubToken] = useState(initialGithubToken);
   const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialModuleConfigs);
   
-  const [activeTab, setActiveTab] = useState<'general' | 'modules'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'modules' | 'danger'>('general');
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [error, setError] = useState('');
@@ -149,7 +150,7 @@ export default function SettingsModal({
             >
               General Settings
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('modules')}
               className={cn(
                 "text-sm font-semibold font-mono transition-colors",
@@ -157,6 +158,15 @@ export default function SettingsModal({
               )}
             >
               Modules
+            </button>
+            <button
+              onClick={() => setActiveTab('danger')}
+              className={cn(
+                "text-sm font-semibold font-mono transition-colors",
+                activeTab === 'danger' ? "text-red-400" : "text-neutral-500 hover:text-red-400"
+              )}
+            >
+              Danger Zone
             </button>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-white transition-colors">
@@ -368,6 +378,100 @@ export default function SettingsModal({
               </button>
             </div>
           </form>
+        ) : activeTab === 'danger' ? (
+          <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
+            <h3 className="text-sm font-medium text-red-400 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              Danger Zone
+            </h3>
+            <p className="text-[11px] text-neutral-500">
+              These actions permanently delete data. There is no undo.
+            </p>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-neutral-950 border border-neutral-800 rounded-lg">
+                <div>
+                  <div className="text-xs font-medium text-neutral-200">Clear v86 IDBFS Overlay</div>
+                  <div className="text-[10px] text-neutral-500">Resets the v86 filesystem to its base image (tarfs). Next boot starts clean.</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm('Clear v86 IDBFS overlay? Files written during this session will be lost.')) return;
+                    const req = indexedDB.deleteDatabase('wanix-env');
+                    req.onsuccess = () => alert('IDBFS overlay cleared.');
+                    req.onerror = () => alert('Failed to clear IDBFS: ' + req.error);
+                  }}
+                  className="px-3 py-1.5 text-[10px] font-medium bg-red-600/20 text-red-400 border border-red-500/30 rounded hover:bg-red-600/30 transition-colors"
+                >
+                  <Trash2 className="w-3 h-3 inline mr-1" />Clear IDBFS
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-neutral-950 border border-neutral-800 rounded-lg">
+                <div>
+                  <div className="text-xs font-medium text-neutral-200">Clear Dexie Database</div>
+                  <div className="text-[10px] text-neutral-500">Deletes tasks, artifacts, KB docs, sessions, and all structured data.</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm('Delete ALL Dexie data? Tasks, artifacts, KB entries will be permanently removed.')) return;
+                    await db.delete();
+                    alert('Dexie database deleted. Reload the page to recreate it.');
+                  }}
+                  className="px-3 py-1.5 text-[10px] font-medium bg-red-600/20 text-red-400 border border-red-500/30 rounded hover:bg-red-600/30 transition-colors"
+                >
+                  <Trash2 className="w-3 h-3 inline mr-1" />Clear Dexie
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-neutral-950 border border-neutral-800 rounded-lg">
+                <div>
+                  <div className="text-xs font-medium text-neutral-200">Clear Knowledge Base</div>
+                  <div className="text-[10px] text-neutral-500">Removes all KB log entries and documents. Keeps task artifacts intact.</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm('Clear all KB entries and documents?')) return;
+                    await db.kbLog.clear();
+                    await db.kbDocs.clear();
+                    alert('Knowledge base cleared.');
+                  }}
+                  className="px-3 py-1.5 text-[10px] font-medium bg-red-600/20 text-red-400 border border-red-500/30 rounded hover:bg-red-600/30 transition-colors"
+                >
+                  <Trash2 className="w-3 h-3 inline mr-1" />Clear KB
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-neutral-950 border border-red-900/50 rounded-lg">
+                <div>
+                  <div className="text-xs font-medium text-red-300">Nuclear: Clear Everything</div>
+                  <div className="text-[10px] text-neutral-500">Wipes IDBFS, Dexie, and localStorage. Full factory reset.</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm('NUCLEAR: This will delete ALL data and reload the page. Are you sure?')) return;
+                    indexedDB.deleteDatabase('wanix-env');
+                    indexedDB.deleteDatabase('git-repos');
+                    await db.delete();
+                    localStorage.clear();
+                    window.location.reload();
+                  }}
+                  className="px-3 py-1.5 text-[10px] font-medium bg-red-600 text-white rounded hover:bg-red-500 transition-colors"
+                >
+                  <AlertTriangle className="w-3 h-3 inline mr-1" />Nuclear Reset
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-4 flex justify-end">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium bg-neutral-800 text-neutral-100 rounded-md hover:bg-neutral-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="p-4 flex flex-col h-full overflow-hidden">
             <div className="flex items-center justify-between mb-4">
@@ -386,7 +490,7 @@ export default function SettingsModal({
             </div>
             
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1">
-              {registry.getAll().map(module => (
+              {registry.getAll().filter(m => !m.hidden).map(module => (
                 <div key={module.id} className={cn(
                   "bg-neutral-950 border rounded-lg p-3 transition-colors",
                   module.enabled !== false ? "border-neutral-800 hover:border-neutral-700" : "border-neutral-900 opacity-60"

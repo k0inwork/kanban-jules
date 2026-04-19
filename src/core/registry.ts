@@ -31,6 +31,9 @@ import sandboxYuanManifest from '../modules/sandbox-yuan/manifest.json';
 import bashExecutorManifest from '../modules/bash-executor/manifest.json';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 
+import taskLogsManifest from '../modules/knowledge-task-logs/manifest.json';
+import { TaskLogTool } from '../modules/knowledge-task-logs/TaskLogTool';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -48,6 +51,7 @@ export class ModuleRegistry {
     { ...processReflectionManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
+    { ...taskLogsManifest, enabled: true, init: TaskLogTool.init, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

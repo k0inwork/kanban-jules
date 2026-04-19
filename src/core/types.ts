@@ -40,6 +40,7 @@ export interface ModuleManifest {
   sandboxBindings: Record<string, string>;
   permissions: string[];
   enabled?: boolean;
+  hidden?: boolean;
   outputType?: string;
   requiresBindings?: string[];
   source?: string;

@@ -34,6 +34,7 @@ function buildSandboxBindingsMap(): Record<string, string> {
   const map: Record<string, string> = {};
   const modules = registry.getEnabled();
   for (const mod of modules) {
+    if (mod.hidden) continue;
     if (mod.sandboxBindings) {
       for (const [shortName, qualifiedName] of Object.entries(mod.sandboxBindings)) {
         map[shortName] = qualifiedName;

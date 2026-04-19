@@ -1,78 +1,69 @@
-import { GitFs } from '../../services/GitFs';
+import { vfs } from '../../services/vfs';
 import { OrchestratorConfig, RequestContext } from '../../core/types';
 
 export const RepositoryTool = {
   init: (config: OrchestratorConfig) => {
-    // RepositoryTool doesn't need config for now, but we'll keep the init method for consistency.
+    // No config needed — vfs reads/writes IDBFS directly
   },
+
   listFiles: async (repoUrl: string, branch: string, token: string, path: string = ''): Promise<string[]> => {
-    const gitFs = new GitFs(repoUrl, branch, token);
-    const files = await gitFs.listFiles(path);
-    return files.map(f => f.path);
+    const basePath = `/tmp/repo-root${path ? '/' + path : ''}`;
+    return vfs.readdir(basePath);
   },
 
   readFile: async (repoUrl: string, branch: string, token: string, path: string): Promise<string> => {
-    const gitFs = new GitFs(repoUrl, branch, token);
-    return await gitFs.getFile(path);
+    return vfs.readFile(`/tmp/repo-root/${path}`);
   },
 
   headFile: async (repoUrl: string, branch: string, token: string, path: string, lines: number = 3): Promise<string> => {
-    const gitFs = new GitFs(repoUrl, branch, token);
-    const content = await gitFs.getFile(path);
-    return content.split('\n').slice(0, lines).join('\n');
+    return vfs.headFile(`/tmp/repo-root/${path}`, lines);
   },
 
   writeFile: async (repoUrl: string, branch: string, token: string, path: string, content: string, commitMessage: string, taskDir?: string): Promise<boolean> => {
-    const gitFs = new GitFs(repoUrl, branch, token, taskDir);
-    if (taskDir) {
-      // Task-scoped: commit locally, don't push yet
-      await gitFs.commitOnly(path, content, commitMessage);
-    } else {
-      await gitFs.writeFile(path, content, commitMessage);
-    }
+    const basePath = taskDir ? `/tmp/${taskDir}/repo` : '/tmp/repo-root';
+    await vfs.writeFile(`${basePath}/${path}`, content);
     return true;
   },
 
   handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
-    const token = context.githubToken || import.meta.env.VITE_GITHUB_TOKEN || '';
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
 
     switch (toolName) {
       case 'knowledge-repo-browser.listFiles': {
         const obj = unpack(args[0]);
-        const repoUrl = obj ? obj.repoUrl : args[0];
-        const branch = obj ? obj.branch : args[1];
-        const path = obj ? obj.path : args[2];
-        const gitFs = new GitFs(repoUrl || context.repoUrl, branch || context.repoBranch, token, context.taskDir);
-        const files = await gitFs.listFiles(path || '');
-        return files.map(f => f.path);
+        const path = obj?.path || args[2] || '';
+        const basePath = context.taskDir
+          ? `/tmp/${context.taskDir}/repo${path ? '/' + path : ''}`
+          : `/tmp/repo-root${path ? '/' + path : ''}`;
+        return vfs.readdir(basePath);
       }
       case 'knowledge-repo-browser.readFile': {
         const obj = unpack(args[0]);
-        const repoUrl = obj ? obj.repoUrl : args[0];
-        const branch = obj ? obj.branch : args[1];
-        const path = obj ? obj.path : args[2];
-        const gitFs = new GitFs(repoUrl || context.repoUrl, branch || context.repoBranch, token, context.taskDir);
-        return await gitFs.getFile(path);
+        const path = obj?.path || args[2];
+        const basePath = context.taskDir
+          ? `/tmp/${context.taskDir}/repo/${path}`
+          : `/tmp/repo-root/${path}`;
+        return vfs.readFile(basePath);
       }
       case 'knowledge-repo-browser.headFile': {
         const obj = unpack(args[0]);
-        const repoUrl = obj ? obj.repoUrl : args[0];
-        const branch = obj ? obj.branch : args[1];
-        const path = obj ? obj.path : args[2];
-        const lines = obj ? obj.lines : args[3];
-        const gitFs = new GitFs(repoUrl || context.repoUrl, branch || context.repoBranch, token, context.taskDir);
-        const content = await gitFs.getFile(path);
-        return content.split('\n').slice(0, lines).join('\n');
+        const path = obj?.path || args[2];
+        const lines = obj?.lines || args[3] || 3;
+        const basePath = context.taskDir
+          ? `/tmp/${context.taskDir}/repo/${path}`
+          : `/tmp/repo-root/${path}`;
+        return vfs.headFile(basePath, lines);
       }
       case 'knowledge-repo-browser.writeFile': {
         const obj = unpack(args[0]);
-        const repoUrl = obj ? obj.repoUrl : args[0];
-        const branch = obj ? obj.branch : args[1];
-        const path = obj ? obj.path : args[2];
-        const content = obj ? obj.content : args[3];
-        const commitMessage = obj ? obj.commitMessage : args[4];
-        return await RepositoryTool.writeFile(repoUrl || context.repoUrl, branch || context.repoBranch, token, path, content, commitMessage || `Update ${path}`, context.taskDir);
+        const path = obj?.path || args[2];
+        const content = obj?.content || args[3];
+        const commitMessage = obj?.commitMessage || args[4] || `Update ${path}`;
+        const basePath = context.taskDir
+          ? `/tmp/${context.taskDir}/repo/${path}`
+          : `/tmp/repo-root/${path}`;
+        await vfs.writeFile(basePath, content);
+        return true;
       }
       default:
         throw new Error(`Tool not found: ${toolName}`);
@@ -128,7 +119,7 @@ export const repositoryToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'writeFile',
-    description: 'Write content to a file in the repository. Creates a new commit.',
+    description: 'Write content to a file in the repository.',
     parameters: {
       type: Type.OBJECT,
       properties: {

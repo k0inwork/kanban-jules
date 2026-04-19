@@ -207,6 +207,8 @@ func main() {
 
 	// ---- FSBridge: boardVM.fsBridge for almostnode file tools ----
 	RegisterFSBridge(cfg, wrapNS(root.Namespace()), vmID)
+	cfg.Set("vmID", vmID)
+	log.Printf("[boot] boardVM.vmID = %s", vmID)
 
 	// vmBindings — mirrors appron exactly, no #repo/#board here
 	vmBindings := []struct {

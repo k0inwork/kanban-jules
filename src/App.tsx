@@ -41,7 +41,6 @@ import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
 import { GitFs, GitFile } from './services/GitFs';
 import { ArtifactTool, artifactToolDeclarations } from './modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-repo-browser/RepositoryTool';
-import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
 import { parseTasksFromMessage } from './core/prompt';
@@ -191,10 +190,6 @@ export default function App() {
     localStorage.setItem('githubToken', config.githubToken);
     localStorage.setItem('moduleConfigs', JSON.stringify(config.moduleConfigs));
 
-    const token = config.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
-    if (token && config.repoUrl) {
-      RepoCrawler.crawl(config.repoUrl, config.repoBranch || 'main', token).catch(console.error);
-    }
   };
 
   const handleReviewProject = async (e?: React.MouseEvent) => {

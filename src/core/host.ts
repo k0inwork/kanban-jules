@@ -22,6 +22,7 @@ import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
 import { pushQueue } from '../services/PushQueue';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
+import { TaskLogTool } from '../modules/knowledge-task-logs/TaskLogTool';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -233,6 +234,7 @@ export class ModuleHost {
     const yuanSandboxHandler = new YuanSandboxHandler();
     registry.registerModuleHandlers('sandbox-yuan', yuanSandboxHandler.handleRequest.bind(yuanSandboxHandler));
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
+    registry.registerModuleHandlers('knowledge-task-logs', TaskLogTool.handleRequest);
 
     // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
