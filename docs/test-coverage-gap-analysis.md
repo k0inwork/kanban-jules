@@ -1,21 +1,34 @@
 # Test Suite vs MVP Proposals — Coverage Gap Analysis
 
-**Last updated: 2026-04-18 | 190 passed, 3 skipped, 0 failures**
+**Last updated: 2026-04-20 | 357 passed, 8 skipped (3 sandbox + 5 e2e), 0 failures**
 
 ## Test Files
 
 | File | Tests | Status |
 |---|---|---|
 | `src/__tests__/modules.test.ts` | 137 | KB, dream, reflection, conflict, superseded, decision-log |
+| `src/__tests__/vfs.test.ts` | 39 | VFS layer (resolvePath, read/write, stat, exists, mkdir, readdir, unlink, clear, headFile, IDBFS verification, fsBridge fallback) |
+| `src/__tests__/board-tool.test.ts` | 14 | Board tool CRUD (listTasks, getTask, createTask, updateTask) |
 | `src/__tests__/integration.test.ts` | 18 | Cross-module pipelines |
+| `src/modules/process-project-manager/ProcessAgent.test.ts` | 21 | ProcessAgent tools, ReAct loop controls, buildToolDescriptions |
 | `src/__tests__/branching.test.ts` | 13 | BranchEvaluator, GitFs.taskDir, PushQueue, task DB |
+| `src/components/AgentTree/AgentTreeModel.test.ts` | 26 | Task pipeline, Yuan agent, persistence, lifecycle |
+| `src/components/AgentTree/AgentTreeModel.integration.test.ts` | 6 | Real eventBus propagation |
+| `src/modules/bash-executor/BashExecutorHandler.test.ts` | 10 | Bash exec, clone, init, timeout capping, error handling |
+| `src/modules/executor-jules/JulesHandler.test.ts` | 5 | Jules execute (positional/object args, task-not-found, default criteria) |
+| `src/modules/channel-user-negotiator/UserHandler.test.ts` | 6 | askUser + sendUser (positional/object args, routing) |
+| `src/modules/executor-local/LocalHandler.test.ts` | 5 | Local execute placeholder (routing, arg forms) |
+| `src/modules/architect-codegen/Architect.test.ts` | 7 | Protocol generation (projection, prompt, JSON parse, init guard) |
+| `src/modules/knowledge-artifacts/ArtifactTool.test.ts` | 14 | Artifact CRUD (list/read/save, underscore filtering, GitFs write) |
+| `src/modules/knowledge-local-analyzer/LocalAnalyzer.test.ts` | 10 | Repo scan (pattern matching, case insensitive, empty files, missing task) |
 | `src/services/GitFs.test.ts` | 10 | URL parsing, getters, taskDir, constructor options |
 | `wasm/worker/WasmHandler.test.ts` | 8 | WASM module loading and execution |
 | `src/test-registry.test.ts` | 2 | Module registry + prompt composition |
 | `src/core/registry.test.ts` | 2 | Registry internals |
 | `src/core/sandbox.test.ts` | 3 | **Skipped** — requires browser Worker API |
+| `tests/bash-executor.e2e.test.ts` | 5 | **Skipped** — requires dev server (hook timeout in CI) |
 
-Compares the 190 tests against:
+Compares the 326 tests against:
 - `docs/self-healing-agent.md` — 4 module specs
 - `docs/mvp-phase0-kb-context.md` — 10 implementation steps + 7 data flows
 - `docs/modules-testing.md` — per-module-type test strategy
@@ -246,6 +259,189 @@ File: `src/core/sandbox.test.ts` — 3 tests skipped (requires browser Worker AP
 
 **Coverage: 0% — deferred to browser e2e**
 
+### BashExecutor
+
+File: `src/modules/bash-executor/BashExecutorHandler.test.ts` — 10 tests.
+
+| Area | Tests |
+|---|---|
+| Exec with cwd — resolves relative paths | 1 |
+| Timeout capping — limits to 120s max | 1 |
+| Clone — clones into task-specific directory | 1 |
+| Init — initializes git repo | 1 |
+| Command not found — returns exit code | 1 |
+| Working directory creation | 1 |
+| Stdout capture | 1 |
+| Stderr capture | 1 |
+| Max output truncation | 1 |
+| Abort on timeout | 1 |
+
+**Coverage: 10/10 tested (100%)**
+
+### ProcessAgent (ReAct Loop)
+
+File: `src/modules/process-project-manager/ProcessAgent.test.ts` — 21 tests.
+
+| Area | Tests |
+|---|---|
+| **handleRequest routing** | 2 (runReview routing, unknown tool rejection) |
+| **Tools — listTasks** | 1 (mapped tasks) |
+| **Tools — listArtifacts** | 2 (underscore filter, namePattern filter) |
+| **Tools — readArtifact** | 2 (content retrieval, missing artifact error) |
+| **Tools — updateArtifactStatus** | 2 (invalid status rejection, valid statuses accepted) |
+| **Tools — proposeTask** | 1 (adds message to db) |
+| **Tools — sendMessage** | 2 (info message, alert message) |
+| **Tools — executeTool errors** | 2 (unknown tool, catch execution errors) |
+| **ReAct loop — done:true** | 1 (stops on first iteration) |
+| **ReAct loop — no actions** | 1 (stops when empty actions) |
+| **ReAct loop — consecutive errors** | 1 (stops after MAX_CONSECUTIVE_ERRORS=3) |
+| **ReAct loop — error count reset** | 1 (resets on success after transient failure) |
+| **ReAct loop — multi-action iteration** | 1 (executes multiple actions per step) |
+| **ReAct loop — repoName extraction** | 1 (extracts from repoUrl) |
+| **buildToolDescriptions** | 1 (lists all registered tools) |
+
+**Coverage: 21/21 tested (100%)**
+
+### AgentTree
+
+Files: `src/components/AgentTree/AgentTreeModel.test.ts` (26) + `AgentTreeModel.integration.test.ts` (6) — 32 tests.
+
+| Area | Tests |
+|---|---|
+| Task pipeline (addTask, addStep, step state transitions) | 12 |
+| Yuan agent node (creation, expansion, model changes) | 6 |
+| Persistence (save/load round-trip) | 4 |
+| Lifecycle (dispose, cleanup) | 2 |
+| Event replay | 2 |
+| **Integration — real eventBus propagation** | 6 |
+
+**Coverage: 32/32 tested (100%)**
+
+### VFS (Virtual File System)
+
+File: `src/__tests__/vfs.test.ts` — 39 tests.
+
+| Area | Tests |
+|---|---|
+| resolvePath (path normalization, /workspace mapping) | 8 |
+| readFile / writeFile (IDBFS overlay) | 2 |
+| stat (file, directory, missing, implicit dir) | 4 |
+| exists (file, implicit dir, nonexistent) | 3 |
+| mkdir / mkdirp (single, nested) | 2 |
+| readdir (direct children, subdirectory) | 2 |
+| unlink / rmrf (single file, recursive) | 2 |
+| clear | 1 |
+| headFile (default 3 lines, custom N) | 2 |
+| RepositoryTool integration (listFiles, readFile, headFile, writeFile, taskDir) | 6 |
+| IDBFS record verification (raw IDB correctness) | 8 |
+| fsBridge fallback (readFile fallback + backfill, stat, exists, readdir merge) | 5 |
+
+**Coverage: 39/39 tested (100%)**
+
+### Board Tool (knowledge-board)
+
+File: `src/__tests__/board-tool.test.ts` — 14 tests.
+
+| Area | Tests |
+|---|---|
+| listTasks (empty, list all, filter by status, filter by project) | 4 |
+| getTask (by ID, by title substring, not found) | 3 |
+| createTask (title only, with description+project, missing title) | 3 |
+| updateTask (whitelisted fields, by title substring, ignore non-whitelisted, not found) | 4 |
+
+**Coverage: 14/14 tested (100%)**
+
+### JulesHandler
+
+File: `src/modules/executor-jules/JulesHandler.test.ts` — 5 tests.
+
+| Area | Tests |
+|---|---|
+| Unknown tool rejection | 1 |
+| Task not found error | 1 |
+| Execute with positional args | 1 |
+| Execute with object-form args | 1 |
+| Default successCriteria | 1 |
+
+**Coverage: 5/5 tested (100%)**
+
+### UserHandler
+
+File: `src/modules/channel-user-negotiator/UserHandler.test.ts` — 6 tests.
+
+| Area | Tests |
+|---|---|
+| Unknown tool rejection | 1 |
+| askUser with positional args | 1 |
+| askUser with object-form args | 1 |
+| askUser without format | 1 |
+| sendUser with positional arg | 1 |
+| sendUser with object-form arg | 1 |
+
+**Coverage: 6/6 tested (100%)**
+
+### LocalHandler
+
+File: `src/modules/executor-local/LocalHandler.test.ts` — 5 tests.
+
+| Area | Tests |
+|---|---|
+| Routes executor-local.execute | 1 |
+| Object-form args | 1 |
+| Empty args | 1 |
+| Unknown tool rejection | 1 |
+| Consistent placeholder response | 1 |
+
+**Coverage: 5/5 tested (100%)**
+
+### ArchitectTool
+
+File: `src/modules/architect-codegen/Architect.test.ts` — 7 tests.
+
+| Area | Tests |
+|---|---|
+| Unknown tool rejection | 1 |
+| Init guard (not-initialized error) | 1 |
+| ProjectorHandler.project called with L2 | 1 |
+| Prompt composition with enabled modules | 1 |
+| LLM call with title+description, json mode | 1 |
+| Empty LLM response → empty object | 1 |
+| Malformed JSON from LLM → throws | 1 |
+
+**Coverage: 7/7 tested (100%)**
+
+### ArtifactTool
+
+File: `src/modules/knowledge-artifacts/ArtifactTool.test.ts` — 14 tests.
+
+| Area | Tests |
+|---|---|
+| Routing — unknown tool | 1 |
+| listArtifacts — all, underscore filtering, ownership, positional/object args | 5 |
+| readArtifact — by ID, missing, object-form args | 3 |
+| saveArtifact — db write, GitFs write, skip underscore, skip no-token, object-form args | 5 |
+
+**Coverage: 14/14 tested (100%)**
+
+### LocalAnalyzer
+
+File: `src/modules/knowledge-local-analyzer/LocalAnalyzer.test.ts` — 10 tests.
+
+| Area | Tests |
+|---|---|
+| Unknown tool rejection | 1 |
+| Default pattern matching | 1 |
+| Custom pattern matching | 1 |
+| No patterns found | 1 |
+| Directory entries ignored | 1 |
+| Case-insensitive matching | 1 |
+| Empty file list | 1 |
+| Multiple matching files | 1 |
+| Task title in artifact name | 1 |
+| Missing task fallback | 1 |
+
+**Coverage: 10/10 tested (100%)**
+
 ---
 
 ## Integration Test Coverage
@@ -349,15 +545,39 @@ From the testing strategy doc §15:
 | **GitFs (URL parsing, taskDir)** | 10 | 0 | **100%** |
 | **WASM handler** | 8 | 0 | **100%** |
 | **Module registry** | 4 | 0 | **100%** |
+| **BashExecutor** | 10 | 0 | **100%** |
+| **ProcessAgent (ReAct loop)** | 21 | 0 | **100%** |
+| **AgentTree (model + integration)** | 32 | 0 | **100%** |
+| **VFS (virtual file system)** | 39 | 0 | **100%** |
+| **Board tool (knowledge-board)** | 14 | 0 | **100%** |
+| **JulesHandler** | 5 | 0 | **100%** |
+| **UserHandler** | 6 | 0 | **100%** |
+| **LocalHandler** | 5 | 0 | **100%** |
+| **ArchitectTool** | 7 | 0 | **100%** |
+| **ArtifactTool** | 14 | 0 | **100%** |
+| **LocalAnalyzer** | 10 | 0 | **100%** |
 | **Sandbox execution** | 0 | 3 (skipped) | **0%** (needs browser Worker) |
+| **Bash executor e2e** | 0 | 5 (skipped) | **0%** (needs dev server) |
+
+**Total: 357 passed, 8 skipped (3 sandbox + 5 e2e)**
 
 ### Remaining gaps (not testable yet):
 
 1. **F7: Background research** — not implemented (requires async external polling)
 2. **Sandbox tests (3)** — skipped in Node.js vitest; require browser Worker API (Puppeteer e2e)
-3. **E2e browser tests** — `e2e/` directory excluded from vitest; terminal-lifecycle and terminal-tab tests run separately via `npx tsx`
-4. **Orchestrator → GitFs live integration** — task branching lifecycle (create branch → commit → merge → push) requires real GitHub API; tested at unit level only
-5. **Coverage report** — no coverage tooling configured; all coverage percentages above are manual analysis against spec
+3. **Bash executor e2e (5)** — skipped in CI; requires dev server startup (hook timeout)
+4. **E2e browser tests** — `e2e/` directory excluded from vitest; terminal-lifecycle and terminal-tab tests run separately via `npx tsx`
+5. **Orchestrator → GitFs live integration** — task branching lifecycle (create branch → commit → merge → push) requires real GitHub API; tested at unit level only
+6. **Coverage report** — no coverage tooling configured; all coverage percentages above are manual analysis against spec
+
+### Untested modules (no dedicated test files):
+
+| Module | Tools | Notes |
+|---|---|---|
+| `executor-github` | runWorkflow, runAndWait, fetchLogs, getRunStatus, fetchArtifacts | Requires GitHub API, heavy fetch usage |
+| `executor-claude` | runClaude | DEV-ONLY, gated behind env flag |
+| `sandbox-yuan` | runScript | Yuan sandbox execution |
+| `process-dream/commit-harvest` | (background) | Commit message harvesting, tested indirectly via dream tests |
 
 ---
 
