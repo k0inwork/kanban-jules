@@ -31,7 +31,7 @@ export const BoardTool = {
         let collection = db.tasks.orderBy('createdAt');
         const tasks = await collection.toArray();
 
-        let filtered = tasks;
+        let filtered = tasks.filter(t => (t as any).workflowStatus !== 'ARCHIVED');
         if (obj.status) {
           const status = obj.status.toUpperCase();
           filtered = filtered.filter(t => t.workflowStatus === status);
