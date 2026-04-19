@@ -35,6 +35,14 @@ function LogPanel({ logs }: { logs: string[] }) {
 
 function TreeNode({ node, depth, isYuan }: { node: AgentTreeNode; depth: number; isYuan?: boolean }) {
   const [expanded, setExpanded] = React.useState(node.state === 'running');
+  const prevChildCount = React.useRef(node.children.length);
+
+  // Auto-expand when state becomes running or children are added
+  React.useEffect(() => {
+    if (node.state === 'running') setExpanded(true);
+    if (node.children.length > prevChildCount.current) setExpanded(true);
+    prevChildCount.current = node.children.length;
+  }, [node.state, node.children.length]);
   const s = STATE_STYLES[node.state];
   const hasChildren = node.children.length > 0;
   const hasDetail = !!node.detail && (node.type === 'tool' || node.type === 'executor' || node.type === 'projector');

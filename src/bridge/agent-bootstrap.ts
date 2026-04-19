@@ -519,33 +519,33 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
       // Native function calling — no text-format injection needed
 
-      // AgentLoop events — log + forward to boardVM
+      // AgentLoop events — log + forward to boardVM eventBus
       agent.on('event', function(ev) {
         if (!ev || !ev.kind) return;
         switch (ev.kind) {
           case 'agent:thinking':
             console.log('[yuan] thinking:', ev.content);
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:thinking', content: ev.content }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:thinking', content: ev.content }); } catch(_e) { console.warn('[yuan] emit thinking failed:', _e); }
             break;
           case 'agent:tool_call':
             console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200));
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_call', tool: ev.tool, args: ev.args }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_call', tool: ev.tool, args: ev.args }); } catch(_e) { console.warn('[yuan] emit tool_call failed:', _e); }
             break;
           case 'agent:tool_result':
             console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200));
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_result', tool: ev.tool, success: ev.success, output: String(ev.output || '').substring(0, 200) }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_result', tool: ev.tool, success: ev.success, output: String(ev.output || '').substring(0, 200) }); } catch(_e) { console.warn('[yuan] emit tool_result failed:', _e); }
             break;
           case 'agent:completed':
             console.log('[yuan] completed:', ev.summary);
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:completed', summary: ev.summary }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:completed', summary: ev.summary }); } catch(_e) { console.warn('[yuan] emit completed failed:', _e); }
             break;
           case 'agent:error':
             console.error('[yuan] error:', ev.message);
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:error', message: ev.message }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:error', message: ev.message }); } catch(_e) { console.warn('[yuan] emit error failed:', _e); }
             break;
           case 'agent:start':
             console.log('[yuan] start:', ev.goal);
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:start', goal: ev.goal }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:start', goal: ev.goal }); } catch(_e) { console.warn('[yuan] emit start failed:', _e); }
             break;
         }
       });
