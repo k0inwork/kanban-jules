@@ -47,6 +47,11 @@ export class Sandbox {
     this.toolRequestHandler = handler;
   }
 
+  destroy(): void {
+    this.worker.terminate();
+    this.pendingToolCalls.clear();
+  }
+
   inject(name: string, api: any): void {
     // For now, we'll just log that injection is not supported in the worker yet
     console.warn('[Sandbox] Injection is not supported in the worker yet.');

@@ -1,0 +1,36 @@
+{
+  "id": "executor-claude",
+  "name": "Claude Code Executor",
+  "version": "0.1.0",
+  "type": "executor",
+  "description": "Delegate tasks to a local Claude Code agent. Fire-and-forget: sends a prompt, returns the result. The agent works on the local filesystem with full tool access.",
+  "tools": [
+    {
+      "name": "executor-claude.run",
+      "description": "Run a Claude Code agent on the host machine. Give it a task prompt, it works autonomously and returns the result. Use for heavy compute, local tools, or tasks that need real filesystem access.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Task description for the agent"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model to use (e.g. 'sonnet', 'opus', 'haiku')"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in milliseconds (default 300000, max 600000)"
+          }
+        },
+        "required": ["prompt"]
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "claude.run": "executor-claude.run"
+  },
+  "permissions": ["host-exec", "filesystem"],
+  "enabled": true
+}

@@ -8,7 +8,6 @@ import { db } from '../services/db';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { ArchitectTool } from '../modules/architect-codegen/Architect';
-import { agentContext } from '../services/AgentContext';
 import { JulesHandler } from '../modules/executor-jules/JulesHandler';
 import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
@@ -22,6 +21,7 @@ import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-dream/commit-harvest';
 import { pushQueue } from '../services/PushQueue';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
+import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 
 export class ModuleHost {
@@ -215,6 +215,9 @@ export class ModuleHost {
     const localHandler = new LocalHandler();
     const githubHandler = new GithubHandler();
     const bashHandler = new BashExecutorHandler();
+    const claudeHandler = new ClaudeExecutorHandler();
+    // DEV-ONLY: executor-claude — disabled in production
+    // TODO: gate behind process.env.ENABLE_HOST_AGENT === 'true'
 
     registry.registerModuleHandlers('executor-jules', julesHandler.handleRequest.bind(julesHandler));
     registry.registerModuleHandlers('channel-user-negotiator', userHandler.handleRequest.bind(userHandler));
@@ -234,14 +237,10 @@ export class ModuleHost {
     const yuanSandboxHandler = new YuanSandboxHandler();
     registry.registerModuleHandlers('sandbox-yuan', yuanSandboxHandler.handleRequest.bind(yuanSandboxHandler));
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
+    registry.registerModuleHandlers('executor-claude', claudeHandler.handleRequest.bind(claudeHandler));
     registry.registerModuleHandlers('knowledge-board', BoardTool.handleRequest);
 
-    // Internal host tools (not in a manifest)
-    registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
-    registry.registerHandler('host.agentContextSet', async (tool, args) => {
-      agentContext.set(args[0], args[1]);
-      return true;
-    });
+    // host.agentContextGet/Set handled per-task in orchestrator.moduleRequest
   }
 
   stop() {

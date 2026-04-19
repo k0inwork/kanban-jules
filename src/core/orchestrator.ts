@@ -4,7 +4,7 @@ import { composeProgrammerPrompt } from './prompt';
 import { eventBus } from './event-bus';
 import { db } from '../services/db';
 import { OrchestratorConfig } from './types';
-import { agentContext } from '../services/AgentContext';
+import { AgentContext } from '../services/AgentContext';
 import { Sandbox, injectBindings } from './sandbox';
 import { GitFs } from '../services/GitFs';
 import { evaluateBranch } from '../services/BranchEvaluator';
@@ -20,29 +20,39 @@ export class Orchestrator {
     this.config = config;
   }
 
-  private async moduleRequest(taskId: string, toolName: string, args: any[]): Promise<any> {
+  private async moduleRequest(taskId: string, toolName: string, args: any[], agentContext: AgentContext): Promise<any> {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     // Handle host-provided tools
-    if (toolName === 'host.analyze' || toolName === 'host.addToContext') {
+    if (toolName === 'host.analyze' || toolName === 'host.addToContext' || toolName === 'host.agentContextGet' || toolName === 'host.agentContextSet') {
       const task = await db.tasks.get(taskId);
-      
+
+      // AgentContext get/set — per-task, not singleton
+      if (toolName === 'host.agentContextGet') {
+        return agentContext.get(args[0]);
+      }
+      if (toolName === 'host.agentContextSet') {
+        agentContext.set(args[0], args[1]);
+        await db.tasks.update(taskId, { agentContext: agentContext.getAll() });
+        return true;
+      }
+
       // Case 1: Direct key-value set (addToContext with 2 args)
       if (toolName === 'host.addToContext' && args.length >= 2) {
         const [key, value] = args;
         if (key && value !== undefined) {
           agentContext.set(key, value);
           this.appendActionLog(taskId, `Context updated: ${key}`);
-          
+
           // Immediate persistence to DB to prevent data loss during long steps
-          await db.tasks.update(taskId, { 
-            agentContext: agentContext.getAll() 
+          await db.tasks.update(taskId, {
+            agentContext: agentContext.getAll()
           });
-          
+
           return true;
         }
       }
-      
+
       // Case 2: Analysis or Direct Add
       const data = args[0];
       if (!data) return false;
@@ -106,10 +116,17 @@ export class Orchestrator {
     }
 
     const requestId = Math.random().toString(36).substring(7);
-    
+    const timeoutMs = toolName.startsWith('host.') ? 180000 : registry.getToolTimeout(toolName);
+
     return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        eventBus.off('module:response', handler);
+        reject(new Error(`moduleRequest timed out after ${timeoutMs / 1000}s: ${toolName}`));
+      }, timeoutMs);
+
       const handler = (data: { requestId: string, result: any, error?: string }) => {
         if (data.requestId === requestId) {
+          clearTimeout(timeout);
           eventBus.off('module:response', handler);
           if (data.error) {
             reject(new Error(data.error));
@@ -118,7 +135,7 @@ export class Orchestrator {
           }
         }
       };
-      
+
       eventBus.on('module:response', handler);
       eventBus.emit('module:request', { requestId, taskId, toolName, args });
     });
@@ -140,7 +157,7 @@ export class Orchestrator {
     eventBus.emit('module:log', { taskId, moduleId: 'architect', message: msg });
   }
 
-  async runStep(taskId: string, stepId: number): Promise<void> {
+  async runStep(taskId: string, stepId: number, agentContext: AgentContext): Promise<void> {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     const task = await db.tasks.get(taskId);
@@ -152,7 +169,7 @@ export class Orchestrator {
     await this.logToChat(taskId, `Starting execution for Step ${stepId}: ${step.title}`);
     this.appendActionLog(taskId, `Started Step ${stepId}`);
 
-    // Load AgentContext into the singleton service
+    // Reload latest persisted context from DB (may have been updated between steps)
     agentContext.clear();
     if (task.agentContext) {
       for (const [k, v] of Object.entries(task.agentContext)) {
@@ -221,7 +238,7 @@ export class Orchestrator {
           this.appendProgrammingLog(taskId, `Step ${stepId} (Attempt ${attempt}) - code:\n"${code}"`);
         }
 
-        await this.executeInSandbox(taskId, code, stepId);
+        await this.executeInSandbox(taskId, code, stepId, agentContext);
         return;
 
       } catch (error: any) {
@@ -261,7 +278,7 @@ export class Orchestrator {
     });
   }
 
-  private async executeInSandbox(taskId: string, code: string, stepId: number): Promise<void> {
+  private async executeInSandbox(taskId: string, code: string, stepId: number, agentContext: AgentContext): Promise<void> {
     if (!this.config) throw new Error("Orchestrator not initialized");
 
     const task = await db.tasks.get(taskId);
@@ -305,7 +322,7 @@ export class Orchestrator {
       });
     });
 
-    injectBindings(sandbox, (toolName, args) => this.moduleRequest(taskId, toolName, args), this.context);
+    injectBindings(sandbox, (toolName, args) => this.moduleRequest(taskId, toolName, args, agentContext), this.context);
 
     try {
       const result = await sandbox.execute(code, permissions, sandboxBindings, undefined, step.executionHistory, step.seed);
@@ -326,8 +343,8 @@ export class Orchestrator {
         protocol: { ...currentTask!.protocol!, steps: updatedSteps }
       });
       
-    } catch (error: any) {
-      throw error;
+    } finally {
+      sandbox.destroy();
     }
   }
 
@@ -337,6 +354,14 @@ export class Orchestrator {
 
   async processTask(task: Task, appendLog: (text: string) => Promise<void>) {
     if (!this.config) throw new Error("Orchestrator not initialized");
+
+    // Per-task agent context — prevents clobbering when multiple tasks run concurrently
+    const agentContext = new AgentContext();
+    if (task.agentContext) {
+      for (const [k, v] of Object.entries(task.agentContext)) {
+        agentContext.set(k, v);
+      }
+    }
 
     const isResuming = task.workflowStatus === 'IN_PROGRESS';
     const initialLog = isResuming ? '' : '> Initializing Agent Session...\n';
@@ -368,7 +393,7 @@ export class Orchestrator {
         let protocolAttempts = 0;
         while (protocolAttempts < 5) {
           try {
-            protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description]);
+            protocol = await this.moduleRequest(task.id, 'architect-codegen.generateProtocol', [task.title, task.description], agentContext);
             break;
           } catch (e: any) {
             protocolAttempts++;
@@ -428,7 +453,7 @@ export class Orchestrator {
           await db.tasks.update(task.id, { protocol: { ...currentTask!.protocol!, steps: updatedSteps } });
         }
 
-        await this.runStep(task.id, pendingStep.id);
+        await this.runStep(task.id, pendingStep.id, agentContext);
         
         const updatedTask = await db.tasks.get(task.id);
         if (updatedTask?.agentState === 'WAITING_FOR_USER' || updatedTask?.agentState === 'ERROR') {
@@ -512,7 +537,7 @@ export class Orchestrator {
             startedAt: task.createdAt,
           });
 
-          await this.moduleRequest(task.id, 'process-dream.microDream', [{ taskId: task.id }]);
+          await this.moduleRequest(task.id, 'process-dream.microDream', [{ taskId: task.id }], agentContext);
         } catch {
           // KB recording / dream failure must not affect task status
         }

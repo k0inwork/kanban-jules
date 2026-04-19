@@ -19,6 +19,7 @@
     "kb.saveDocument": "knowledge-kb.saveDocument"
   },
   "permissions": ["network", "jules-api", "timers"],
+  "requestTimeoutMs": 600000,
   "configFields": [
     { "key": "julesApiKey", "type": "string", "label": "Jules API Key", "description": "Google Jules API Key", "required": true, "secret": true },
     { "key": "julesDailyLimit", "type": "number", "label": "Daily Task Limit", "description": "Maximum number of tasks Jules can process per day. Set to 0 for unlimited.", "required": false, "default": 10 },

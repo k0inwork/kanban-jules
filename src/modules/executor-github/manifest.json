@@ -121,6 +121,7 @@
     }
   ],
   "configFields": [],
+  "requestTimeoutMs": 300000,
   "sandboxBindings": {
     "github.runWorkflow": "executor-github.runWorkflow",
     "github.runAndWait": "executor-github.runAndWait",

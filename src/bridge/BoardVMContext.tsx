@@ -215,6 +215,7 @@ export function BoardVMProvider({
 
   const [yuanReady, setYuanReady] = useState(false);
   const [yuanStatus, setYuanStatus] = useState('not initialized');
+  const [yuanThinking, setYuanThinking] = useState('');
   const boardVMSetupRef = useRef(false);
 
   // Set up window.boardVM once (idempotent)
@@ -517,7 +518,7 @@ export function BoardVMProvider({
   }, [setupBoardVM]);
 
   return (
-    <BoardVMContext.Provider value={{ yuanReady, yuanStatus, yuanSend, initYuan }}>
+    <BoardVMContext.Provider value={{ yuanReady, yuanStatus, yuanThinking, yuanSend, initYuan }}>
       {children}
     </BoardVMContext.Provider>
   );

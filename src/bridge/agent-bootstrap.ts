@@ -451,18 +451,27 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
       prompt += '4. BASH TOOLS (run shell commands inside the v86 VM):\\n';
       prompt += '   - bash.exec(command, cwd, timeout) — execute a shell command\\n';
-      prompt += '   - bash.clone() — copy repo mirror to /tmp/<taskId>/repo for a task\\n';
+      prompt += '   - bash.clone() — copy repo mirror to an isolated per-task working directory\\n';
       prompt += '   Filesystem layout:\\n';
       prompt += '   - /tmp/repo-root — main repo mirror (read-only, do not modify)\\n';
-      prompt += '   - /tmp/<taskId>/repo — per-task working copy (modify freely)\\n';
+      prompt += '   - bash.clone() creates an isolated per-task working copy (modify freely)\\n';
       prompt += '   - /home — default cwd if no task repo exists\\n';
-      prompt += '   Use cwd parameter to target the right directory.\\n';
+      prompt += '   bash.exec auto-detects cwd: uses your task repo if cloned, otherwise /home.\\n';
+      prompt += '\\n';
+
+      // DEV-ONLY: Claude Code host executor — disabled in production
+      // TODO: gate behind env flag or config (process.env.ENABLE_HOST_AGENT)
+      prompt += '5. HOST AGENT (DEV ONLY — may not be available):\\n';
+      prompt += '   - claude.run(prompt, model?, timeout?) — delegate a subtask to a local Claude Code agent on the host machine.\\n';
+      prompt += '   ASYNC: returns immediately with { taskId, status: "pending" }. Result arrives automatically within 20 seconds of completion.\\n';
+      prompt += '   Do NOT wait or poll — continue working. Results appear as system messages in your context.\\n';
+      prompt += '   Use for: heavy compute, real tools (gh, docker, kubectl), or when v86 is too slow.\\n';
       prompt += '\\n';
 
       prompt += 'CRITICAL DISTINCTION:\\n';
       prompt += '- repo.* tools access the GitHub repository via API — use them when you need to commit changes (repo.writeFile).\\n';
       prompt += '- bash.exec is your main tool for exploring and working with files. Use it freely: ls, cat, grep, find, git, build, test, etc.\\n';
-      prompt += '- The repo is cloned at /tmp/repo-root. After bash.clone(), your working copy is at /tmp/<taskId>/repo.\\n';
+      prompt += '- When a task starts and needs a repo, bash.clone() copies /tmp/repo-root into an isolated per-task directory — your working copy. bash.exec auto-detects it as cwd.\\n';
       prompt += '- Local file tools (file_read, file_write, file_edit) access the v86 workspace filesystem too.\\n\\n';
 
       prompt += 'WORKFLOW:\\n';
@@ -567,8 +576,48 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
     // Capture last LLM response text for fallback when agent errors
     globalThis._lastLLMText = '';
+
+    // --- Async task injection: inject completed async results into LLM context ---
+    globalThis._yuanWakeUp = function() {
+      var finished = globalThis._asyncTasks ? globalThis._asyncTasks.getFinished() : [];
+      if (finished.length === 0) return;
+      // Build a wake-up message summarizing all finished tasks
+      var lines = finished.map(function(t) {
+        var r = t.result || {};
+        var status = t.status === 'error' ? 'ERROR' : 'DONE';
+        var output = r.stdout || r.error || '(no output)';
+        // Try to extract result from claude JSON output
+        try { var parsed = JSON.parse(output); if (parsed.result) output = parsed.result; } catch(e) {}
+        return '[' + status + '] ' + t.prompt.slice(0, 60) + '... → ' + output.slice(0, 200);
+      });
+      var msg = '[async-results] The following tasks finished:\\n' + lines.join('\\n') + '\\n\\nReview the results and continue if needed.';
+      console.log('[yuan-runner] Waking up with async results:', lines.length, 'tasks');
+      globalThis._asyncTasks.clearFinished();
+      // Trigger a new agent run with the results
+      globalThis._yuanRunWithCallback(msg);
+    };
+
     var _origSendRequest = globalThis.boardVM.llmfs.sendRequest;
     globalThis.boardVM.llmfs.sendRequest = async function(reqJSON) {
+      // Before each LLM call, inject any finished async task results
+      var finished = globalThis._asyncTasks ? globalThis._asyncTasks.getFinished() : [];
+      if (finished.length > 0) {
+        globalThis._asyncTasks.cancelWakeUp();
+        var asyncContext = finished.map(function(t) {
+          var r = t.result || {};
+          var status = t.status === 'error' ? 'ERROR' : 'DONE';
+          var output = r.stdout || r.error || '(no output)';
+          try { var parsed = JSON.parse(output); if (parsed.result) output = parsed.result; } catch(e) {}
+          return '[' + status + '] ' + t.prompt.slice(0, 60) + '... → ' + output.slice(0, 200);
+        }).join('\\n');
+        try {
+          if (reqJSON && reqJSON.messages) {
+            reqJSON.messages.push({ role: 'system', content: '[async-results] Tasks finished:\\n' + asyncContext });
+          }
+        } catch(e) { console.warn('[yuan-runner] Failed to inject async results:', e); }
+        globalThis._asyncTasks.clearFinished();
+        console.log('[yuan-runner] Injected', finished.length, 'async results into LLM context');
+      }
       console.log('[yuan-runner] llmfs.sendRequest →');
       var resp = await _origSendRequest.call(globalThis.boardVM.llmfs, reqJSON);
       try {
@@ -610,25 +659,25 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       console.log(message);
       console.log('═══════ [yuan-runner] END INCOMING ═══════');
 
-      // Run with a 2-minute timeout so the UI never hangs forever
+      // Run with a 5-minute timeout so the UI never hangs forever
       var _runTimeout = setTimeout(function() {
-        console.error('[yuan-runner] TIMEOUT — aborting agent after 120s');
+        console.error('[yuan-runner] TIMEOUT — aborting agent after 300s');
         try { globalThis._yuanAgent.abort(); } catch(e) {}
         var cbt = globalThis.boardVM && globalThis.boardVM.yuan;
-        var fallbackText = globalThis._lastLLMText || 'Agent timed out after 120 seconds.';
+        var fallbackText = globalThis._lastLLMText ? '\x1b[33m[timeout-fallback]\x1b[0m ' + globalThis._lastLLMText : 'Agent timed out after 300 seconds.';
         if (cbt && cbt._onResult) cbt._onResult(fallbackText);
-      }, 120000);
+      }, 300000);
 
       Promise.race([
         globalThis._yuanAgent.run(message),
-        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 125000); })
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 305000); })
       ]).then(function(result) {
         console.log('═══════ [yuan-runner] RUN RESULT ═══════');
         clearTimeout(_runTimeout);
         console.log('═══════ [yuan-runner] RUN RESULT ═══════');
         console.log('reason:', result && result.reason);
         console.log('summary:', result && result.summary);
-        console.log('filesChanged:', JSON.stringify(result && result.filesChanged));
+        console.log('filesChanged:', JSON.stringify(result?.filesChanged || []));
         console.log('_lastLLMText:', globalThis._lastLLMText);
         console.log('═══════ [yuan-runner] END RESULT ═══════');
         // Prefer the actual LLM content over generic summaries like "Task completed"
@@ -644,7 +693,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         console.error('═══════ [yuan-runner] END ERROR ═══════');
         var cb2 = globalThis.boardVM && globalThis.boardVM.yuan;
         if (globalThis._lastLLMText) {
-          if (cb2 && cb2._onResult) cb2._onResult(globalThis._lastLLMText);
+          if (cb2 && cb2._onResult) cb2._onResult('\x1b[33m[error-fallback]\x1b[0m ' + globalThis._lastLLMText);
         } else {
           if (cb2 && cb2._onError) cb2._onError(err);
         }

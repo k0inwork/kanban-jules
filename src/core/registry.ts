@@ -31,6 +31,9 @@ import sandboxYuanManifest from '../modules/sandbox-yuan/manifest.json';
 import bashExecutorManifest from '../modules/bash-executor/manifest.json';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 
+import claudeExecutorManifest from '../modules/executor-claude/manifest.json';
+import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
+
 import boardManifest from '../modules/knowledge-board/manifest.json';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 
@@ -51,6 +54,7 @@ export class ModuleRegistry {
     { ...processReflectionManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
+    { ...claudeExecutorManifest, enabled: true, init: ClaudeExecutorHandler.init, destroy: () => {} },
     { ...boardManifest, enabled: true, init: BoardTool.init, destroy: () => {} },
   ] as ModuleManifest[];
 
@@ -79,6 +83,21 @@ export class ModuleRegistry {
       throw new Error(`No handler registered for tool: ${toolName}`);
     }
     return handler(toolName, args, context);
+  }
+
+  /** Look up timeout: tool-level > module-level > default */
+  getToolTimeout(toolName: string, defaultMs = 180000): number {
+    for (const mod of this.modules) {
+      // Check tool-level timeout
+      if (mod.tools) {
+        const tool = mod.tools.find(t => t.name === toolName);
+        if (tool?.requestTimeoutMs) return tool.requestTimeoutMs;
+      }
+      // Check module-level timeout (if tool belongs to this module)
+      const moduleId = toolName.split('.')[0];
+      if (mod.id === moduleId && mod.requestTimeoutMs) return mod.requestTimeoutMs;
+    }
+    return defaultMs;
   }
 
   getAll(): ModuleManifest[] {

@@ -37,5 +37,5 @@ export class AgentContext {
   }
 }
 
-// Export a singleton instance
-export const agentContext = new AgentContext();
+// Export the class for per-task instantiation.
+// Singleton removed — context must be scoped per task to avoid clobbering.

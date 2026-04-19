@@ -53,6 +53,7 @@
     "bash.exec": "bash-executor.exec",
     "bash.clone": "bash-executor.clone"
   },
+  "requestTimeoutMs": 180000,
   "permissions": [],
   "enabled": true
 }

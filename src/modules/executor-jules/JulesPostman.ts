@@ -10,6 +10,7 @@ export class JulesPostman {
   private static instance: JulesPostman | null = null;
   private interval: any;
   private config: HostConfig;
+  private _polling = false;
 
   static init(config: HostConfig) {
     if (this.instance) this.instance.stop();
@@ -41,7 +42,9 @@ export class JulesPostman {
   }
 
   private async poll() {
-    if (!this.config) return;
+    if (!this.config || this._polling) return;
+    this._polling = true;
+    try {
     const julesConfig = this.config.moduleConfigs['executor-jules'] || {};
     const julesApiKey = julesConfig.julesApiKey;
     if (!julesApiKey) return;
@@ -192,6 +195,9 @@ export class JulesPostman {
           await db.julesSessions.where('taskId').equals(task.id).delete();
         }
       }
+    }
+    } finally {
+      this._polling = false;
     }
   }
 }
