@@ -491,9 +491,16 @@ export class AgentTreeModel {
     const root = this.ensureYuan();
 
     switch (ev.kind) {
-      case 'agent:thinking': {
-        // New user turn — clear previous tool call children
+      case 'agent:start': {
+        // New message from user — clear previous tool call children
         root.children = [];
+        root.detail = ev.goal?.slice(0, 100);
+        root.state = 'running';
+        this.emit();
+        break;
+      }
+
+      case 'agent:thinking': {
         root.detail = ev.content.slice(0, 100);
         root.state = 'running';
         this.emit();
@@ -540,13 +547,7 @@ export class AgentTreeModel {
         root.state = 'completed';
         root.detail = ev.summary?.slice(0, 100);
         this.emit();
-        // Reset to idle after brief flash
-        setTimeout(() => {
-          root.state = 'idle';
-          root.detail = 'Waiting...';
-          root.children = [];
-          this.emit();
-        }, 2000);
+        // Stay completed (green) — children cleared on next agent:thinking
         break;
       }
 
@@ -557,12 +558,7 @@ export class AgentTreeModel {
           if (child.state === 'running') child.state = 'error';
         }
         this.emit();
-        // Reset to idle after error flash
-        setTimeout(() => {
-          root.state = 'idle';
-          root.detail = 'Waiting...';
-          this.emit();
-        }, 3000);
+        // Stay in error state — children cleared on next agent:thinking
         break;
       }
     }

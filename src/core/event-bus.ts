@@ -1,4 +1,5 @@
 export type YuanEvent =
+  | { kind: 'agent:start', goal: string }
   | { kind: 'agent:thinking', content: string }
   | { kind: 'agent:tool_call', tool: string, args?: Record<string, any> }
   | { kind: 'agent:tool_result', tool: string, success: boolean, output?: string }

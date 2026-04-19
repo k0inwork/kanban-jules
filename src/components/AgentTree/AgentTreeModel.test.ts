@@ -205,23 +205,22 @@ describe('AgentTreeModel — Yuan agent', () => {
     expect(root.children[0].state).toBe('error');
   });
 
-  it('removes Yuan root after agent:completed + delay', () => {
+  it('stays completed after agent:completed (no idle reset)', () => {
     emit('yuan:event', { kind: 'agent:thinking', content: 'Working...' });
     emit('yuan:event', { kind: 'agent:tool_call', tool: 'glob', args: {} });
     emit('yuan:event', { kind: 'agent:completed', summary: 'All done' });
 
-    // Before timer fires
+    // Stays completed, tools visible
     expect(model.getState().tasks.get('yuan-agent')!.state).toBe('completed');
+    expect(model.getState().tasks.get('yuan-agent')!.children.length).toBe(1);
 
-    // After 2s timer — Yuan resets to idle (persistent node, not removed)
-    vi.advanceTimersByTime(2100);
-    const yuanNode = model.getState().tasks.get('yuan-agent');
-    expect(yuanNode).toBeDefined();
-    expect(yuanNode!.state).toBe('idle');
-    expect(yuanNode!.children.length).toBe(0);
+    // Children cleared on next agent:start (new message), not on thinking
+    emit('yuan:event', { kind: 'agent:start', goal: 'New task...' });
+    expect(model.getState().tasks.get('yuan-agent')!.children.length).toBe(0);
+    expect(model.getState().tasks.get('yuan-agent')!.state).toBe('running');
   });
 
-  it('marks Yuan root error on agent:error', () => {
+  it('stays in error state (no idle reset)', () => {
     emit('yuan:event', { kind: 'agent:thinking', content: 'Working...' });
     emit('yuan:event', { kind: 'agent:tool_call', tool: 'glob', args: {} });
     emit('yuan:event', { kind: 'agent:error', message: 'Rate limited' });
@@ -244,6 +243,21 @@ describe('AgentTreeModel — Yuan agent', () => {
     expect(root.children.length).toBe(2);
     expect(root.children[0].state).toBe('completed');
     expect(root.children[1].state).toBe('completed');
+  });
+
+  it('preserves tools across multiple thinking steps in same turn', () => {
+    emit('yuan:event', { kind: 'agent:thinking', content: 'Let me check...' });
+    emit('yuan:event', { kind: 'agent:tool_call', tool: 'glob', args: {} });
+    emit('yuan:event', { kind: 'agent:tool_result', tool: 'glob', success: true });
+    // Second thinking in same turn — tools should persist
+    emit('yuan:event', { kind: 'agent:thinking', content: 'Now reading...' });
+    emit('yuan:event', { kind: 'agent:tool_call', tool: 'file_read', args: { path: 'x.ts' } });
+    emit('yuan:event', { kind: 'agent:tool_result', tool: 'file_read', success: true });
+
+    const root = model.getState().tasks.get('yuan-agent')!;
+    expect(root.children.length).toBe(2);
+    expect(root.children[0].name).toBe('glob');
+    expect(root.children[1].name).toBe('file_read');
   });
 });
 

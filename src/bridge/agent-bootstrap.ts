@@ -545,6 +545,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
             break;
           case 'agent:start':
             console.log('[yuan] start:', ev.goal);
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:start', goal: ev.goal }); } catch(_e) {}
             break;
         }
       });
