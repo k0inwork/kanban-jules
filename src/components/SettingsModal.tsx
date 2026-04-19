@@ -48,6 +48,7 @@ export default function SettingsModal({
   const [moduleConfigs, setModuleConfigs] = useState<Record<string, any>>(initialModuleConfigs);
   
   const [activeTab, setActiveTab] = useState<'general' | 'modules' | 'danger'>('general');
+  const [refreshKey, setRefreshKey] = useState(0);
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
   const [error, setError] = useState('');
@@ -491,7 +492,7 @@ export default function SettingsModal({
             
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1">
               {registry.getAll().filter(m => !m.hidden).map(module => (
-                <div key={module.id} className={cn(
+                <div key={`${module.id}-${refreshKey}`} className={cn(
                   "bg-neutral-950 border rounded-lg p-3 transition-colors",
                   module.enabled !== false ? "border-neutral-800 hover:border-neutral-700" : "border-neutral-900 opacity-60"
                 )}>
@@ -500,9 +501,7 @@ export default function SettingsModal({
                       <button
                         onClick={() => {
                           registry.setEnabled(module.id, module.enabled === false);
-                          // Force re-render
-                          setActiveTab('general');
-                          setTimeout(() => setActiveTab('modules'), 0);
+                          setRefreshKey(k => k + 1);
                         }}
                         className={cn(
                           "w-8 h-4 rounded-full transition-colors relative",
@@ -613,12 +612,19 @@ export default function SettingsModal({
               ))}
             </div>
             
-            <div className="mt-4 pt-4 border-t border-neutral-800 flex justify-end">
+            <div className="mt-4 pt-4 border-t border-neutral-800 flex justify-end space-x-2">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium bg-neutral-800 text-neutral-100 rounded-md hover:bg-neutral-700 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-neutral-300 hover:text-white transition-colors"
               >
-                Close
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSubmit(new Event('submit') as any)}
+                className="flex items-center px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-500 transition-colors"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Save Settings
               </button>
             </div>
           </div>
