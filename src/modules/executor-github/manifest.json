@@ -123,16 +123,16 @@
   "configFields": [],
   "requestTimeoutMs": 300000,
   "sandboxBindings": {
-    "runWorkflow": "executor-github.runWorkflow",
-    "runAndWait": "executor-github.runAndWait",
-    "fetchLogs": "executor-github.fetchLogs",
-    "getRunStatus": "executor-github.getRunStatus",
-    "fetchArtifacts": "executor-github.fetchArtifacts",
-    "askUser": "channel-user-negotiator.askUser",
-    "KB_record": "knowledge-kb.recordEntry",
-    "KB_queryLog": "knowledge-kb.queryLog",
-    "KB_queryDocs": "knowledge-kb.queryDocs",
-    "KB_saveDoc": "knowledge-kb.saveDocument"
+    "github.runWorkflow": "executor-github.runWorkflow",
+    "github.runAndWait": "executor-github.runAndWait",
+    "github.fetchLogs": "executor-github.fetchLogs",
+    "github.getRunStatus": "executor-github.getRunStatus",
+    "github.fetchArtifacts": "executor-github.fetchArtifacts",
+    "negotiator.askUser": "channel-user-negotiator.askUser",
+    "kb.recordEntry": "knowledge-kb.recordEntry",
+    "kb.queryLog": "knowledge-kb.queryLog",
+    "kb.queryDocs": "knowledge-kb.queryDocs",
+    "kb.saveDocument": "knowledge-kb.saveDocument"
   },
   "permissions": ["network", "storage", "timers"],
   "enabled": true

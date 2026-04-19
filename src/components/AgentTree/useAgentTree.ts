@@ -6,17 +6,15 @@ import { db } from '../../services/db';
 const model = new AgentTreeModel();
 
 export function useAgentTree(): AgentTreeState {
-  const [state, setState] = useState<AgentTreeState>(model.getState());
-  const mounted = useRef(true);
+  const [, forceUpdate] = useState(0);
+  const stateRef = useRef(model.getState());
 
   useEffect(() => {
-    const unsub = model.subscribe((next) => {
-      if (mounted.current) setState(next);
+    const unsub = model.subscribe(() => {
+      stateRef.current = model.getState();
+      forceUpdate(v => v + 1);
     });
-    return () => {
-      mounted.current = false;
-      unsub();
-    };
+    return unsub;
   }, []);
 
   // Prune stale task entries on mount (tasks removed from DB)
@@ -25,12 +23,11 @@ export function useAgentTree(): AgentTreeState {
       try {
         const tasks = await db.tasks.toArray();
         const ids = tasks.map(t => t.id);
-        // Keep yuan-agent entry too
-        ids.push('yuan-agent');
         await model.pruneStaleTasks(ids);
       } catch { /* DB not ready yet */ }
     })();
   }, []);
 
-  return state;
+  // Always read live state from model on every render
+  return model.getState();
 }

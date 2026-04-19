@@ -30,20 +30,19 @@ export class AgentTreeModel {
   /** Yuan tool_call counter for unique IDs */
   private yuanToolCounter = 0;
 
-  /** Yuan tool_call ID → node ID */
-  private yuanToolNodes = new Map<number, string>();
-
   private listeners = new Set<ChangeCallback>();
   private unsubscribers: (() => void)[] = [];
 
   constructor() {
     this.loadFromStorage();
+    this.ensureYuan(); // Yuan always visible
     this.unsubscribers.push(
       this.on('module:log', this.handleLog.bind(this)),
       this.on('module:request', this.handleRequest.bind(this)),
       this.on('module:response', this.handleResponse.bind(this)),
       this.on('executor:completed', this.handleExecutorCompleted.bind(this)),
       this.on('yuan:event', this.handleYuanEvent.bind(this)),
+      this.on('projector:injection', this.handleProjectorInjection.bind(this)),
     );
   }
 
@@ -56,6 +55,7 @@ export class AgentTreeModel {
   /** Prune entries whose tasks no longer exist. Call after DB is ready. */
   async pruneStaleTasks(existingTaskIds: string[]) {
     const validSet = new Set(existingTaskIds);
+    validSet.add('yuan-agent'); // Never prune Yuan
     let changed = false;
     for (const id of this.state.taskOrder) {
       if (!validSet.has(id)) {
@@ -83,17 +83,39 @@ export class AgentTreeModel {
 
   // ── event handlers ──────────────────────────────────────────
 
+  private static MAX_LOGS = 50;
+
   private handleLog(data: { taskId: string; moduleId: string; message: string }) {
     const { taskId, moduleId, message } = data;
     if (!taskId || taskId === 'system') return;
+
+    // Route logs to running tool under active step, then step, then task root
+    const taskNode = this.state.tasks.get(taskId);
+    if (taskNode) {
+      const activeStepId = this.activeStep.get(taskId);
+      let target: AgentTreeNode | undefined;
+      if (activeStepId) {
+        const stepNode = this.findNode(taskNode, activeStepId);
+        if (stepNode) {
+          const runningTool = stepNode.children.find(c => c.state === 'running');
+          target = runningTool || stepNode;
+        }
+      }
+      if (!target) target = taskNode;
+
+      if (!target.logs) target.logs = [];
+      target.logs.push(message);
+      if (target.logs.length > AgentTreeModel.MAX_LOGS) {
+        target.logs = target.logs.slice(-AgentTreeModel.MAX_LOGS);
+      }
+      target.detail = message.slice(0, 100);
+      this.emit();
+    }
 
     if (moduleId === 'orchestrator') {
       this.handleOrchestratorLog(taskId, message);
     } else if (moduleId === 'architect') {
       this.handleArchitectLog(taskId, message);
-    } else {
-      // Module log from executor or other module — update detail on task root
-      this.updateNodeDetail(`task:${taskId}`, message);
     }
   }
 
@@ -108,13 +130,16 @@ export class AgentTreeModel {
         this.ensureTask(taskId, 'running');
 
         const taskNode = this.state.tasks.get(taskId)!;
-        // Mark previous steps completed
+        // Mark previous steps completed, clear their logs
         for (const child of taskNode.children) {
           if (child.state === 'running' || child.state === 'pending') {
             child.state = 'completed';
             child.durationMs = Date.now() - child.timestamp;
           }
+          child.logs = [];
         }
+        // Clear root logs — log window moves to the new step
+        taskNode.logs = [];
 
         const stepNode: AgentTreeNode = {
           id: stepId,
@@ -234,8 +259,8 @@ export class AgentTreeModel {
     this.pendingRequests.delete(data.requestId);
     const state: NodeState = data.error ? 'error' : 'completed';
     const detail = data.error
-      ? data.error.slice(0, 100)
-      : this.resultSummary(data.result);
+      ? data.error.slice(0, 300)
+      : this.resultSummary(data.result, 300);
 
     this.updateNode(nodeId, state, detail);
   }
@@ -252,6 +277,44 @@ export class AgentTreeModel {
 
     // Remove task from tree (user said "only working tasks")
     this.removeTask(taskId);
+  }
+
+  private handleProjectorInjection(data: { taskId: string; stepId: string; summary: string; sections: string[] }) {
+    const { taskId, stepId, summary, sections } = data;
+    const taskNode = this.state.tasks.get(taskId);
+    if (!taskNode) return;
+
+    // Find the step node — stepId from the event is a plain number string
+    const stepNodeId = `task:${taskId}:step:${stepId}`;
+    const stepNode = this.findNode(taskNode, stepNodeId);
+    if (!stepNode) return;
+
+    // Create a permanent projector node as first child of the step
+    const projNodeId = `task:${taskId}:step:${stepId}:projector`;
+    // Avoid duplicates
+    if (stepNode.children.some(c => c.id === projNodeId)) return;
+
+    const projNode: AgentTreeNode = {
+      id: projNodeId,
+      type: 'projector',
+      name: 'Projector',
+      state: 'completed',
+      detail: summary,
+      children: sections.map((section, i) => ({
+        id: `${projNodeId}:section:${i}`,
+        type: 'tool' as const,
+        name: section.split('\n')[0].replace(/^##\s*/, '').slice(0, 60),
+        state: 'completed' as const,
+        detail: section.slice(0, 200),
+        children: [],
+        timestamp: Date.now(),
+      })),
+      timestamp: Date.now(),
+    };
+
+    // Insert at beginning so projector appears before tool calls
+    stepNode.children.unshift(projNode);
+    this.emit();
   }
 
   // ── tree mutations ──────────────────────────────────────────
@@ -313,17 +376,6 @@ export class AgentTreeModel {
         if (state === 'completed' || state === 'error') {
           node.durationMs = Date.now() - node.timestamp;
         }
-        this.emit();
-        return;
-      }
-    }
-  }
-
-  private updateNodeDetail(nodeId: string, detail: string) {
-    for (const taskNode of Array.from(this.state.tasks.values())) {
-      const node = this.findNode(taskNode, nodeId);
-      if (node) {
-        node.detail = detail.slice(0, 100);
         this.emit();
         return;
       }
@@ -404,37 +456,53 @@ export class AgentTreeModel {
     return undefined;
   }
 
-  private resultSummary(result: any): string | undefined {
+  private resultSummary(result: any, maxLen = 80): string | undefined {
     if (result === null || result === undefined) return undefined;
-    if (typeof result === 'string') return result.slice(0, 80);
+    if (typeof result === 'string') return result.slice(0, maxLen);
     if (typeof result === 'boolean') return result ? 'OK' : 'Failed';
     if (typeof result === 'number') return String(result);
-    try { return JSON.stringify(result).slice(0, 80); } catch { return undefined; }
+    try { return JSON.stringify(result).slice(0, maxLen); } catch { return undefined; }
   }
 
   // ── Yuan event handler ────────────────────────────────────────
 
-  private handleYuanEvent(ev: YuanEvent) {
+  /** Ensure Yuan root node always exists (persistent, never removed) */
+  private ensureYuan(): AgentTreeNode {
     const yuanRootId = 'yuan-agent';
+    let root = this.state.tasks.get(yuanRootId);
+    if (!root) {
+      root = {
+        id: yuanRootId,
+        type: 'task',
+        name: 'Yuan Agent',
+        state: 'idle',
+        detail: 'Waiting...',
+        children: [],
+        timestamp: Date.now(),
+      };
+      this.state.tasks.set(yuanRootId, root);
+      // Yuan always at top
+      this.state.taskOrder.unshift(yuanRootId);
+    }
+    return root;
+  }
+
+  private handleYuanEvent(ev: YuanEvent) {
+    const root = this.ensureYuan();
 
     switch (ev.kind) {
+      case 'agent:start': {
+        // New message from user — clear previous tool call children
+        root.children = [];
+        root.detail = ev.goal?.slice(0, 100);
+        root.state = 'running';
+        this.emit();
+        break;
+      }
+
       case 'agent:thinking': {
-        const root = this.state.tasks.get(yuanRootId);
-        if (root) {
-          root.detail = ev.content.slice(0, 100);
-          root.state = 'running';
-        } else {
-          this.state.tasks.set(yuanRootId, {
-            id: yuanRootId,
-            type: 'task',
-            name: 'Yuan Agent',
-            state: 'running',
-            detail: ev.content.slice(0, 100),
-            children: [],
-            timestamp: Date.now(),
-          });
-          this.state.taskOrder.push(yuanRootId);
-        }
+        root.detail = ev.content.slice(0, 100);
+        root.state = 'running';
         this.emit();
         break;
       }
@@ -442,22 +510,6 @@ export class AgentTreeModel {
       case 'agent:tool_call': {
         this.yuanToolCounter++;
         const nodeId = `yuan:tool:${this.yuanToolCounter}`;
-        this.yuanToolNodes.set(this.yuanToolCounter, nodeId);
-
-        // Ensure root exists
-        if (!this.state.tasks.has(yuanRootId)) {
-          this.state.tasks.set(yuanRootId, {
-            id: yuanRootId,
-            type: 'task',
-            name: 'Yuan Agent',
-            state: 'running',
-            detail: undefined,
-            children: [],
-            timestamp: Date.now(),
-          });
-          this.state.taskOrder.push(yuanRootId);
-        }
-        const root = this.state.tasks.get(yuanRootId)!;
 
         const argsStr = ev.args
           ? Object.entries(ev.args).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(', ')
@@ -472,51 +524,41 @@ export class AgentTreeModel {
           children: [],
           timestamp: Date.now(),
         });
+        root.state = 'running';
         this.emit();
         break;
       }
 
       case 'agent:tool_result': {
-        // Find the last running tool node for this tool
-        const root = this.state.tasks.get(yuanRootId);
-        if (root) {
-          const toolNode = [...root.children].reverse().find(
-            c => c.name === ev.tool && c.state === 'running'
-          );
-          if (toolNode) {
-            toolNode.state = ev.success ? 'completed' : 'error';
-            toolNode.detail = ev.output?.slice(0, 100) || (ev.success ? 'OK' : 'Failed');
-            toolNode.durationMs = Date.now() - toolNode.timestamp;
-          }
+        const toolNode = [...root.children].reverse().find(
+          c => c.name === ev.tool && c.state === 'running'
+        );
+        if (toolNode) {
+          toolNode.state = ev.success === false ? 'error' : 'completed';
+          toolNode.detail = ev.output?.slice(0, 100) || (ev.success === false ? 'Failed' : 'OK');
+          toolNode.durationMs = Date.now() - toolNode.timestamp;
         }
         this.emit();
         break;
       }
 
       case 'agent:completed': {
-        const root = this.state.tasks.get(yuanRootId);
-        if (root) {
-          this.markAllRunningCompleted(root);
-          root.state = 'completed';
-          root.detail = ev.summary?.slice(0, 100);
-        }
+        this.markAllRunningCompleted(root);
+        root.state = 'completed';
+        root.detail = ev.summary?.slice(0, 100);
         this.emit();
-        // Remove after green flash
-        setTimeout(() => this.removeTask(yuanRootId), 2000);
+        // Stay completed (green) — children cleared on next agent:thinking
         break;
       }
 
       case 'agent:error': {
-        const root2 = this.state.tasks.get(yuanRootId);
-        if (root2) {
-          root2.state = 'error';
-          root2.detail = ev.message?.slice(0, 100);
-          // Mark any running children as error
-          for (const child of root2.children) {
-            if (child.state === 'running') child.state = 'error';
-          }
+        root.state = 'error';
+        root.detail = ev.message?.slice(0, 100);
+        for (const child of root.children) {
+          if (child.state === 'running') child.state = 'error';
         }
         this.emit();
+        // Stay in error state — children cleared on next agent:thinking
         break;
       }
     }

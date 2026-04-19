@@ -3,11 +3,11 @@
   "name": "Yuan Sandbox",
   "version": "1.0.0",
   "type": "tool",
-  "description": "Gives Yuan the ability to run JS scripts in the Sval sandbox with access to all Fleet tool bindings. Useful for batching multiple tool calls into a single script.",
+  "description": "Gives Yuan the ability to run JS scripts in the Sval sandbox with access to all Fleet tool bindings. Use yuan.runScript to batch multiple tool calls.",
   "tools": [
     {
       "name": "sandbox-yuan.runScript",
-      "description": "Executes a JavaScript script in the Sval sandbox with access to all Fleet tool bindings. Use this to batch multiple tool calls, chain operations, or run logic that requires multiple steps. Returns the script's return value as JSON.",
+      "description": "Executes a JavaScript script in the Sval sandbox with access to all Fleet tool bindings (repo.*, artifacts.*, kb.*, etc.). Use this to batch multiple tool calls, chain operations, or run logic that requires multiple steps. Returns the script's return value as JSON.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -21,7 +21,7 @@
     }
   ],
   "sandboxBindings": {
-    "runScript": "sandbox-yuan.runScript"
+    "yuan.runScript": "sandbox-yuan.runScript"
   },
   "permissions": ["storage"],
   "enabled": true

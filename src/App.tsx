@@ -41,7 +41,6 @@ import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
 import { GitFs, GitFile } from './services/GitFs';
 import { ArtifactTool, artifactToolDeclarations } from './modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-repo-browser/RepositoryTool';
-import { RepoCrawler } from './services/RepoCrawler';
 import { cn } from './lib/utils';
 
 import { parseTasksFromMessage } from './core/prompt';
@@ -49,6 +48,7 @@ import { parseTasksFromMessage } from './core/prompt';
 /** WorkspaceTabs — internal tabbed view for Yuan Chat + v86 Terminal */
 function WorkspaceTabs() {
   const [activeTab, setActiveTab] = useState<'yuan' | 'terminal'>('yuan');
+  const [isAgentTreeOpen, setIsAgentTreeOpen] = useState(false);
   return (
     <div className="flex flex-col h-full bg-neutral-950">
       <div className="flex items-center border-b border-neutral-800 bg-neutral-900/50">
@@ -74,18 +74,37 @@ function WorkspaceTabs() {
         >
           Terminal
         </button>
+        {activeTab === 'yuan' && (
+          <button
+            onClick={() => setIsAgentTreeOpen(o => !o)}
+            className={`ml-auto flex items-center px-2 py-1 rounded text-xs transition-colors ${isAgentTreeOpen ? 'bg-purple-600/30 text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}
+            title="Agent Tree"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <line x1="4" y1="2" x2="4" y2="14" />
+              <line x1="4" y1="4" x2="8" y2="4" />
+              <line x1="4" y1="8" x2="8" y2="8" />
+              <line x1="4" y1="12" x2="10" y2="12" />
+            </svg>
+          </button>
+        )}
       </div>
-      <div className="flex-1 min-h-0 relative">
-        <div className="absolute inset-0" style={{ display: activeTab === 'yuan' ? 'flex' : 'none', flexDirection: 'column' }}>
-          <YuanChatPanel />
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-h-0 relative">
+          <div className="absolute inset-0" style={{ display: activeTab === 'yuan' ? 'flex' : 'none', flexDirection: 'column' }}>
+            <YuanChatPanel />
+          </div>
+          <div className="absolute inset-0" style={{ display: activeTab === 'terminal' ? 'flex' : 'none', flexDirection: 'column' }}>
+            <TerminalPanel
+              bundleUrl="/assets/wasm/sys.tar.gz"
+              wasmUrl="/assets/wasm/boot.wasm"
+              wanixUrl="/assets/wasm/wanix.min.js"
+            />
+          </div>
         </div>
-        <div className="absolute inset-0" style={{ display: activeTab === 'terminal' ? 'flex' : 'none', flexDirection: 'column' }}>
-          <TerminalPanel
-            bundleUrl="/assets/wasm/sys.tar.gz"
-            wasmUrl="/assets/wasm/boot.wasm"
-            wanixUrl="/assets/wasm/wanix.min.js"
-          />
-        </div>
+        {activeTab === 'yuan' && (
+          <AgentTreePanel open={isAgentTreeOpen} onClose={() => setIsAgentTreeOpen(false)} />
+        )}
       </div>
     </div>
   );
@@ -128,7 +147,6 @@ export default function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isViewingBoard, setIsViewingBoard] = useState(true);
-  const [isAgentTreeOpen, setIsAgentTreeOpen] = useState(false);
   const [isConstitutionOpen, setIsConstitutionOpen] = useState(false);
 
   // LLM Settings
@@ -172,10 +190,6 @@ export default function App() {
     localStorage.setItem('githubToken', config.githubToken);
     localStorage.setItem('moduleConfigs', JSON.stringify(config.moduleConfigs));
 
-    const token = config.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
-    if (token && config.repoUrl) {
-      RepoCrawler.crawl(config.repoUrl, config.repoBranch || 'main', token).catch(console.error);
-    }
   };
 
   const handleReviewProject = async (e?: React.MouseEvent) => {
@@ -957,18 +971,6 @@ export default function App() {
             <Plus className="w-4 h-4 mr-2" />
             New Task
           </button>
-          <button
-            onClick={() => setIsAgentTreeOpen(o => !o)}
-            className={`flex items-center px-3 py-2 rounded-md text-sm transition-colors ${isAgentTreeOpen ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200 hover:bg-neutral-800'}`}
-            title="Agent Tree"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <line x1="4" y1="2" x2="4" y2="14" />
-              <line x1="4" y1="4" x2="8" y2="4" />
-              <line x1="4" y1="8" x2="8" y2="8" />
-              <line x1="4" y1="12" x2="10" y2="12" />
-            </svg>
-          </button>
         </div>
       </header>
 
@@ -1101,7 +1103,6 @@ export default function App() {
             </div>
           )}
         </div>
-        <AgentTreePanel open={isAgentTreeOpen} onClose={() => setIsAgentTreeOpen(false)} />
       </div>
 
       {/* Modals */}

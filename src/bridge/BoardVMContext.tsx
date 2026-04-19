@@ -6,6 +6,7 @@
  */
 import React, { createContext, useContext, useRef, useCallback, useEffect, useState } from 'react';
 import { registry } from '../core/registry';
+import { eventBus } from '../core/event-bus';
 
 // --- Helpers (moved from TerminalPanel) ---
 
@@ -465,6 +466,10 @@ export function BoardVMProvider({
         return { stdout, exitCode, durationMs: Date.now() - start };
       },
     };
+
+    // Wire emit/on to real eventBus so agent-bootstrap yuan events reach AgentTreeModel
+    (window as any).boardVM.emit = (event: string, data: any) => eventBus.emit(event as any, data);
+    (window as any).boardVM.on = (event: string, callback: (...args: any[]) => void) => eventBus.on(event as any, callback as any);
 
     console.log('[BoardVMProvider] boardVM set up on window');
   }, []);

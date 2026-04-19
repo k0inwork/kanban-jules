@@ -7,16 +7,16 @@
   "tools": [
     {
       "name": "executor-jules.execute",
-      "description": "Steering loop: send to Jules, poll, verify, feed back, repeat. Signature: askJules({ prompt: string, successCriteria?: string }).",
+      "description": "Steering loop: send to Jules, poll, verify, feed back, repeat. Signature: jules.execute({ prompt: string, successCriteria?: string }).",
       "parameters": { "type": "object", "properties": { "prompt": { "type": "string" }, "successCriteria": { "type": "string" } } }
     }
   ],
   "sandboxBindings": {
-    "askJules": "executor-jules.execute",
-    "KB_record": "knowledge-kb.recordEntry",
-    "KB_queryLog": "knowledge-kb.queryLog",
-    "KB_queryDocs": "knowledge-kb.queryDocs",
-    "KB_saveDoc": "knowledge-kb.saveDocument"
+    "jules.execute": "executor-jules.execute",
+    "kb.recordEntry": "knowledge-kb.recordEntry",
+    "kb.queryLog": "knowledge-kb.queryLog",
+    "kb.queryDocs": "knowledge-kb.queryDocs",
+    "kb.saveDocument": "knowledge-kb.saveDocument"
   },
   "permissions": ["network", "jules-api", "timers"],
   "requestTimeoutMs": 600000,

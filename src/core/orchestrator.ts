@@ -188,6 +188,11 @@ export class Orchestrator {
 
       const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', project: 'target', taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}`, focus: step.focus });
 
+      // Emit projector injection for AgentTree visibility
+      const sections = projectedKnowledge.split(/^## /m).filter(s => s.trim()).map(s => '## ' + s.trim());
+      const summary = `${sections.length} section${sections.length !== 1 ? 's' : ''}, ${projectedKnowledge.length} chars`;
+      eventBus.emit('projector:injection', { taskId, stepId: String(stepId), summary, sections });
+
       const prompt = composeProgrammerPrompt(modules, task, step, errorContext, projectedKnowledge);
       
       try {
@@ -292,10 +297,10 @@ export class Orchestrator {
       'sendUser': 'channel-user-negotiator.sendUser',
       '__agentContextGet': 'host.agentContextGet',
       '__agentContextSet': 'host.agentContextSet',
-      'KB.record': 'knowledge-kb.recordEntry',
-      'KB.queryLog': 'knowledge-kb.queryLog',
-      'KB.saveDoc': 'knowledge-kb.saveDocument',
-      'KB.queryDocs': 'knowledge-kb.queryDocs',
+      'kb.recordEntry': 'knowledge-kb.recordEntry',
+      'kb.queryLog': 'knowledge-kb.queryLog',
+      'kb.saveDocument': 'knowledge-kb.saveDocument',
+      'kb.queryDocs': 'knowledge-kb.queryDocs',
     };
 
     this.context.accumulatedAnalysis = [];

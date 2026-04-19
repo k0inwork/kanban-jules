@@ -150,13 +150,15 @@ describe('AgentTreeModel — task pipeline', () => {
 
   it('ignores system logs (taskId=system)', () => {
     emit('module:log', { taskId: 'system', moduleId: 'orchestrator', message: 'LLM retry' });
-    expect(model.getState().tasks.size).toBe(0);
+    // Only persistent yuan-agent exists, no task created for system logs
+    expect(model.getState().tasks.has('task-1')).toBe(false);
+    expect(model.getState().tasks.size).toBe(1); // yuan-agent only
   });
 
   it('ignores module:response with unknown requestId', () => {
     emit('module:response', { requestId: 'unknown', result: true });
-    // Should not throw or create any nodes
-    expect(model.getState().tasks.size).toBe(0);
+    // Should not throw or create any task nodes
+    expect(model.getState().tasks.size).toBe(1); // yuan-agent only
   });
 });
 
@@ -203,20 +205,22 @@ describe('AgentTreeModel — Yuan agent', () => {
     expect(root.children[0].state).toBe('error');
   });
 
-  it('removes Yuan root after agent:completed + delay', () => {
+  it('stays completed after agent:completed (no idle reset)', () => {
     emit('yuan:event', { kind: 'agent:thinking', content: 'Working...' });
     emit('yuan:event', { kind: 'agent:tool_call', tool: 'glob', args: {} });
     emit('yuan:event', { kind: 'agent:completed', summary: 'All done' });
 
-    // Before timer fires
+    // Stays completed, tools visible
     expect(model.getState().tasks.get('yuan-agent')!.state).toBe('completed');
+    expect(model.getState().tasks.get('yuan-agent')!.children.length).toBe(1);
 
-    // After 2s timer
-    vi.advanceTimersByTime(2100);
-    expect(model.getState().tasks.has('yuan-agent')).toBe(false);
+    // Children cleared on next agent:start (new message), not on thinking
+    emit('yuan:event', { kind: 'agent:start', goal: 'New task...' });
+    expect(model.getState().tasks.get('yuan-agent')!.children.length).toBe(0);
+    expect(model.getState().tasks.get('yuan-agent')!.state).toBe('running');
   });
 
-  it('marks Yuan root error on agent:error', () => {
+  it('stays in error state (no idle reset)', () => {
     emit('yuan:event', { kind: 'agent:thinking', content: 'Working...' });
     emit('yuan:event', { kind: 'agent:tool_call', tool: 'glob', args: {} });
     emit('yuan:event', { kind: 'agent:error', message: 'Rate limited' });
@@ -240,6 +244,21 @@ describe('AgentTreeModel — Yuan agent', () => {
     expect(root.children[0].state).toBe('completed');
     expect(root.children[1].state).toBe('completed');
   });
+
+  it('preserves tools across multiple thinking steps in same turn', () => {
+    emit('yuan:event', { kind: 'agent:thinking', content: 'Let me check...' });
+    emit('yuan:event', { kind: 'agent:tool_call', tool: 'glob', args: {} });
+    emit('yuan:event', { kind: 'agent:tool_result', tool: 'glob', success: true });
+    // Second thinking in same turn — tools should persist
+    emit('yuan:event', { kind: 'agent:thinking', content: 'Now reading...' });
+    emit('yuan:event', { kind: 'agent:tool_call', tool: 'file_read', args: { path: 'x.ts' } });
+    emit('yuan:event', { kind: 'agent:tool_result', tool: 'file_read', success: true });
+
+    const root = model.getState().tasks.get('yuan-agent')!;
+    expect(root.children.length).toBe(2);
+    expect(root.children[0].name).toBe('glob');
+    expect(root.children[1].name).toBe('file_read');
+  });
 });
 
 // ── Persistence ──
@@ -251,8 +270,9 @@ describe('AgentTreeModel — persistence', () => {
     const saved = localStorage.getItem('agent-tree-state');
     expect(saved).toBeTruthy();
     const parsed = JSON.parse(saved!);
-    expect(parsed.tasks.length).toBe(1);
-    expect(parsed.tasks[0][0]).toBe('task-1');
+    // yuan-agent (always present) + task-1
+    expect(parsed.tasks.length).toBe(2);
+    expect(parsed.tasks.find((t: any) => t[0] === 'task-1')).toBeTruthy();
   });
 
   it('loads state from localStorage on construction', () => {
@@ -305,6 +325,8 @@ describe('AgentTreeModel — lifecycle', () => {
     model.destroy();
     emit('module:log', { taskId: 'task-1', moduleId: 'orchestrator', message: 'Initializing Agent Session' });
 
-    expect(model.getState().tasks.size).toBe(0);
+    // No new task created (destroyed model ignores events), only yuan-agent from construction
+    expect(model.getState().tasks.has('task-1')).toBe(false);
+    expect(model.getState().tasks.size).toBe(1); // yuan-agent only
   });
 });

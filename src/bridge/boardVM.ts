@@ -27,13 +27,14 @@ import type { RequestContext } from '../core/types';
 /**
  * Build a short-name → qualified-name mapping from all enabled modules' sandboxBindings.
  * Modules declare sandboxBindings in their manifest.json, e.g.:
- *   "sandboxBindings": { "askJules": "executor-jules.execute" }
+ *   "sandboxBindings": { "jules.execute": "executor-jules.execute" }
  * This is the single source of truth — no hardcoded TOOL_MAP needed.
  */
 function buildSandboxBindingsMap(): Record<string, string> {
   const map: Record<string, string> = {};
   const modules = registry.getEnabled();
   for (const mod of modules) {
+    if (mod.hidden) continue;
     if (mod.sandboxBindings) {
       for (const [shortName, qualifiedName] of Object.entries(mod.sandboxBindings)) {
         map[shortName] = qualifiedName;

@@ -481,16 +481,16 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '4. Use bash.exec to run build/test/lint commands\\n';
       prompt += '5. Use task_complete({"summary": "..."}) when done\\n\\n';
 
-      prompt += '===== SCRIPTING COMPLEX TASKS WITH runScript =====\\n';
+      prompt += '===== SCRIPTING COMPLEX TASKS WITH yuan.runScript =====\\n';
       prompt += 'For complex tasks that need multiple tool calls with logic between them,\\n';
-      prompt += 'use runScript to write JavaScript instead of calling tools one at a time.\\n';
+      prompt += 'use yuan.runScript to write JavaScript instead of calling tools one at a time.\\n';
       prompt += 'This lets you express loops, conditionals, and chained operations in code.\\n';
       prompt += '\\n';
-      prompt += 'runScript({ code: "..." }) gives you access to ALL Fleet tools as async JS functions.\\n';
+      prompt += 'yuan.runScript({ code: "..." }) gives you access to ALL Fleet tools as async JS functions.\\n';
       prompt += 'The code runs in a sandbox. Use await for all tool calls. Return a value to pass it back.\\n';
       prompt += '\\n';
-      prompt += 'When to use runScript vs individual tool calls:\\n';
-      prompt += '  - Use runScript for: loops, conditionals, error handling, chaining 3+ dependent calls, data transformation.\\n';
+      prompt += 'When to use yuan.runScript vs individual tool calls:\\n';
+      prompt += '  - Use yuan.runScript for: loops, conditionals, error handling, chaining 3+ dependent calls, data transformation.\\n';
       prompt += '  - Use individual tool calls for: simple single operations, asking the user a question.\\n';
       prompt += '\\n';
 
@@ -528,32 +528,33 @@ function createAgentRunner(c: AlmostNodeContainer): void {
 
       // Native function calling — no text-format injection needed
 
-      // AgentLoop events — log + forward to boardVM
+      // AgentLoop events — log + forward to boardVM eventBus
       agent.on('event', function(ev) {
         if (!ev || !ev.kind) return;
         switch (ev.kind) {
           case 'agent:thinking':
             console.log('[yuan] thinking:', ev.content);
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:thinking', content: ev.content }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:thinking', content: ev.content }); } catch(_e) { console.warn('[yuan] emit thinking failed:', _e); }
             break;
           case 'agent:tool_call':
             console.log('[yuan] tool_call:', ev.tool, JSON.stringify(ev.args || {}).substring(0, 200));
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_call', tool: ev.tool, args: ev.args }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_call', tool: ev.tool, args: ev.args }); } catch(_e) { console.warn('[yuan] emit tool_call failed:', _e); }
             break;
           case 'agent:tool_result':
             console.log('[yuan] tool_result:', ev.tool, 'success:', ev.success, 'output:', String(ev.output || '').substring(0, 200));
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_result', tool: ev.tool, success: ev.success, output: String(ev.output || '').substring(0, 200) }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:tool_result', tool: ev.tool, success: ev.success, output: String(ev.output || '').substring(0, 200) }); } catch(_e) { console.warn('[yuan] emit tool_result failed:', _e); }
             break;
           case 'agent:completed':
             console.log('[yuan] completed:', ev.summary);
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:completed', summary: ev.summary }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:completed', summary: ev.summary }); } catch(_e) { console.warn('[yuan] emit completed failed:', _e); }
             break;
           case 'agent:error':
             console.error('[yuan] error:', ev.message);
-            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:error', message: ev.message }); } catch(_e) {}
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:error', message: ev.message }); } catch(_e) { console.warn('[yuan] emit error failed:', _e); }
             break;
           case 'agent:start':
             console.log('[yuan] start:', ev.goal);
+            try { globalThis.boardVM.emit('yuan:event', { kind: 'agent:start', goal: ev.goal }); } catch(_e) { console.warn('[yuan] emit start failed:', _e); }
             break;
         }
       });

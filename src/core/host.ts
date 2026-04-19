@@ -22,6 +22,7 @@ import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-drea
 import { pushQueue } from '../services/PushQueue';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
+import { BoardTool } from '../modules/knowledge-board/BoardTool';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -237,6 +238,7 @@ export class ModuleHost {
     registry.registerModuleHandlers('sandbox-yuan', yuanSandboxHandler.handleRequest.bind(yuanSandboxHandler));
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
     registry.registerModuleHandlers('executor-claude', claudeHandler.handleRequest.bind(claudeHandler));
+    registry.registerModuleHandlers('knowledge-board', BoardTool.handleRequest);
 
     // host.agentContextGet/Set handled per-task in orchestrator.moduleRequest
   }

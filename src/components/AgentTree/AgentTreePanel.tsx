@@ -11,38 +11,77 @@ const STATE_STYLES: Record<NodeState, { dot: string; color: string; label: strin
   error:    { dot: '✗', color: 'text-red-400', label: 'error' },
 };
 
-function TreeNode({ node, depth }: { node: AgentTreeNode; depth: number }) {
-  const [expanded, setExpanded] = React.useState(true);
-  const s = STATE_STYLES[node.state];
-  const hasChildren = node.children.length > 0;
+function LogPanel({ logs }: { logs: string[] }) {
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [logs.length]);
 
   return (
-    <div className="select-none">
+    <div
+      ref={scrollRef}
+      className="mx-1 mt-0.5 mb-1 max-h-48 overflow-y-auto rounded bg-gray-950 border border-gray-800 px-2 py-1 select-text"
+    >
+      {logs.map((msg, i) => (
+        <div key={i} className="text-[10px] text-gray-400 font-mono leading-tight whitespace-pre-wrap break-all select-text">
+          {msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TreeNode({ node, depth, isYuan }: { node: AgentTreeNode; depth: number; isYuan?: boolean }) {
+  const [expanded, setExpanded] = React.useState(node.state === 'running');
+  const prevChildCount = React.useRef(node.children.length);
+
+  // Auto-expand when state becomes running or children are added
+  React.useEffect(() => {
+    if (node.state === 'running') setExpanded(true);
+    if (node.children.length > prevChildCount.current) setExpanded(true);
+    prevChildCount.current = node.children.length;
+  }, [node.state, node.children.length]);
+  const s = STATE_STYLES[node.state];
+  const hasChildren = node.children.length > 0;
+  const hasDetail = !!node.detail && (node.type === 'tool' || node.type === 'executor' || node.type === 'projector');
+  const showLogs = node.logs && node.logs.length > 0;
+  const hasExpandable = hasChildren || !!showLogs || hasDetail;
+
+  return (
+    <div className={depth === 0 ? '' : 'select-none'}>
       <div
-        className={`flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer hover:bg-gray-700/40 ${s.color}`}
+        className={`flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer hover:bg-gray-700/40 ${isYuan ? 'border-b border-gray-800 mb-1' : ''} ${s.color}`}
         style={{ paddingLeft: depth * 16 + 4 }}
-        onClick={() => hasChildren && setExpanded(e => !e)}
+        onClick={() => hasExpandable && setExpanded(e => !e)}
       >
-        {hasChildren ? (
-          <span className="text-[10px] w-3 text-gray-500">{expanded ? '▼' : '▶'}</span>
+        {hasExpandable ? (
+          <span className="text-[10px] w-3 text-gray-500 shrink-0">{expanded ? '▼' : '▶'}</span>
         ) : (
-          <span className="w-3" />
+          <span className="w-3 shrink-0" />
         )}
-        <span className="text-xs">{s.dot}</span>
+        <span className="text-xs shrink-0">{node.type === 'projector' ? '◈' : (isYuan && node.state === 'idle' ? '◉' : s.dot)}</span>
         <span className="text-xs font-medium truncate">{node.name}</span>
-        {node.detail && (
+        {node.detail && !showLogs && !hasDetail && (
           <span className="text-[10px] text-gray-500 truncate ml-1">— {node.detail}</span>
         )}
         {node.durationMs != null && node.state !== 'running' && (
-          <span className="text-[10px] text-gray-600 ml-auto whitespace-nowrap">
+          <span className="text-[10px] text-gray-600 ml-auto whitespace-nowrap shrink-0">
             {(node.durationMs / 1000).toFixed(1)}s
           </span>
         )}
       </div>
+      {showLogs && expanded && <LogPanel logs={node.logs!} />}
+      {hasDetail && expanded && node.detail && !showLogs && (
+        <div className="mx-1 mb-0.5 rounded bg-gray-950 border border-gray-800 px-2 py-1 select-text" style={{ marginLeft: depth * 16 + 20 }}>
+          <div className="text-[10px] text-gray-400 font-mono leading-tight whitespace-pre-wrap break-all select-text">{node.detail}</div>
+        </div>
+      )}
       {expanded && hasChildren && (
         <div>
           {node.children.map(child => (
-            <TreeNode key={child.id} node={child} depth={depth + 1} />
+            <TreeNode key={child.id} node={child} depth={depth + 1} isYuan={false} />
           ))}
         </div>
       )}
@@ -73,13 +112,15 @@ export function AgentTreePanel({ open, onClose }: { open: boolean; onClose: () =
       </div>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto py-1 select-text">
         {tasks.length === 0 ? (
           <div className="text-gray-600 text-xs px-3 py-4 text-center italic">
             No active tasks
           </div>
         ) : (
-          tasks.map(task => <TreeNode key={task.id} node={task} depth={0} />)
+          tasks.map(task => (
+            <TreeNode key={task.id} node={task} depth={0} isYuan={task.id === 'yuan-agent'} />
+          ))
         )}
       </div>
     </div>

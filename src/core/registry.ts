@@ -34,6 +34,9 @@ import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandle
 import claudeExecutorManifest from '../modules/executor-claude/manifest.json';
 import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
 
+import boardManifest from '../modules/knowledge-board/manifest.json';
+import { BoardTool } from '../modules/knowledge-board/BoardTool';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -52,6 +55,7 @@ export class ModuleRegistry {
     { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
     { ...claudeExecutorManifest, enabled: true, init: ClaudeExecutorHandler.init, destroy: () => {} },
+    { ...boardManifest, enabled: true, init: BoardTool.init, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

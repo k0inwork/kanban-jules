@@ -21,19 +21,19 @@
     }
   ],
   "sandboxBindings": {
-    "listFiles": "knowledge-repo-browser.listFiles",
-    "readFile": "knowledge-repo-browser.readFile",
-    "headFile": "knowledge-repo-browser.headFile",
-    "writeFile": "knowledge-repo-browser.writeFile",
-    "saveArtifact": "knowledge-artifacts.saveArtifact",
-    "listArtifacts": "knowledge-artifacts.listArtifacts",
-    "readArtifact": "knowledge-artifacts.readArtifact",
-    "askUser": "channel-user-negotiator.askUser",
-    "sendUser": "channel-user-negotiator.sendUser",
-    "KB_record": "knowledge-kb.recordEntry",
-    "KB_queryLog": "knowledge-kb.queryLog",
-    "KB_queryDocs": "knowledge-kb.queryDocs",
-    "KB_saveDoc": "knowledge-kb.saveDocument"
+    "repo.listFiles": "knowledge-repo-browser.listFiles",
+    "repo.readFile": "knowledge-repo-browser.readFile",
+    "repo.headFile": "knowledge-repo-browser.headFile",
+    "repo.writeFile": "knowledge-repo-browser.writeFile",
+    "artifacts.saveArtifact": "knowledge-artifacts.saveArtifact",
+    "artifacts.listArtifacts": "knowledge-artifacts.listArtifacts",
+    "artifacts.readArtifact": "knowledge-artifacts.readArtifact",
+    "negotiator.askUser": "channel-user-negotiator.askUser",
+    "negotiator.sendUser": "channel-user-negotiator.sendUser",
+    "kb.recordEntry": "knowledge-kb.recordEntry",
+    "kb.queryLog": "knowledge-kb.queryLog",
+    "kb.queryDocs": "knowledge-kb.queryDocs",
+    "kb.saveDocument": "knowledge-kb.saveDocument"
   },
   "permissions": ["storage"],
   "enabled": true

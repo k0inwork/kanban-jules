@@ -8,7 +8,7 @@ export class UserNegotiator {
     format?: string,
     llmCall?: (prompt: string) => Promise<string>
   ): Promise<string> {
-    
+
     const task = await db.tasks.get(taskId);
     if (!task) throw new Error("Task not found");
 
@@ -35,7 +35,7 @@ export class UserNegotiator {
         .where('taskId').equals(taskId)
         .filter(m => m.sender === 'user' && m.timestamp > questionTimestamp)
         .first();
-      
+
       if (existingReply) {
         appendUnaLog(`Found existing reply: "${existingReply.content}"`);
         return existingReply.content;
@@ -91,13 +91,13 @@ export class UserNegotiator {
     return reply;
   }
 
-  static async sendMessage(taskId: string, message: string): Promise<void> {
+  static async sendMessage(taskId: string, message: string): Promise<string> {
     const appendUnaLog = (msg: string) => {
       eventBus.emit('module:log', { taskId, moduleId: 'channel-user-negotiator', message: msg });
     };
 
     appendUnaLog(`Sending message to user: "${message}"`);
-    
+
     await db.messages.add({
       sender: 'local-agent',
       taskId: taskId,
@@ -106,15 +106,17 @@ export class UserNegotiator {
       status: 'unread',
       timestamp: Date.now()
     });
+
+    return 'sent';
   }
 
   private static async validateReply(reply: string, format: string, llmCall: (prompt: string) => Promise<string>): Promise<boolean> {
     const prompt = `Does the following user reply match the expected format?
     Reply: "${reply}"
     Format: "${format}"
-    
+
     Return only "true" or "false".`;
-    
+
     const result = await llmCall(prompt);
     return result.trim().toLowerCase() === 'true';
   }
