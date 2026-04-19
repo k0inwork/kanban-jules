@@ -34,6 +34,9 @@ import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandle
 import taskLogsManifest from '../modules/knowledge-task-logs/manifest.json';
 import { TaskLogTool } from '../modules/knowledge-task-logs/TaskLogTool';
 
+import boardManifest from '../modules/knowledge-board/manifest.json';
+import { BoardTool } from '../modules/knowledge-board/BoardTool';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -52,6 +55,7 @@ export class ModuleRegistry {
     { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
     { ...taskLogsManifest, enabled: true, init: TaskLogTool.init, destroy: () => {} },
+    { ...boardManifest, enabled: true, init: BoardTool.init, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

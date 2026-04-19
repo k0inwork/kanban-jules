@@ -1,0 +1,63 @@
+{
+  "id": "knowledge-board",
+  "name": "Board",
+  "version": "1.0.0",
+  "type": "knowledge",
+  "description": "CRUD operations on the task board — list, get, create, update tasks.",
+  "tools": [
+    {
+      "name": "knowledge-board.listTasks",
+      "description": "List tasks on the board. Optional filters: status, project. Signature: board.listTasks({ status?: string, project?: string }). Returns compact summary (id, title, status) for each task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "description": "Filter by workflow status: TODO, IN_PROGRESS, IN_REVIEW, DONE." },
+          "project": { "type": "string", "description": "Filter by project: 'self' or 'target'." }
+        }
+      }
+    },
+    {
+      "name": "knowledge-board.getTask",
+      "description": "Get full details of a task by ID or name. Signature: board.getTask({ task: string }). Returns all task fields.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": { "type": "string", "description": "Task ID or name (title substring match)." }
+        },
+        "required": ["task"]
+      }
+    },
+    {
+      "name": "knowledge-board.createTask",
+      "description": "Create a new task on the board. Signature: board.createTask({ title: string, description?: string, project?: string }). Returns the created task.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "description": "Task title." },
+          "description": { "type": "string", "description": "Task description. Default: empty string." },
+          "project": { "type": "string", "description": "Project scope: 'self' or 'target'. Default: 'target'." }
+        },
+        "required": ["title"]
+      }
+    },
+    {
+      "name": "knowledge-board.updateTask",
+      "description": "Update task fields. Signature: board.updateTask({ task: string, updates: object }). Updates by ID or name lookup.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": { "type": "string", "description": "Task ID or name (title substring match)." },
+          "updates": { "type": "object", "description": "Fields to update (e.g. { workflowStatus: 'DONE', agentState: 'IDLE', description: '...' })." }
+        },
+        "required": ["task", "updates"]
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "board.listTasks": "knowledge-board.listTasks",
+    "board.getTask": "knowledge-board.getTask",
+    "board.createTask": "knowledge-board.createTask",
+    "board.updateTask": "knowledge-board.updateTask"
+  },
+  "permissions": []
+}

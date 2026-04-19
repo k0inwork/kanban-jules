@@ -150,13 +150,15 @@ describe('AgentTreeModel — task pipeline', () => {
 
   it('ignores system logs (taskId=system)', () => {
     emit('module:log', { taskId: 'system', moduleId: 'orchestrator', message: 'LLM retry' });
-    expect(model.getState().tasks.size).toBe(0);
+    // Only persistent yuan-agent exists, no task created for system logs
+    expect(model.getState().tasks.has('task-1')).toBe(false);
+    expect(model.getState().tasks.size).toBe(1); // yuan-agent only
   });
 
   it('ignores module:response with unknown requestId', () => {
     emit('module:response', { requestId: 'unknown', result: true });
-    // Should not throw or create any nodes
-    expect(model.getState().tasks.size).toBe(0);
+    // Should not throw or create any task nodes
+    expect(model.getState().tasks.size).toBe(1); // yuan-agent only
   });
 });
 
@@ -211,9 +213,12 @@ describe('AgentTreeModel — Yuan agent', () => {
     // Before timer fires
     expect(model.getState().tasks.get('yuan-agent')!.state).toBe('completed');
 
-    // After 2s timer
+    // After 2s timer — Yuan resets to idle (persistent node, not removed)
     vi.advanceTimersByTime(2100);
-    expect(model.getState().tasks.has('yuan-agent')).toBe(false);
+    const yuanNode = model.getState().tasks.get('yuan-agent');
+    expect(yuanNode).toBeDefined();
+    expect(yuanNode!.state).toBe('idle');
+    expect(yuanNode!.children.length).toBe(0);
   });
 
   it('marks Yuan root error on agent:error', () => {
@@ -251,8 +256,9 @@ describe('AgentTreeModel — persistence', () => {
     const saved = localStorage.getItem('agent-tree-state');
     expect(saved).toBeTruthy();
     const parsed = JSON.parse(saved!);
-    expect(parsed.tasks.length).toBe(1);
-    expect(parsed.tasks[0][0]).toBe('task-1');
+    // yuan-agent (always present) + task-1
+    expect(parsed.tasks.length).toBe(2);
+    expect(parsed.tasks.find((t: any) => t[0] === 'task-1')).toBeTruthy();
   });
 
   it('loads state from localStorage on construction', () => {
@@ -305,6 +311,8 @@ describe('AgentTreeModel — lifecycle', () => {
     model.destroy();
     emit('module:log', { taskId: 'task-1', moduleId: 'orchestrator', message: 'Initializing Agent Session' });
 
-    expect(model.getState().tasks.size).toBe(0);
+    // No new task created (destroyed model ignores events), only yuan-agent from construction
+    expect(model.getState().tasks.has('task-1')).toBe(false);
+    expect(model.getState().tasks.size).toBe(1); // yuan-agent only
   });
 });

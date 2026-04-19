@@ -23,6 +23,7 @@ import { initCommitHarvest, destroyCommitHarvest } from '../modules/process-drea
 import { pushQueue } from '../services/PushQueue';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 import { TaskLogTool } from '../modules/knowledge-task-logs/TaskLogTool';
+import { BoardTool } from '../modules/knowledge-board/BoardTool';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -235,6 +236,7 @@ export class ModuleHost {
     registry.registerModuleHandlers('sandbox-yuan', yuanSandboxHandler.handleRequest.bind(yuanSandboxHandler));
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
     registry.registerModuleHandlers('knowledge-task-logs', TaskLogTool.handleRequest);
+    registry.registerModuleHandlers('knowledge-board', BoardTool.handleRequest);
 
     // Internal host tools (not in a manifest)
     registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
