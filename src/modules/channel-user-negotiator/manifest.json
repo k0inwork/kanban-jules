@@ -17,8 +17,8 @@
     }
   ],
   "sandboxBindings": {
-    "askUser": "channel-user-negotiator.askUser",
-    "sendUser": "channel-user-negotiator.sendUser"
+    "negotiator.askUser": "channel-user-negotiator.askUser",
+    "negotiator.sendUser": "channel-user-negotiator.sendUser"
   },
   "permissions": []
 }

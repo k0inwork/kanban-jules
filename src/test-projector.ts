@@ -46,7 +46,7 @@ export async function seedTestData() {
   // ─── KB DOCS (diverse layers, types, projects) ───
   const docs = [
     { title: 'Architecture Overview', type: 'design', summary: '4-layer agent hierarchy with Yuan, Overseer, Architect, Programmer', tags: ['architecture', 'agents'], layer: ['L0', 'L1', 'L2'], project: 'target' },
-    { title: 'API Reference', type: 'reference', summary: 'Available API tools: askUser, sendUser, KB_record, execute', tags: ['api', 'tools'], layer: ['L2', 'L3'], project: 'target' },
+    { title: 'API Reference', type: 'reference', summary: 'Available API tools: negotiator.askUser, negotiator.sendUser, kb.recordEntry, execute', tags: ['api', 'tools'], layer: ['L2', 'L3'], project: 'target' },
     { title: 'Security Policy', type: 'spec', summary: 'No credentials in logs, sanitize all user input, audit DB writes', tags: ['security', 'policy'], layer: ['L0', 'L1', 'L2', 'L3'], project: 'target' },
     { title: 'Testing Guidelines', type: 'spec', summary: 'Integration tests over unit mocks, real DB for all test suites', tags: ['testing', 'guidelines'], layer: ['L2', 'L3'], project: 'target' },
     { title: 'Deployment Runbook', type: 'reference', summary: 'Step-by-step deploy: build, test, push, verify health check', tags: ['deploy', 'ops'], layer: ['L0', 'L1'], project: 'target' },

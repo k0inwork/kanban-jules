@@ -25,10 +25,10 @@
     }
   ],
   "sandboxBindings": {
-    "bash": "executor-wasm.execute",
-    "readFile": "knowledge-repo-browser.readFile",
-    "saveArtifact": "knowledge-artifacts.saveArtifact",
-    "listArtifacts": "knowledge-artifacts.listArtifacts"
+    "wasm.execute": "executor-wasm.execute",
+    "repo.readFile": "knowledge-repo-browser.readFile",
+    "artifacts.saveArtifact": "knowledge-artifacts.saveArtifact",
+    "artifacts.listArtifacts": "knowledge-artifacts.listArtifacts"
   },
   "permissions": ["web-worker"],
   "enabled": false

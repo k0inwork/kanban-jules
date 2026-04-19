@@ -11,6 +11,7 @@ export interface AgentTreeNode {
   children: AgentTreeNode[];
   timestamp: number;
   durationMs?: number;
+  logs?: string[];
 }
 
 export interface AgentTreeState {

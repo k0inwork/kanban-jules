@@ -25,8 +25,6 @@ export function useAgentTree(): AgentTreeState {
       try {
         const tasks = await db.tasks.toArray();
         const ids = tasks.map(t => t.id);
-        // Keep yuan-agent entry too
-        ids.push('yuan-agent');
         await model.pruneStaleTasks(ids);
       } catch { /* DB not ready yet */ }
     })();

@@ -472,16 +472,16 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '4. Use bash.exec to run build/test/lint commands\\n';
       prompt += '5. Use task_complete({"summary": "..."}) when done\\n\\n';
 
-      prompt += '===== SCRIPTING COMPLEX TASKS WITH runScript =====\\n';
+      prompt += '===== SCRIPTING COMPLEX TASKS WITH yuan.runScript =====\\n';
       prompt += 'For complex tasks that need multiple tool calls with logic between them,\\n';
-      prompt += 'use runScript to write JavaScript instead of calling tools one at a time.\\n';
+      prompt += 'use yuan.runScript to write JavaScript instead of calling tools one at a time.\\n';
       prompt += 'This lets you express loops, conditionals, and chained operations in code.\\n';
       prompt += '\\n';
-      prompt += 'runScript({ code: "..." }) gives you access to ALL Fleet tools as async JS functions.\\n';
+      prompt += 'yuan.runScript({ code: "..." }) gives you access to ALL Fleet tools as async JS functions.\\n';
       prompt += 'The code runs in a sandbox. Use await for all tool calls. Return a value to pass it back.\\n';
       prompt += '\\n';
-      prompt += 'When to use runScript vs individual tool calls:\\n';
-      prompt += '  - Use runScript for: loops, conditionals, error handling, chaining 3+ dependent calls, data transformation.\\n';
+      prompt += 'When to use yuan.runScript vs individual tool calls:\\n';
+      prompt += '  - Use yuan.runScript for: loops, conditionals, error handling, chaining 3+ dependent calls, data transformation.\\n';
       prompt += '  - Use individual tool calls for: simple single operations, asking the user a question.\\n';
       prompt += '\\n';
 
