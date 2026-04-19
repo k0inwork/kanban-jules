@@ -6,17 +6,15 @@ import { db } from '../../services/db';
 const model = new AgentTreeModel();
 
 export function useAgentTree(): AgentTreeState {
-  const [version, setVersion] = useState(0);
-  const mounted = useRef(true);
+  const [, forceUpdate] = useState(0);
+  const stateRef = useRef(model.getState());
 
   useEffect(() => {
     const unsub = model.subscribe(() => {
-      if (mounted.current) setVersion(v => v + 1);
+      stateRef.current = model.getState();
+      forceUpdate(v => v + 1);
     });
-    return () => {
-      mounted.current = false;
-      unsub();
-    };
+    return unsub;
   }, []);
 
   // Prune stale task entries on mount (tasks removed from DB)
@@ -30,7 +28,6 @@ export function useAgentTree(): AgentTreeState {
     })();
   }, []);
 
-  // Return live model state (version forces re-render on every change)
-  void version;
+  // Always read live state from model on every render
   return model.getState();
 }

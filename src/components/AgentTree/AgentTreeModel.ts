@@ -534,8 +534,8 @@ export class AgentTreeModel {
           c => c.name === ev.tool && c.state === 'running'
         );
         if (toolNode) {
-          toolNode.state = ev.success ? 'completed' : 'error';
-          toolNode.detail = ev.output?.slice(0, 100) || (ev.success ? 'OK' : 'Failed');
+          toolNode.state = ev.success === false ? 'error' : 'completed';
+          toolNode.detail = ev.output?.slice(0, 100) || (ev.success === false ? 'Failed' : 'OK');
           toolNode.durationMs = Date.now() - toolNode.timestamp;
         }
         this.emit();
