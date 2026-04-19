@@ -37,7 +37,7 @@ function TreeNode({ node, depth, isYuan }: { node: AgentTreeNode; depth: number;
   const [expanded, setExpanded] = React.useState(node.state === 'running');
   const s = STATE_STYLES[node.state];
   const hasChildren = node.children.length > 0;
-  const hasDetail = !!node.detail && (node.type === 'tool' || node.type === 'executor');
+  const hasDetail = !!node.detail && (node.type === 'tool' || node.type === 'executor' || node.type === 'projector');
   const showLogs = node.logs && node.logs.length > 0;
   const hasExpandable = hasChildren || !!showLogs || hasDetail;
 
@@ -53,7 +53,7 @@ function TreeNode({ node, depth, isYuan }: { node: AgentTreeNode; depth: number;
         ) : (
           <span className="w-3 shrink-0" />
         )}
-        <span className="text-xs shrink-0">{isYuan && node.state === 'idle' ? '◉' : s.dot}</span>
+        <span className="text-xs shrink-0">{node.type === 'projector' ? '◈' : (isYuan && node.state === 'idle' ? '◉' : s.dot)}</span>
         <span className="text-xs font-medium truncate">{node.name}</span>
         {node.detail && !showLogs && !hasDetail && (
           <span className="text-[10px] text-gray-500 truncate ml-1">— {node.detail}</span>

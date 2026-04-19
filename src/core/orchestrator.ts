@@ -171,6 +171,11 @@ export class Orchestrator {
 
       const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', project: 'target', taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}`, focus: step.focus });
 
+      // Emit projector injection for AgentTree visibility
+      const sections = projectedKnowledge.split(/^## /m).filter(s => s.trim()).map(s => '## ' + s.trim());
+      const summary = `${sections.length} section${sections.length !== 1 ? 's' : ''}, ${projectedKnowledge.length} chars`;
+      eventBus.emit('projector:injection', { taskId, stepId: String(stepId), summary, sections });
+
       const prompt = composeProgrammerPrompt(modules, task, step, errorContext, projectedKnowledge);
       
       try {

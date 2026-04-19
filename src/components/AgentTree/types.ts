@@ -1,6 +1,6 @@
 export type NodeState = 'idle' | 'running' | 'pending' | 'completed' | 'error' | 'waiting';
 
-export type NodeType = 'task' | 'phase' | 'step' | 'tool' | 'executor' | 'negotiator';
+export type NodeType = 'task' | 'phase' | 'step' | 'tool' | 'executor' | 'negotiator' | 'projector';
 
 export interface AgentTreeNode {
   id: string;

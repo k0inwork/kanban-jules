@@ -42,6 +42,7 @@ export class AgentTreeModel {
       this.on('module:response', this.handleResponse.bind(this)),
       this.on('executor:completed', this.handleExecutorCompleted.bind(this)),
       this.on('yuan:event', this.handleYuanEvent.bind(this)),
+      this.on('projector:injection', this.handleProjectorInjection.bind(this)),
     );
   }
 
@@ -276,6 +277,44 @@ export class AgentTreeModel {
 
     // Remove task from tree (user said "only working tasks")
     this.removeTask(taskId);
+  }
+
+  private handleProjectorInjection(data: { taskId: string; stepId: string; summary: string; sections: string[] }) {
+    const { taskId, stepId, summary, sections } = data;
+    const taskNode = this.state.tasks.get(taskId);
+    if (!taskNode) return;
+
+    // Find the step node — stepId from the event is a plain number string
+    const stepNodeId = `task:${taskId}:step:${stepId}`;
+    const stepNode = this.findNode(taskNode, stepNodeId);
+    if (!stepNode) return;
+
+    // Create a permanent projector node as first child of the step
+    const projNodeId = `task:${taskId}:step:${stepId}:projector`;
+    // Avoid duplicates
+    if (stepNode.children.some(c => c.id === projNodeId)) return;
+
+    const projNode: AgentTreeNode = {
+      id: projNodeId,
+      type: 'projector',
+      name: 'Projector',
+      state: 'completed',
+      detail: summary,
+      children: sections.map((section, i) => ({
+        id: `${projNodeId}:section:${i}`,
+        type: 'tool' as const,
+        name: section.split('\n')[0].replace(/^##\s*/, '').slice(0, 60),
+        state: 'completed' as const,
+        detail: section.slice(0, 200),
+        children: [],
+        timestamp: Date.now(),
+      })),
+      timestamp: Date.now(),
+    };
+
+    // Insert at beginning so projector appears before tool calls
+    stepNode.children.unshift(projNode);
+    this.emit();
   }
 
   // ── tree mutations ──────────────────────────────────────────
