@@ -3,7 +3,7 @@
   "name": "Board",
   "version": "1.0.0",
   "type": "knowledge",
-  "description": "CRUD operations on the task board — list, get, create, update tasks.",
+  "description": "CRUD operations on the task board — list, get, create, update tasks, and read task logs.",
   "tools": [
     {
       "name": "knowledge-board.listTasks",
@@ -51,13 +51,27 @@
         },
         "required": ["task", "updates"]
       }
+    },
+    {
+      "name": "knowledge-board.getLogs",
+      "description": "Get execution logs for a task. Looks up by ID first, then by title match. Returns logs grouped by module. Signature: board.getLogs({ task: string, module?: string, tail?: number }).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": { "type": "string", "description": "Task ID or name (title substring match)." },
+          "module": { "type": "string", "description": "Optional module ID to filter logs (e.g. 'orchestrator', 'executor-jules')." },
+          "tail": { "type": "number", "description": "Return only the last N lines per module. Default: return all." }
+        },
+        "required": ["task"]
+      }
     }
   ],
   "sandboxBindings": {
     "board.listTasks": "knowledge-board.listTasks",
     "board.getTask": "knowledge-board.getTask",
     "board.createTask": "knowledge-board.createTask",
-    "board.updateTask": "knowledge-board.updateTask"
+    "board.updateTask": "knowledge-board.updateTask",
+    "board.getLogs": "knowledge-board.getLogs"
   },
   "permissions": []
 }

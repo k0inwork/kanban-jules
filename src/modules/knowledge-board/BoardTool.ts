@@ -109,6 +109,39 @@ export const BoardTool = {
         return `Updated task ${task.id}: ${Object.keys(safe).join(', ')}`;
       }
 
+      case 'knowledge-board.getLogs': {
+        const obj = unpack(args[0]);
+        const taskRef = obj?.task || args[0];
+        const moduleFilter = obj?.module || args[1];
+        const tail = obj?.tail || args[2];
+
+        if (!taskRef) throw new Error('task (ID or name) is required');
+
+        const task = await resolveTask(taskRef);
+        if (!task) throw new Error(`Task not found: "${taskRef}"`);
+
+        const moduleLogs = task.moduleLogs || {};
+        const modules = Object.keys(moduleLogs).sort();
+
+        if (modules.length === 0) {
+          return `No logs for task "${task.title}" (${task.id})`;
+        }
+
+        const lines: string[] = [`Task: ${task.title} (${task.id})`, `Status: ${task.workflowStatus}`];
+
+        for (const mod of modules) {
+          if (moduleFilter && mod !== moduleFilter) continue;
+          let log = moduleLogs[mod] || '';
+          if (tail && tail > 0) {
+            const logLines = log.split('\n').filter(Boolean);
+            log = logLines.slice(-tail).join('\n');
+          }
+          lines.push(`\n── ${mod} ──\n${log}`);
+        }
+
+        return lines.join('\n');
+      }
+
       default:
         throw new Error(`Tool not found: ${toolName}`);
     }

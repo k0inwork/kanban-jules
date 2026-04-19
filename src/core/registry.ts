@@ -31,9 +31,6 @@ import sandboxYuanManifest from '../modules/sandbox-yuan/manifest.json';
 import bashExecutorManifest from '../modules/bash-executor/manifest.json';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 
-import taskLogsManifest from '../modules/knowledge-task-logs/manifest.json';
-import { TaskLogTool } from '../modules/knowledge-task-logs/TaskLogTool';
-
 import boardManifest from '../modules/knowledge-board/manifest.json';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 
@@ -54,7 +51,6 @@ export class ModuleRegistry {
     { ...processReflectionManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...sandboxYuanManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
-    { ...taskLogsManifest, enabled: true, init: TaskLogTool.init, destroy: () => {} },
     { ...boardManifest, enabled: true, init: BoardTool.init, destroy: () => {} },
   ] as ModuleManifest[];
 
