@@ -11,7 +11,10 @@ import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
 import { scanRepo } from '../modules/knowledge-kb/RepoScanner';
 import { eventBus } from '../core/event-bus';
-import { agentContext } from '../services/AgentContext';
+import { AgentContext } from '../services/AgentContext';
+
+// Test-level context (simulates per-task context in orchestrator)
+const agentContext = new AgentContext();
 import { Orchestrator } from '../core/orchestrator';
 import { FixedKBSource, setExternalSources, externalSources } from '../modules/process-dream/external-kb';
 import { composeProgrammerPrompt } from '../core/prompt';
@@ -1016,7 +1019,7 @@ describe('Integration: analyze() output forwarded to subsequent steps', () => {
     agentContext.clear();
     const analysisResult = await (orc as any).moduleRequest(taskId, 'host.analyze', [
       'Error: Cannot read property "cursor" of undefined at fetchPage (api.js:42)',
-    ]);
+    ], agentContext);
 
     expect(analysisResult).toBe('The API returns a paginated list with a cursor token.');
     expect(mockLlm).toHaveBeenCalled();
@@ -1085,10 +1088,10 @@ describe('Integration: analyze() output forwarded to subsequent steps', () => {
 
     // Step 1: analyze auth
     agentContext.clear();
-    await (orc as any).moduleRequest(taskId, 'host.analyze', ['auth logs']);
+    await (orc as any).moduleRequest(taskId, 'host.analyze', ['auth logs'], agentContext);
 
     // Step 2: analyze rate limit (accumulatedAnalysis keeps growing)
-    await (orc as any).moduleRequest(taskId, 'host.analyze', ['rate limit logs']);
+    await (orc as any).moduleRequest(taskId, 'host.analyze', ['rate limit logs'], agentContext);
 
     // Both analyses accumulated
     expect((orc as any).context.accumulatedAnalysis).toHaveLength(2);
@@ -1140,7 +1143,7 @@ describe('Integration: analyze() output forwarded to subsequent steps', () => {
 
     // Step 1: addToContext with key-value
     agentContext.clear();
-    await (orc as any).moduleRequest(taskId, 'host.addToContext', ['dbSchema', 'users(id, name), orders(id, user_id, total)']);
+    await (orc as any).moduleRequest(taskId, 'host.addToContext', ['dbSchema', 'users(id, name), orders(id, user_id, total)'], agentContext);
 
     // Persist
     await db.tasks.update(taskId, { agentContext: agentContext.getAll() });

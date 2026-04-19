@@ -8,7 +8,6 @@ import { db } from '../services/db';
 import { ArtifactTool } from '../modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 import { ArchitectTool } from '../modules/architect-codegen/Architect';
-import { agentContext } from '../services/AgentContext';
 import { JulesHandler } from '../modules/executor-jules/JulesHandler';
 import { UserHandler } from '../modules/channel-user-negotiator/UserHandler';
 import { LocalHandler } from '../modules/executor-local/LocalHandler';
@@ -239,12 +238,7 @@ export class ModuleHost {
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
     registry.registerModuleHandlers('executor-claude', claudeHandler.handleRequest.bind(claudeHandler));
 
-    // Internal host tools (not in a manifest)
-    registry.registerHandler('host.agentContextGet', async (tool, args) => agentContext.get(args[0]));
-    registry.registerHandler('host.agentContextSet', async (tool, args) => {
-      agentContext.set(args[0], args[1]);
-      return true;
-    });
+    // host.agentContextGet/Set handled per-task in orchestrator.moduleRequest
   }
 
   stop() {

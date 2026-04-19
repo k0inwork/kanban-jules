@@ -81,6 +81,21 @@ export class ModuleRegistry {
     return handler(toolName, args, context);
   }
 
+  /** Look up timeout: tool-level > module-level > default */
+  getToolTimeout(toolName: string, defaultMs = 180000): number {
+    for (const mod of this.modules) {
+      // Check tool-level timeout
+      if (mod.tools) {
+        const tool = mod.tools.find(t => t.name === toolName);
+        if (tool?.requestTimeoutMs) return tool.requestTimeoutMs;
+      }
+      // Check module-level timeout (if tool belongs to this module)
+      const moduleId = toolName.split('.')[0];
+      if (mod.id === moduleId && mod.requestTimeoutMs) return mod.requestTimeoutMs;
+    }
+    return defaultMs;
+  }
+
   getAll(): ModuleManifest[] {
     return this.modules;
   }

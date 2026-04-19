@@ -2,6 +2,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   parameters: any;
+  requestTimeoutMs?: number;
 }
 
 export interface ResourceLimit {
@@ -49,6 +50,7 @@ export interface ModuleManifest {
   presentations?: ModulePresentation[];
   init?: (config: any) => void;
   destroy?: () => void;
+  requestTimeoutMs?: number; // default timeout for all tools in this module (ms)
 }
 
 export interface RequestContext {
