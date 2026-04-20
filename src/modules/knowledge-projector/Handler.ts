@@ -137,7 +137,7 @@ export class ProjectorHandler {
     const sections: string[] = [];
 
     // 1. BASE — constitution + role + executor knowledge
-    const baseSection = await ProjectorHandler.projectBase(project, layer, params.executor);
+    const baseSection = await ProjectorHandler.projectBase(project, layer, params.executor, _context?.projectId);
     if (baseSection) sections.push(baseSection);
 
     // 2. RAG — docs scored by keyword relevance to task
@@ -163,7 +163,7 @@ export class ProjectorHandler {
     return sections.join('\n\n');
   }
 
-  private static async projectBase(project: string, layer: string, executor?: string): Promise<string> {
+  private static async projectBase(project: string, layer: string, executor?: string, projectId?: string): Promise<string> {
     const sections: string[] = [];
 
     const knowledgeRecords = await db.moduleKnowledge.toArray();
@@ -174,9 +174,14 @@ export class ProjectorHandler {
 
     // 1. Project constitution — only for L0/L1 (overseer/project manager)
     if (layer === 'L0' || layer === 'L1') {
-      const configs = await db.projectConfigs.toArray();
-      if (configs.length > 0 && configs[0].constitution) {
-        sections.push(configs[0].constitution);
+      if (projectId) {
+        const project = await db.projects.get(projectId);
+        if (project?.constitution) sections.push(project.constitution);
+      } else {
+        const configs = await db.projectConfigs.toArray();
+        if (configs.length > 0 && configs[0].constitution) {
+          sections.push(configs[0].constitution);
+        }
       }
     }
 

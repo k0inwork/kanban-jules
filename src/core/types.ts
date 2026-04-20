@@ -61,6 +61,7 @@ export interface RequestContext {
   githubToken?: string;
   taskDir?: string;      // task-scoped Lightning-FS directory (set when task has a branch)
   branchName?: string;   // task branch name (e.g. 'task/550e8400')
+  projectId?: string;    // FK to projects table
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
   moduleConfig: any;
   abortSignal?: AbortSignal;
@@ -80,6 +81,7 @@ export interface HostConfig {
   julesSourceName: string;
   julesSourceId: string;
   moduleConfigs: Record<string, any>;
+  projectId?: string;
 }
 
 export interface OrchestratorConfig {

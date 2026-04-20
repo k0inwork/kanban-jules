@@ -52,6 +52,7 @@ export class ModuleHost {
                 repoUrl: this.config.repoUrl,
                 repoBranch: this.config.repoBranch,
                 githubToken: this.config.githubToken,
+                projectId: this.config.projectId,
                 llmCall: this.llmCall.bind(this),
                 moduleConfig: this.config.moduleConfigs['process-dream'] || {}
               };
@@ -73,6 +74,7 @@ export class ModuleHost {
         repoUrl: this.config.repoUrl,
         repoBranch: this.config.repoBranch,
         githubToken: this.config.githubToken,
+        projectId: this.config.projectId,
         llmCall: this.llmCall.bind(this),
         moduleConfig: this.config.moduleConfigs[moduleId] || {}
       };
@@ -99,6 +101,7 @@ export class ModuleHost {
           repoUrl: this.config?.repoUrl || '',
           repoBranch: this.config?.repoBranch || '',
           githubToken: this.config?.githubToken || '',
+          projectId: task?.projectId || this.config?.projectId,
           taskDir: task?.branchDir,
           branchName: task?.branchName,
           llmCall: this.llmCall.bind(this),

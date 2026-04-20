@@ -24,7 +24,7 @@ import { TaskFs } from './services/TaskFs';
 import CollapsiblePane from './components/CollapsiblePane';
 import JulesProcessBrowser from './components/JulesProcessBrowser';
 import GithubWorkflowMonitor from './components/GithubWorkflowMonitor';
-import { Bot, Plus, Play, Square, Settings, Folder, Mail, X, ChevronDown, Zap, Shield, User, Terminal } from 'lucide-react';
+import { Bot, Plus, Play, Square, Settings, Folder, FolderOpen, Mail, X, ChevronDown, Zap, Shield, User, Terminal } from 'lucide-react';
 import RepositoryBrowser from './components/RepositoryBrowser';
 import ArtifactBrowser from './components/ArtifactBrowser';
 import KBBrowser from './components/KBBrowser';
@@ -36,11 +36,13 @@ import { TerminalPanel } from './modules/channel-wasm-terminal/TerminalPanel';
 import { BoardVMProvider } from './bridge/BoardVMContext';
 import YuanChatPanel from './bridge/YuanChatPanel';
 import PreviewPane from './components/PreviewPane';
-import { Artifact, db, AgentMessage } from './services/db';
+import { Artifact, db, AgentMessage, Project } from './services/db';
+import ProjectDropdown from './components/ProjectDropdown';
 import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
 import { GitFs, GitFile } from './services/GitFs';
 import { ArtifactTool, artifactToolDeclarations } from './modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-repo-browser/RepositoryTool';
+import { BashExecutorHandler } from './modules/bash-executor/BashExecutorHandler';
 import { cn } from './lib/utils';
 
 import { parseTasksFromMessage } from './core/prompt';
@@ -111,7 +113,14 @@ function WorkspaceTabs() {
 }
 
 export default function App() {
-  const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId'));
+  const createProjectRef = useRef<(() => void) | null>(null);
+
+  const tasks = useLiveQuery(() =>
+    currentProjectId
+      ? db.tasks.where('projectId').equals(currentProjectId).toArray()
+      : db.tasks.toArray()
+  , [currentProjectId]) || [];
 
   useEffect(() => {
     const initDb = async () => {
@@ -192,6 +201,26 @@ export default function App() {
 
   };
 
+  const handleProjectChange = (project: Project) => {
+    setCurrentProjectId(project.id);
+    setRepoUrl(project.repoUrl);
+    setRepoBranch(project.repoBranch);
+    localStorage.setItem('repoUrl', project.repoUrl);
+    localStorage.setItem('repoBranch', project.repoBranch);
+    // Trigger per-project repo clone in v86
+    BashExecutorHandler.initProject(project.id, {
+      repoUrl: project.repoUrl,
+      repoBranch: project.repoBranch,
+      githubToken,
+    });
+  };
+
+  const handleProjectDelete = () => {
+    setCurrentProjectId(null);
+    setRepoUrl('');
+    setRepoBranch('main');
+  };
+
   const handleReviewProject = async (e?: React.MouseEvent) => {
     if (e?.shiftKey) {
       setIsConstitutionOpen(prev => !prev);
@@ -241,7 +270,8 @@ export default function App() {
         workflowStatus: options?.autoStart ? 'IN_PROGRESS' : 'TODO',
         agentState: options?.autoStart ? 'EXECUTING' : 'IDLE',
         createdAt: Date.now(),
-        moduleLogs: {}
+        moduleLogs: {},
+        projectId: currentProjectId || undefined,
       };
       await db.tasks.add(newTask);
       eventBus.emit('module:log', { taskId: newTask.id, moduleId: 'orchestrator', message: `Task created based on message: ${message.content.substring(0, 50)}...` });
@@ -258,9 +288,11 @@ export default function App() {
     setIsViewingBoard(true);
   };
 
-  const unreadMessagesCount = useLiveQuery(() => 
-    db.messages.where('status').equals('unread').count()
-  ) || 0;
+  const unreadMessagesCount = useLiveQuery(() =>
+    currentProjectId
+      ? db.messages.where('projectId').equals(currentProjectId).and(m => m.status === 'unread').count()
+      : db.messages.where('status').equals('unread').count()
+  , [currentProjectId]) || 0;
 
   // Initialize Module Host
   useEffect(() => {
@@ -277,6 +309,7 @@ export default function App() {
       julesEndpoint,
       julesSourceName,
       julesSourceId,
+      projectId: currentProjectId || undefined,
       moduleConfigs: {
         ...moduleConfigs,
         'knowledge-repo-browser': { 
@@ -296,12 +329,14 @@ export default function App() {
     host.init(config);
     orchestrator.init(orchestratorConfig);
     return () => host.stop();
-  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, githubToken, repoUrl, repoBranch, moduleConfigs, julesEndpoint, julesSourceName, julesSourceId]);
+  }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, githubToken, repoUrl, repoBranch, moduleConfigs, julesEndpoint, julesSourceName, julesSourceId, currentProjectId]);
 
   // Auto-accept proposals in Full Autonomy mode
-  const latestProposal = useLiveQuery(() => 
-    db.messages.where('type').equals('proposal').and(m => m.status === 'unread').first()
-  );
+  const latestProposal = useLiveQuery(() =>
+    currentProjectId
+      ? db.messages.where('projectId').equals(currentProjectId).and(m => m.type === 'proposal' && m.status === 'unread').first()
+      : db.messages.where('type').equals('proposal').and(m => m.status === 'unread').first()
+  , [currentProjectId]);
 
   useEffect(() => {
     if (autonomyMode === 'full' && latestProposal) {
@@ -446,7 +481,8 @@ export default function App() {
       forwardExecutorMessages: true,
       createdAt: Date.now(),
       artifactIds: artifactIds,
-      moduleLogs: {}
+      moduleLogs: {},
+      projectId: currentProjectId || undefined,
     };
     
     if (artifactIds.length > 0) {
@@ -819,15 +855,15 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">Agent Kanban</h1>
-            <div className="flex items-center space-x-2">
-              <p className="text-xs font-mono text-neutral-400">Agent Edition</p>
-              {repoUrl && (
-                <span className="text-[10px] font-mono bg-neutral-800 text-blue-400 px-1.5 py-0.5 rounded border border-neutral-700">
-                  {repoUrl} @ {repoBranch}
-                </span>
-              )}
-            </div>
           </div>
+          <ProjectDropdown
+            currentProjectId={currentProjectId}
+            onProjectChange={handleProjectChange}
+            onProjectDelete={handleProjectDelete}
+            githubToken={githubToken}
+            julesApiKey={moduleConfigs['executor-jules']?.julesApiKey}
+            createTriggerRef={createProjectRef}
+          />
         </div>
 
         <div className="flex items-center space-x-4">
@@ -1016,6 +1052,7 @@ export default function App() {
                     <KBBrowser
                       onBrowseKB={handleBrowseKB}
                       onDocSelect={handleKBDocSelect}
+                      projectId={currentProjectId}
                     />
                   </div>
                 </CollapsiblePane>
@@ -1037,6 +1074,20 @@ export default function App() {
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col">
+          {!currentProjectId ? (
+            <div className="flex-1 flex items-center justify-center">
+              <button
+                onClick={() => createProjectRef.current?.()}
+                className="text-center space-y-4 p-8 rounded-xl hover:bg-neutral-800/50 border border-transparent hover:border-neutral-700 transition-colors cursor-pointer group"
+              >
+                <div className="p-4 bg-blue-500/10 rounded-xl border border-blue-500/20 inline-block group-hover:bg-blue-500/20 transition-colors">
+                  <FolderOpen className="w-10 h-10 text-blue-400" />
+                </div>
+                <h2 className="text-xl font-semibold text-white">No Project Selected</h2>
+                <p className="text-neutral-400 text-sm max-w-sm">Click to create or select a project to get started.</p>
+              </button>
+            </div>
+          ) : (<>
           {tabs.length > 0 && !isConstitutionOpen && (
             <PreviewTabs 
               tabs={tabs} 
@@ -1057,8 +1108,7 @@ export default function App() {
           )}
           {isConstitutionOpen ? (
             <ConstitutionEditor
-              repoUrl={repoUrl}
-              branch={repoBranch}
+              projectId={currentProjectId}
               apiProvider={apiProvider}
               geminiModel={geminiModel}
               openaiUrl={openaiUrl}
@@ -1110,6 +1160,7 @@ export default function App() {
               )}
             </div>
           )}
+          </>)}
         </div>
       </div>
 

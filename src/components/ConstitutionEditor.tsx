@@ -8,8 +8,7 @@ import { cn } from '../lib/utils';
 import { extractArtifactNames } from '../core/prompt';
 
 interface ConstitutionEditorProps {
-  repoUrl: string;
-  branch: string;
+  projectId: string | null;
   apiProvider: string;
   geminiModel: string;
   openaiUrl: string;
@@ -19,8 +18,7 @@ interface ConstitutionEditorProps {
   onSave?: () => void;
 }
 
-export default function ConstitutionEditor({ repoUrl, branch, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, onSave }: ConstitutionEditorProps) {
-  const configId = `${repoUrl}:${branch}`;
+export default function ConstitutionEditor({ projectId, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, onSave }: ConstitutionEditorProps) {
   const [activeTab, setActiveTab] = useState<string>('constitution');
   const [constitution, setConstitution] = useState('');
   const [moduleKnowledge, setModuleKnowledge] = useState<Record<string, string>>({});
@@ -31,10 +29,14 @@ export default function ConstitutionEditor({ repoUrl, branch, apiProvider, gemin
 
   useEffect(() => {
     const loadData = async () => {
-      // Load Constitution
-      const config = await db.projectConfigs.get(configId);
-      if (config && config.constitution && config.constitution.includes('## Project Stages & Artifacts')) {
-        setConstitution(config.constitution);
+      // Load Constitution from project
+      if (projectId) {
+        const project = await db.projects.get(projectId);
+        if (project?.constitution) {
+          setConstitution(project.constitution);
+        } else {
+          setConstitution(CONSTITUTION_TEMPLATES.default);
+        }
       } else {
         setConstitution(CONSTITUTION_TEMPLATES.default);
       }
@@ -52,21 +54,22 @@ export default function ConstitutionEditor({ repoUrl, branch, apiProvider, gemin
       setModuleKnowledge(knowledgeMap);
     };
     loadData();
-  }, [configId]);
+  }, [projectId]);
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
       if (activeTab === 'constitution') {
-        const artifactNames = await extractArtifactNames(
-          constitution, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey
-        );
-        await db.projectConfigs.put({
-          id: configId,
-          constitution,
-          artifactNames,
-          updatedAt: Date.now()
-        });
+        if (projectId) {
+          const artifactNames = await extractArtifactNames(
+            constitution, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey
+          );
+          await db.projects.update(projectId, {
+            constitution,
+            artifactNames,
+            updatedAt: Date.now()
+          });
+        }
       } else {
         await db.moduleKnowledge.put({
           id: activeTab,

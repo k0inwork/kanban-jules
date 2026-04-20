@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, KBDoc, Artifact } from '../services/db';
+import { db, KBDoc, Artifact, Project } from '../services/db';
 import { BookOpen, Plus, Upload, Copy, X, Database, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -13,6 +13,7 @@ const FALLBACK_ARTIFACT_NAMES = [
 interface KBBrowserProps {
   onBrowseKB?: () => void;
   onDocSelect?: (doc: KBDoc) => void;
+  projectId?: string | null;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -24,7 +25,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   resolution: 'text-emerald-400 bg-emerald-500/15',
 };
 
-export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
+export default function KBBrowser({ onBrowseKB, onDocSelect, projectId }: KBBrowserProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showArtifactPicker, setShowArtifactPicker] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
@@ -35,12 +36,12 @@ export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
   const entries = (useLiveQuery(() => db.kbLog.filter(e => e.active).toArray()) ?? []);
   const docs = (useLiveQuery(() => db.kbDocs.filter(d => d.active).toArray()) ?? []);
   const artifacts = (useLiveQuery(() => db.taskArtifacts.toArray()) ?? []);
-  const projectConfigs = (useLiveQuery(() => db.projectConfigs.toArray()) ?? []);
+  const project = (useLiveQuery(() => projectId ? db.projects.get(projectId) : undefined, [projectId]) ?? null);
 
   const templates = docs.filter(d => d.type === 'template');
   const templateNames = new Set(templates.map(t => t.title));
-  const artifactNames = projectConfigs[0]?.artifactNames?.length
-    ? projectConfigs[0].artifactNames
+  const artifactNames = project?.artifactNames?.length
+    ? project.artifactNames
     : FALLBACK_ARTIFACT_NAMES;
 
   // Counts by category

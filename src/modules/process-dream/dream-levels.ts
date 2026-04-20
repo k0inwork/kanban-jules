@@ -646,8 +646,8 @@ export async function deepDream(context: RequestContext): Promise<string> {
   const entries = await db.kbLog.filter(e => e.active).toArray();
   const docs = await db.kbDocs.filter(d => d.active).toArray();
   const tasks = await db.tasks.toArray();
-  const configs = await db.projectConfigs.toArray();
-  const constitution = configs[0]?.constitution || '(none)';
+  const project = context.projectId ? await db.projects.get(context.projectId) : undefined;
+  const constitution = project?.constitution || '(none)';
 
   // Call 1: Project consolidation
   const entryTexts = entries.slice(0, 60).map(e => `[${e.category}|a${e.abstraction}] ${e.text}`).join('\n');
@@ -724,18 +724,28 @@ export async function deepDream(context: RequestContext): Promise<string> {
         eventBus.off('user:reply', handler);
         const isApproved = /^(yes|approve|accept|ok|confirmed|approved)/i.test(data.content.trim());
         if (isApproved) {
-          const config = await db.projectConfigs.toCollection().first();
-          if (config) {
-            await db.projectConfigs.update(config.id, {
-              constitution: config.constitution + '\n' + amendmentResponse,
-              updatedAt: Date.now(),
-            });
+          if (context.projectId) {
+            const proj = await db.projects.get(context.projectId);
+            if (proj) {
+              await db.projects.update(context.projectId, {
+                constitution: (proj.constitution || '') + '\n' + amendmentResponse,
+                updatedAt: Date.now(),
+              });
+            }
           } else {
-            await db.projectConfigs.add({
-              id: 'default',
-              constitution: amendmentResponse,
-              updatedAt: Date.now(),
-            });
+            const config = await db.projectConfigs.toCollection().first();
+            if (config) {
+              await db.projectConfigs.update(config.id, {
+                constitution: config.constitution + '\n' + amendmentResponse,
+                updatedAt: Date.now(),
+              });
+            } else {
+              await db.projectConfigs.add({
+                id: 'default',
+                constitution: amendmentResponse,
+                updatedAt: Date.now(),
+              });
+            }
           }
         }
         await db.messages.update(msgId, { status: 'read' });
