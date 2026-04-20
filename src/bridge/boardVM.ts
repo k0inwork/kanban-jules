@@ -21,6 +21,7 @@ import { registry } from '../core/registry';
 import { eventBus } from '../core/event-bus';
 import { db } from '../services/db';
 import type { RequestContext } from '../core/types';
+import { sanitizeTaskUpdates } from '../core/task-guards';
 
 // --- Tool name mapping: built dynamically from module sandboxBindings ---
 
@@ -286,12 +287,32 @@ export const boardVM = {
     },
   },
 
-  // Direct Dexie task access
+  // Gated task access — sandbox code can't write arbitrary fields
   tasks: {
-    list: async () => db.tasks.toArray(),
+    list: async () => {
+      const all = await db.tasks.toArray();
+      return all.filter(t => (t as any).workflowStatus !== 'ARCHIVED');
+    },
     get: async (id: string) => db.tasks.get(id),
-    update: async (id: string, changes: Record<string, any>) => db.tasks.update(id, changes),
-    create: async (task: any) => db.tasks.add(task),
+    update: async (id: string, changes: Record<string, any>) => {
+      const safe = sanitizeTaskUpdates(changes);
+      if (Object.keys(safe).length === 0) throw new Error('No valid fields to update');
+      return db.tasks.update(id, safe);
+    },
+    create: async (task: any) => {
+      if (!task || !task.title) throw new Error('title is required');
+      const record = {
+        id: task.id || Math.random().toString(16).slice(2, 10) + Date.now().toString(36),
+        title: task.title,
+        description: task.description || '',
+        workflowStatus: 'TODO' as const,
+        agentState: 'IDLE' as const,
+        createdAt: Date.now(),
+        project: task.project || 'target',
+        moduleLogs: {},
+      };
+      return db.tasks.add(record);
+    },
   },
 
   // Event bus

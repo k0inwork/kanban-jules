@@ -1,12 +1,13 @@
-import { db, Artifact } from '../../services/db';
+import { db, Artifact, ArtifactStatus } from '../../services/db';
 import { OrchestratorConfig, RequestContext } from '../../core/types';
 import { GitFs } from '../../services/GitFs';
+import { KBHandler } from '../knowledge-kb/Handler';
 
 export const ArtifactTool = {
   init: (config: OrchestratorConfig) => {
-    // ArtifactTool doesn't need config for now, but we'll keep the init method for consistency.
+    // noop
   },
-  listArtifacts: async (taskId?: string, repoName?: string, branchName?: string, requestingTaskId?: string): Promise<Artifact[]> => {
+  listArtifacts: async (taskId?: string, repoName?: string, branchName?: string, requestingTaskId?: string, status?: ArtifactStatus): Promise<Artifact[]> => {
     let artifacts: Artifact[] = [];
     if (taskId) {
       artifacts = await db.taskArtifacts.where('taskId').equals(taskId).toArray();
@@ -14,6 +15,11 @@ export const ArtifactTool = {
       artifacts = await db.taskArtifacts.where({ repoName, branchName }).toArray();
     } else {
       artifacts = await db.taskArtifacts.toArray();
+    }
+
+    // Filter by status if provided
+    if (status) {
+      artifacts = artifacts.filter(a => (a.status || 'draft') === status);
     }
 
     // Filter out '_' prefixed artifacts unless the requesting task is the owner
@@ -29,6 +35,45 @@ export const ArtifactTool = {
     return await db.taskArtifacts.get(artifactId);
   },
 
+  updateStatus: async (artifactId: number, status: ArtifactStatus): Promise<void> => {
+    const artifact = await db.taskArtifacts.get(artifactId);
+    if (!artifact) throw new Error(`Artifact ${artifactId} not found`);
+    if (!['draft', 'in_review', 'revised', 'approved'].includes(status)) {
+      throw new Error(`Invalid status: ${status}. Must be draft, in_review, revised, or approved.`);
+    }
+    await db.taskArtifacts.update(artifactId, { status });
+  },
+
+  promoteToKB: async (artifactId: number, context: RequestContext): Promise<{ kbDocId: number; version: number }> => {
+    const artifact = await db.taskArtifacts.get(artifactId);
+    if (!artifact) throw new Error(`Artifact ${artifactId} not found`);
+    if (artifact.status !== 'approved') throw new Error(`Artifact ${artifactId} must be approved before promoting to KB (current: ${artifact.status})`);
+
+    const summary = (artifact.metadata?.summary as string) || artifact.content.substring(0, 200) + '...';
+    const kbDocId = await KBHandler.handleRequest('knowledge-kb.saveDocument', [{
+      title: artifact.name,
+      type: artifact.type || 'artifact',
+      content: artifact.content,
+      summary,
+      tags: [artifact.type || 'artifact', 'promoted'],
+      layer: ['L1'],
+      source: 'artifact',
+      project: 'target',
+    }], context);
+
+    // Track promotion in artifact metadata
+    const promotion = {
+      promotedAt: Date.now(),
+      kbDocId,
+      version: ((artifact.metadata?.promotedVersion as number) || 0) + 1,
+    };
+    await db.taskArtifacts.update(artifactId, {
+      metadata: { ...artifact.metadata, promotedToKB: true, promotedVersion: promotion.version, promotedAt: promotion.promotedAt, kbDocId },
+    });
+
+    return { kbDocId, version: promotion.version };
+  },
+
   saveArtifact: async (taskId: string, repoName: string, branchName: string, name: string, content: string, token: string, type?: string, metadata?: any): Promise<number> => {
     const artifact: Artifact = {
       taskId,
@@ -37,6 +82,7 @@ export const ArtifactTool = {
       name,
       content,
       type,
+      status: 'draft' as ArtifactStatus,
       metadata,
       createdAt: Date.now()
     };
@@ -66,7 +112,8 @@ export const ArtifactTool = {
         const taskId = obj ? obj.taskId : args[0];
         const repoName = obj ? obj.repoName : args[1];
         const branchName = obj ? obj.branchName : args[2];
-        return await ArtifactTool.listArtifacts(taskId || context.taskId, repoName || context.repoUrl, branchName || context.repoBranch, context.taskId);
+        const status = obj?.status as ArtifactStatus | undefined;
+        return await ArtifactTool.listArtifacts(taskId || context.taskId, repoName || context.repoUrl, branchName || context.repoBranch, context.taskId, status);
       }
       case 'knowledge-artifacts.readArtifact': {
         const obj = unpack(args[0]);
@@ -80,6 +127,21 @@ export const ArtifactTool = {
         const type = obj ? obj.type : args[2];
         const metadata = obj ? obj.metadata : args[3];
         return await ArtifactTool.saveArtifact(context.taskId, context.repoUrl, context.repoBranch, name, content, token, type, metadata);
+      }
+      case 'knowledge-artifacts.updateArtifactStatus': {
+        const obj = unpack(args[0]);
+        const artifactId = obj?.artifactId ?? args[0];
+        const status = obj?.status ?? args[1];
+        if (!artifactId) throw new Error('artifactId is required');
+        if (!status) throw new Error('status is required');
+        await ArtifactTool.updateStatus(artifactId, status);
+        return { artifactId, status };
+      }
+      case 'knowledge-artifacts.promoteToKB': {
+        const obj = unpack(args[0]);
+        const artifactId = obj?.artifactId ?? args[0];
+        if (!artifactId) throw new Error('artifactId is required');
+        return await ArtifactTool.promoteToKB(artifactId, context);
       }
       default:
         throw new Error(`Tool not found: ${toolName}`);

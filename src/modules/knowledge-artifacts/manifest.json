@@ -7,24 +7,49 @@
   "tools": [
     {
       "name": "knowledge-artifacts.listArtifacts",
-      "description": "Lists artifacts. Signature: artifacts.listArtifacts({ taskId?: string }).",
-      "parameters": { "type": "object", "properties": { "taskId": { "type": "string" } } }
+      "description": "Lists artifacts. Filter by taskId, status (draft/in_review/revised/approved), or repo+branch.",
+      "parameters": { "type": "object", "properties": { "taskId": { "type": "string" }, "status": { "type": "string", "description": "Filter by status: draft, in_review, revised, or approved" } } }
     },
     {
       "name": "knowledge-artifacts.saveArtifact",
-      "description": "Creates a new artifact. Signature: artifacts.saveArtifact({ name: string, content: string }).",
-      "parameters": { "type": "object", "properties": { "name": { "type": "string" }, "content": { "type": "string" } } }
+      "description": "Creates a new artifact (status defaults to draft). Signature: artifacts.saveArtifact({ name, content, type?, metadata? }).",
+      "parameters": { "type": "object", "properties": { "name": { "type": "string" }, "content": { "type": "string" } }, "required": ["name", "content"] }
     },
     {
       "name": "knowledge-artifacts.readArtifact",
-      "description": "Reads an artifact. Signature: artifacts.readArtifact({ name: string }).",
-      "parameters": { "type": "object", "properties": { "name": { "type": "string" } } }
+      "description": "Reads an artifact by ID. Signature: artifacts.readArtifact({ artifactId }).",
+      "parameters": { "type": "object", "properties": { "artifactId": { "type": "number" } }, "required": ["artifactId"] }
+    },
+    {
+      "name": "knowledge-artifacts.updateArtifactStatus",
+      "description": "Update artifact lifecycle status (draft → in_review → approved, or revised → draft). Used by ProcessAgent and review workflows.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactId": { "type": "number", "description": "The artifact ID" },
+          "status": { "type": "string", "description": "New status: draft, in_review, revised, or approved" }
+        },
+        "required": ["artifactId", "status"]
+      }
+    },
+    {
+      "name": "knowledge-artifacts.promoteToKB",
+      "description": "Promote an approved artifact to the knowledge base. Creates/updates a KB doc with version tracking.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactId": { "type": "number", "description": "The artifact ID to promote" }
+        },
+        "required": ["artifactId"]
+      }
     }
   ],
   "sandboxBindings": {
     "artifacts.listArtifacts": "knowledge-artifacts.listArtifacts",
     "artifacts.saveArtifact": "knowledge-artifacts.saveArtifact",
-    "artifacts.readArtifact": "knowledge-artifacts.readArtifact"
+    "artifacts.readArtifact": "knowledge-artifacts.readArtifact",
+    "artifacts.updateArtifactStatus": "knowledge-artifacts.updateArtifactStatus",
+    "artifacts.promoteToKB": "knowledge-artifacts.promoteToKB"
   },
   "permissions": ["storage"]
 }

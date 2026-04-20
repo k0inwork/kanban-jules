@@ -7,6 +7,8 @@ export interface GitCache {
   timestamp: number;
 }
 
+export type ArtifactStatus = 'draft' | 'in_review' | 'revised' | 'approved';
+
 export interface Artifact {
   id?: number;
   taskId: string;
@@ -15,6 +17,7 @@ export interface Artifact {
   name: string;
   content: string;
   type?: string;
+  status?: ArtifactStatus;
   metadata?: any;
   createdAt?: number;
 }
@@ -280,7 +283,7 @@ export class MyDatabase extends Dexie {
     });
     this.version(24).stores({
       gitCache: 'path',
-      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifacts: '++id, taskId, repoName, branchName, status',
       taskArtifactLinks: '++id, taskId, artifactId',
       julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
       messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
@@ -291,6 +294,28 @@ export class MyDatabase extends Dexie {
       kbDocs: '++id, timestamp, title, type, active, source, project',
       pushQueue: '++id, branch, status, timestamp',
       yuanHistory: '++id, role, timestamp'
+    }).upgrade(tx => {
+      return tx.table('taskArtifacts').toCollection().modify(artifact => {
+        if (!artifact.status) artifact.status = 'draft';
+      });
+    });
+    this.version(25).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName, status',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project',
+      pushQueue: '++id, branch, status, timestamp',
+      yuanHistory: '++id, role, timestamp'
+    }).upgrade(tx => {
+      return tx.table('taskArtifacts').toCollection().modify(artifact => {
+        if (artifact.status === 'reviewed') artifact.status = 'in_review';
+      });
     });
   }
 }
