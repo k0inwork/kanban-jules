@@ -1,29 +1,51 @@
 import { RequestContext } from '../../core/types';
 
+interface RepoConfig {
+  repoUrl: string;
+  repoBranch: string;
+  githubToken: string;
+}
+
 export class BashExecutorHandler {
-  private static _config: { repoUrl: string; repoBranch: string; githubToken: string } | null = null;
+  private static _configs: Map<string, RepoConfig> = new Map();
+
+  /** Get the per-project repo root path in v86 */
+  static repoRootPath(projectId: string): string {
+    return `/tmp/repo-root/${projectId}`;
+  }
 
   static init(config: any) {
+    const projectId = config.projectId || '_default';
+    BashExecutorHandler.storeAndPrefetch(projectId, config);
+  }
+
+  /** Call when the user switches project to start cloning the new project's repo */
+  static initProject(projectId: string, config: { repoUrl: string; repoBranch: string; githubToken: string }) {
+    BashExecutorHandler.storeAndPrefetch(projectId, config);
+  }
+
+  private static storeAndPrefetch(projectId: string, config: any) {
     let url: string = config.repoUrl || '';
     // Normalize owner/repo → https://github.com/owner/repo.git
     if (url && !url.startsWith('http') && !url.startsWith('git@')) {
       url = `https://github.com/${url}.git`;
     }
-    BashExecutorHandler._config = {
+    BashExecutorHandler._configs.set(projectId, {
       repoUrl: url,
       repoBranch: config.repoBranch || 'main',
       githubToken: config.githubToken || '',
-    };
-    // Kick off background clone to /tmp/repo-root (fire-and-forget)
-    BashExecutorHandler.prefetchRepo();
+    });
+    // Kick off background clone (fire-and-forget)
+    BashExecutorHandler.prefetchRepo(projectId);
   }
 
-  private static prefetchRepo() {
-    const cfg = BashExecutorHandler._config;
+  private static prefetchRepo(projectId: string) {
+    const cfg = BashExecutorHandler._configs.get(projectId);
     if (!cfg?.repoUrl) {
-      console.log('[bash-executor] No repoUrl configured, skipping prefetch');
+      console.log(`[bash-executor] No repoUrl configured for project ${projectId}, skipping prefetch`);
       return;
     }
+    const repoRoot = BashExecutorHandler.repoRootPath(projectId);
     // Retry until boardVM is ready (Go WASM sets fsBridge asynchronously)
     // v86 boot can take 30-90s, so we poll for up to 3 minutes
     const waitForBoardVM = async (): Promise<any> => {
@@ -50,11 +72,11 @@ export class BashExecutorHandler {
           console.warn('[bash-executor] Timed out waiting for boardVM, prefetch aborted');
           return;
         }
-        const exists = await boardVM.fsBridge.exists('/tmp/repo-root/.git');
+        const exists = await boardVM.fsBridge.exists(`${repoRoot}/.git`);
         if (exists) {
-          console.log('[bash-executor] /tmp/repo-root already exists, pulling latest');
+          console.log(`[bash-executor] ${repoRoot} already exists, pulling latest`);
           const r = await boardVM.bashExec({
-            command: `cd /tmp/repo-root && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
+            command: `cd ${repoRoot} && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
             cwd: '/tmp',
             timeout: 60000,
           });
@@ -62,12 +84,12 @@ export class BashExecutorHandler {
             console.warn('[bash-executor] git fetch/reset failed (repo still usable):', r.stdout || r.error);
           }
         } else {
-          console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → /tmp/repo-root`);
+          console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → ${repoRoot}`);
           const authUrl = cfg.githubToken
             ? cfg.repoUrl.replace('https://', `https://${cfg.githubToken}@`)
             : cfg.repoUrl;
           const r = await boardVM.bashExec({
-            command: `rm -rf /tmp/repo-root && git clone --branch ${cfg.repoBranch} ${authUrl} /tmp/repo-root`,
+            command: `mkdir -p /tmp/repo-root && rm -rf ${repoRoot} && git clone --branch ${cfg.repoBranch} ${authUrl} ${repoRoot}`,
             cwd: '/tmp',
             timeout: 120000,
           });
@@ -76,7 +98,7 @@ export class BashExecutorHandler {
             return;
           }
         }
-        console.log('[bash-executor] Prefetch complete');
+        console.log(`[bash-executor] Prefetch complete for project ${projectId}`);
       } catch (err: any) {
         console.warn('[bash-executor] Prefetch failed:', err.message);
       }
@@ -130,17 +152,20 @@ export class BashExecutorHandler {
       return { path: '', error: 'boardVM not available' };
     }
 
-    // Check if startup prefetch completed
-    const exists = await boardVM.fsBridge.exists('/tmp/repo-root/.git');
+    const projectId = context.projectId || '_default';
+    const repoRoot = BashExecutorHandler.repoRootPath(projectId);
+
+    // Check if startup prefetch completed for this project
+    const exists = await boardVM.fsBridge.exists(`${repoRoot}/.git`);
     if (!exists) {
-      return { path: '', error: 'Repo not yet cloned (startup prefetch still running or failed)' };
+      return { path: '', error: `Repo not yet cloned for project ${projectId} (startup prefetch still running or failed)` };
     }
 
     // Copy clean mirror → per-task working directory
     const taskId = context.taskId || 'default';
     const targetDir = `/tmp/${taskId}/repo`;
     await boardVM.bashExec({
-      command: `mkdir -p /tmp/${taskId} && rm -rf ${targetDir} && cp -r /tmp/repo-root ${targetDir}`,
+      command: `mkdir -p /tmp/${taskId} && rm -rf ${targetDir} && cp -r ${repoRoot} ${targetDir}`,
       cwd: '/home',
       timeout: 60000,
     });

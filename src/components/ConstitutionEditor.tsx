@@ -7,13 +7,11 @@ import { registry } from '../core/registry';
 import { cn } from '../lib/utils';
 
 interface ConstitutionEditorProps {
-  repoUrl: string;
-  branch: string;
+  projectId: string | null;
   onSave?: () => void;
 }
 
-export default function ConstitutionEditor({ repoUrl, branch, onSave }: ConstitutionEditorProps) {
-  const configId = `${repoUrl}:${branch}`;
+export default function ConstitutionEditor({ projectId, onSave }: ConstitutionEditorProps) {
   const [activeTab, setActiveTab] = useState<string>('constitution');
   const [constitution, setConstitution] = useState('');
   const [moduleKnowledge, setModuleKnowledge] = useState<Record<string, string>>({});
@@ -24,10 +22,14 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
 
   useEffect(() => {
     const loadData = async () => {
-      // Load Constitution
-      const config = await db.projectConfigs.get(configId);
-      if (config && config.constitution && config.constitution.includes('## Project Stages & Artifacts')) {
-        setConstitution(config.constitution);
+      // Load Constitution from project
+      if (projectId) {
+        const project = await db.projects.get(projectId);
+        if (project?.constitution) {
+          setConstitution(project.constitution);
+        } else {
+          setConstitution(CONSTITUTION_TEMPLATES.default);
+        }
       } else {
         setConstitution(CONSTITUTION_TEMPLATES.default);
       }
@@ -45,17 +47,18 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
       setModuleKnowledge(knowledgeMap);
     };
     loadData();
-  }, [configId]);
+  }, [projectId]);
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
       if (activeTab === 'constitution') {
-        await db.projectConfigs.put({
-          id: configId,
-          constitution,
-          updatedAt: Date.now()
-        });
+        if (projectId) {
+          await db.projects.update(projectId, {
+            constitution,
+            updatedAt: Date.now()
+          });
+        }
       } else {
         await db.moduleKnowledge.put({
           id: activeTab,

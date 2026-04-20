@@ -159,9 +159,15 @@ export class ProcessAgent {
       checkGates: {
         description: 'Gather constitution stages + current artifact statuses for gate analysis. Returns constitution text and artifact summary.',
         execute: async () => {
-          // Get constitution from project config
-          const config = await db.projectConfigs.get(`${repoName}:${branchName}`);
-          const constitution = config?.constitution || '';
+          // Get constitution from current project
+          let constitution = '';
+          if (this.context.projectId) {
+            const project = await db.projects.get(this.context.projectId);
+            constitution = project?.constitution || '';
+          } else {
+            const config = await db.projectConfigs.get(`${repoName}:${branchName}`);
+            constitution = config?.constitution || '';
+          }
 
           // Get all non-internal artifacts for this repo/branch
           let artifacts = await db.taskArtifacts.where({ repoName, branchName }).toArray();

@@ -277,6 +277,10 @@ export class KBHandler {
   // --- projectConfigs (per-repo constitution) ---
 
   static async getProjectConfig(params: any): Promise<any> {
+    if (params.projectId) {
+      const project = await db.projects.get(params.projectId);
+      return project ? { id: project.id, constitution: project.constitution, updatedAt: project.updatedAt } : null;
+    }
     if (params.id) {
       const config = await db.projectConfigs.get(params.id);
       return config || null;
@@ -285,6 +289,14 @@ export class KBHandler {
   }
 
   static async setProjectConfig(params: any): Promise<string> {
+    if (params.projectId) {
+      if (!params.constitution) throw new Error('constitution is required');
+      await db.projects.update(params.projectId, {
+        constitution: params.constitution,
+        updatedAt: Date.now(),
+      });
+      return `Updated project "${params.projectId}" constitution`;
+    }
     if (!params.id || !params.constitution) {
       throw new Error('id and constitution are required');
     }

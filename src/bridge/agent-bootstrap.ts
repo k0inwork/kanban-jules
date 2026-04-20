@@ -463,7 +463,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '   - bash.exec(command, cwd, timeout) — execute a shell command\\n';
       prompt += '   - bash.clone() — copy repo mirror to an isolated per-task working directory\\n';
       prompt += '   Filesystem layout:\\n';
-      prompt += '   - /tmp/repo-root — main repo mirror (read-only, do not modify)\\n';
+      prompt += '   - /tmp/repo-root/{projectId} — project repo mirror (read-only, do not modify)\\n';
       prompt += '   - bash.clone() creates an isolated per-task working copy (modify freely)\\n';
       prompt += '   - /home — default cwd if no task repo exists\\n';
       prompt += '   bash.exec auto-detects cwd: uses your task repo if cloned, otherwise /home.\\n';
@@ -481,7 +481,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += 'CRITICAL DISTINCTION:\\n';
       prompt += '- repo.* tools access the GitHub repository via API — use them when you need to commit changes (repo.writeFile).\\n';
       prompt += '- bash.exec is your main tool for exploring and working with files. Use it freely: ls, cat, grep, find, git, build, test, etc.\\n';
-      prompt += '- When a task starts and needs a repo, bash.clone() copies /tmp/repo-root into an isolated per-task directory — your working copy. bash.exec auto-detects it as cwd.\\n';
+      prompt += '- When a task starts and needs a repo, bash.clone() copies the project repo mirror into an isolated per-task directory — your working copy. bash.exec auto-detects it as cwd.\\n';
       prompt += '- Local file tools (file_read, file_write, file_edit) access the v86 workspace filesystem too.\\n\\n';
 
       prompt += 'WORKFLOW:\\n';

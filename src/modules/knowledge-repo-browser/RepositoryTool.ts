@@ -1,32 +1,39 @@
 import { vfs } from '../../services/vfs';
 import { OrchestratorConfig, RequestContext } from '../../core/types';
+import { BashExecutorHandler } from '../bash-executor/BashExecutorHandler';
+
+/** Resolve the repo root for a given project (used by static methods and handleRequest) */
+function repoRootFor(projectId?: string): string {
+  return BashExecutorHandler.repoRootPath(projectId || '_default');
+}
 
 export const RepositoryTool = {
   init: (config: OrchestratorConfig) => {
     // No config needed — vfs reads/writes IDBFS directly
   },
 
-  listFiles: async (repoUrl: string, branch: string, token: string, path: string = ''): Promise<string[]> => {
-    const basePath = `/tmp/repo-root${path ? '/' + path : ''}`;
+  listFiles: async (repoUrl: string, branch: string, token: string, path: string = '', projectId?: string): Promise<string[]> => {
+    const basePath = `${repoRootFor(projectId)}${path ? '/' + path : ''}`;
     return vfs.readdir(basePath);
   },
 
-  readFile: async (repoUrl: string, branch: string, token: string, path: string): Promise<string> => {
-    return vfs.readFile(`/tmp/repo-root/${path}`);
+  readFile: async (repoUrl: string, branch: string, token: string, path: string, projectId?: string): Promise<string> => {
+    return vfs.readFile(`${repoRootFor(projectId)}/${path}`);
   },
 
-  headFile: async (repoUrl: string, branch: string, token: string, path: string, lines: number = 3): Promise<string> => {
-    return vfs.headFile(`/tmp/repo-root/${path}`, lines);
+  headFile: async (repoUrl: string, branch: string, token: string, path: string, lines: number = 3, projectId?: string): Promise<string> => {
+    return vfs.headFile(`${repoRootFor(projectId)}/${path}`, lines);
   },
 
-  writeFile: async (repoUrl: string, branch: string, token: string, path: string, content: string, commitMessage: string, taskDir?: string): Promise<boolean> => {
-    const basePath = taskDir ? `/tmp/${taskDir}/repo` : '/tmp/repo-root';
+  writeFile: async (repoUrl: string, branch: string, token: string, path: string, content: string, commitMessage: string, taskDir?: string, projectId?: string): Promise<boolean> => {
+    const basePath = taskDir ? `/tmp/${taskDir}/repo` : repoRootFor(projectId);
     await vfs.writeFile(`${basePath}/${path}`, content);
     return true;
   },
 
   handleRequest: async (toolName: string, args: any[], context: RequestContext): Promise<any> => {
     const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const root = repoRootFor(context.projectId);
 
     switch (toolName) {
       case 'knowledge-repo-browser.listFiles': {
@@ -34,7 +41,7 @@ export const RepositoryTool = {
         const path = obj?.path || args[2] || '';
         const basePath = context.taskDir
           ? `/tmp/${context.taskDir}/repo${path ? '/' + path : ''}`
-          : `/tmp/repo-root${path ? '/' + path : ''}`;
+          : `${root}${path ? '/' + path : ''}`;
         return vfs.readdir(basePath);
       }
       case 'knowledge-repo-browser.readFile': {
@@ -42,7 +49,7 @@ export const RepositoryTool = {
         const path = obj?.path || args[2];
         const basePath = context.taskDir
           ? `/tmp/${context.taskDir}/repo/${path}`
-          : `/tmp/repo-root/${path}`;
+          : `${root}/${path}`;
         return vfs.readFile(basePath);
       }
       case 'knowledge-repo-browser.headFile': {
@@ -51,7 +58,7 @@ export const RepositoryTool = {
         const lines = obj?.lines || args[3] || 3;
         const basePath = context.taskDir
           ? `/tmp/${context.taskDir}/repo/${path}`
-          : `/tmp/repo-root/${path}`;
+          : `${root}/${path}`;
         return vfs.headFile(basePath, lines);
       }
       case 'knowledge-repo-browser.writeFile': {
@@ -61,7 +68,7 @@ export const RepositoryTool = {
         const commitMessage = obj?.commitMessage || args[4] || `Update ${path}`;
         const basePath = context.taskDir
           ? `/tmp/${context.taskDir}/repo/${path}`
-          : `/tmp/repo-root/${path}`;
+          : `${root}/${path}`;
         await vfs.writeFile(basePath, content);
         return true;
       }
