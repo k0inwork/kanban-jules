@@ -22,6 +22,14 @@ export class KBHandler {
         return KBHandler.supersedeEntries(args[0]);
       case 'knowledge-kb.traceDecisionChain':
         return KBHandler.traceDecisionChain(args[0]);
+      case 'knowledge-kb.getKnowledge':
+        return KBHandler.getKnowledge(args[0]);
+      case 'knowledge-kb.setKnowledge':
+        return KBHandler.setKnowledge(args[0]);
+      case 'knowledge-kb.getProjectConfig':
+        return KBHandler.getProjectConfig(args[0]);
+      case 'knowledge-kb.setProjectConfig':
+        return KBHandler.setProjectConfig(args[0]);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
@@ -237,6 +245,55 @@ export class KBHandler {
   private static async deleteDocument(params: any): Promise<void> {
     const { id } = params;
     await db.kbDocs.update(id, { active: false });
+  }
+
+  // --- moduleKnowledge (agent constitutions, identities) ---
+
+  static async getKnowledge(params: any): Promise<any> {
+    if (params.id) {
+      const entry = await db.moduleKnowledge.get(params.id);
+      return entry || null;
+    }
+    // List all when no id specified
+    const all = await db.moduleKnowledge.toArray();
+    if (params.prefix) {
+      return all.filter(e => e.id.startsWith(params.prefix));
+    }
+    return all;
+  }
+
+  static async setKnowledge(params: any): Promise<string> {
+    if (!params.id || !params.content) {
+      throw new Error('id and content are required');
+    }
+    await db.moduleKnowledge.put({
+      id: params.id,
+      content: params.content,
+      updatedAt: Date.now(),
+    });
+    return `Updated moduleKnowledge "${params.id}"`;
+  }
+
+  // --- projectConfigs (per-repo constitution) ---
+
+  static async getProjectConfig(params: any): Promise<any> {
+    if (params.id) {
+      const config = await db.projectConfigs.get(params.id);
+      return config || null;
+    }
+    return db.projectConfigs.toArray();
+  }
+
+  static async setProjectConfig(params: any): Promise<string> {
+    if (!params.id || !params.constitution) {
+      throw new Error('id and constitution are required');
+    }
+    await db.projectConfigs.put({
+      id: params.id,
+      constitution: params.constitution,
+      updatedAt: Date.now(),
+    });
+    return `Updated projectConfig "${params.id}"`;
   }
 
   private static async queryDocs(params: any): Promise<KBDoc[]> {

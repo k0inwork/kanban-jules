@@ -499,7 +499,122 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '- shell_exec, git_ops, test_run are NOT available.\\n';
       prompt += '- bash.exec IS available — use it for build, test, lint, and git operations inside the v86 VM.\\n';
       prompt += '- Think step by step. Gather information before making changes.\\n';
-      prompt += '- If a tool call fails, read the error and try a different approach.';
+      prompt += '- If a tool call fails, read the error and try a different approach.\\n\\n';
+
+      prompt += '===== BOARD MAP — YOUR TERRITORY =====\\n';
+      prompt += 'You operate on a Kanban board. Here is how everything works.\\n\\n';
+
+      prompt += '--- TASK LIFECYCLE ---\\n';
+      prompt += 'States: TODO → IN_PROGRESS → (IN_REVIEW) → DONE. Or ARCHIVED to hide.\\n';
+      prompt += 'agentState substates: IDLE | EXECUTING | WAITING_FOR_USER | WAITING_FOR_EXECUTOR | ERROR\\n';
+      prompt += '\\n';
+      prompt += 'How a task runs (Orchestrator):\\n';
+      prompt += '1. Task starts: workflowStatus → IN_PROGRESS, agentState → EXECUTING\\n';
+      prompt += '2. If no protocol exists, Architect generates one (multi-step plan)\\n';
+      prompt += '3. Orchestrator executes steps sequentially. Each step runs an executor.\\n';
+      prompt += '4. Steps go: pending → in_progress → done (or failed)\\n';
+      prompt += '5. If executor needs user input: agentState → WAITING_FOR_USER (paused)\\n';
+      prompt += '6. On completion: workflowStatus → DONE, agentState → IDLE\\n';
+      prompt += '7. On error: agentState → ERROR. Task stays TODO (if pre-execution) or IN_PROGRESS (if mid-run)\\n';
+      prompt += '\\n';
+      prompt += 'How to "start a task": board.createTask({ title, description }) → task created as TODO.\\n';
+      prompt += '  Then board.updateTask({ task: id, updates: { workflowStatus: "IN_PROGRESS", agentState: "EXECUTING" } })\\n';
+      prompt += '  This signals the Orchestrator to pick it up (it watches for IN_PROGRESS tasks).\\n';
+      prompt += '  Or: the user clicks "Assign to Agent" in the UI, which does the same thing.\\n';
+      prompt += '\\n';
+      prompt += 'How to put a task in review: board.updateTask({ task: id, updates: { workflowStatus: "IN_REVIEW" } })\\n';
+      prompt += 'How to complete: board.updateTask({ task: id, updates: { workflowStatus: "DONE", agentState: "IDLE" } })\\n';
+      prompt += 'How to archive: board.updateTask({ task: id, updates: { workflowStatus: "ARCHIVED" } })\\n';
+      prompt += '\\n';
+
+      prompt += '--- EXECUTORS (how work actually happens) ---\\n';
+      prompt += 'executor-local: sandboxed JS via Sval Web Worker. Steps run as JS code blocks.\\n';
+      prompt += 'executor-jules: Google Jules remote agent. Flow:\\n';
+      prompt += '  1. Orchestrator creates a Jules session (via JulesSessionManager)\\n';
+      prompt += '  2. JulesPostman polls every 5s for activities (agentMessaged, progressUpdated, planGenerated)\\n';
+      prompt += '  3. Activities are classified SIGNAL (needs attention) or NOISE (progress update)\\n';
+      prompt += '  4. SIGNAL messages get appended to task.chat and agentState → IDLE (waiting for user)\\n';
+      prompt += '  5. On session COMPLETED/FAILED: executor:completed event fires, agentState → EXECUTING\\n';
+      prompt += 'executor-github: GitHub Actions workflows. For CI/CD tasks.\\n';
+      prompt += '\\n';
+
+      prompt += '--- ARCHITECT (plan generation) ---\\n';
+      prompt += 'architect-codegen generates a protocol (plan) from task title+description.\\n';
+      prompt += 'Protocol = { steps: [{ id, title, description, status: "pending"|"in_progress"|"done"|"failed" }] }\\n';
+      prompt += 'Stored in task.protocol. Orchestrator executes steps in order.\\n';
+      prompt += 'If a task has no protocol when it starts, the Architect auto-generates one.\\n';
+      prompt += '\\n';
+
+      prompt += '--- KNOWLEDGE BASE (kb.* tools) ---\\n';
+      prompt += 'kbLog (kb.queryLog / kb.recordEntry):\\n';
+      prompt += '  Append-only log of observations, insights, decisions, errors.\\n';
+      prompt += '  Each entry: category (error|observation|insight|decision|correction), abstraction (0=raw → 10=strategic),\\n';
+      prompt += '  layer (L0=project-wide, L1=task-level, L2=module-specific), source, tags, active flag.\\n';
+      prompt += '  project field: "target" = user\\'s repo, "self" = internal board knowledge.\\n';
+      prompt += '\\n';
+      prompt += '  Dream cycles auto-consolidate entries:\\n';
+      prompt += '  - microDream: after each task, consolidates raw entries → insight, records executor outcome\\n';
+      prompt += '  - sessionDream: end of session, cross-task patterns + conflict detection + doc gap flagging\\n';
+      prompt += '  - deepDream: periodic, strategic consolidation + constitution amendment proposals\\n';
+      prompt += '  Decisions get verified, classified (architectural/api/dependency/pattern/local/infra/security).\\n';
+      prompt += '\\n';
+      prompt += 'kbDocs (kb.queryDocs / kb.saveDocument / kb.updateDocument / kb.deleteDocument):\\n';
+      prompt += '  Formal documents: specs, designs, reports, constitutions, readme, decision-logs.\\n';
+      prompt += '  Full-text search. Versioned. Soft-deleted (active=false).\\n';
+      prompt += '\\n';
+
+      prompt += '--- AGENT CONSTITUTIONS (kb.getKnowledge / kb.setKnowledge) ---\\n';
+      prompt += 'Controls how each agent behaves. These are moduleKnowledge entries:\\n';
+      prompt += '  system:project:identity — Project Manager identity\\n';
+      prompt += '  system:project:constitution — Project constitution fallback\\n';
+      prompt += '  system:architect — Architect agent constitution\\n';
+      prompt += '  system:programmer — Programmer agent constitution\\n';
+      prompt += '  system:programmer:retry — Retry behavior\\n';
+      prompt += '  system:jules:identity, system:jules:monitor, system:jules:verify — Jules executor\\n';
+      prompt += '  system:negotiator:validation — User negotiator\\n';
+      prompt += '  executor-* — per-executor knowledge\\n';
+      prompt += 'Orchestrator loads ALL moduleKnowledge at runtime to assemble agent prompts.\\n';
+      prompt += 'You can read these to understand how agents are configured, and write them to change behavior.\\n';
+      prompt += '\\n';
+
+      prompt += '--- PROJECT CONFIG (kb.getProjectConfig / kb.setProjectConfig) ---\\n';
+      prompt += 'Per-repo constitution keyed by "repoUrl:branch".\\n';
+      prompt += 'ProcessAgent reads this as the project\\'s governing rules.\\n';
+      prompt += 'Deep-dream can propose amendments (user approves via message).\\n';
+      prompt += '\\n';
+
+      prompt += '--- ARTIFACTS (knowledge-artifacts.* tools) ---\\n';
+      prompt += 'Saved outputs per task — files, notes, reports. Stored in db.taskArtifacts.\\n';
+      prompt += '  - artifact.save({ name, content, type?, metadata? }) — save an artifact for current task\\n';
+      prompt += '  - artifact.list({ taskId? }) — list artifacts (underscore-prefixed names are private to owning task)\\n';
+      prompt += '  - artifact.read({ artifactId }) — read artifact by ID\\n';
+      prompt += 'Non-underscore artifacts also get written to the Git repo (if token available).\\n';
+      prompt += '\\n';
+
+      prompt += '--- TASK TOOLS REFERENCE ---\\n';
+      prompt += 'board.listTasks({ status?, project? }) — list tasks (excludes ARCHIVED)\\n';
+      prompt += 'board.getTask({ task }) — get full task details by ID or title match\\n';
+      prompt += 'board.createTask({ title, description?, project? }) — create new task (starts as TODO)\\n';
+      prompt += 'board.updateTask({ task, updates }) — update task fields (whitelisted: title, description, workflowStatus, agentState, agentContext, project, protocol, analysis)\\n';
+      prompt += 'board.getLogs({ task, module?, tail? }) — execution logs grouped by module\\n';
+      prompt += '\\n';
+
+      prompt += '--- BRANCH MODEL ---\\n';
+      prompt += 'When a task starts, the Orchestrator evaluates if it should run on an isolated branch.\\n';
+      prompt += 'If yes: creates a task branch (task-<id>), works there, merges back on completion.\\n';
+      prompt += 'branchName and branchDir are set on the task. Push queue handles async git push.\\n';
+      prompt += '\\n';
+
+      prompt += '--- MESSAGES (mailbox) ---\\n';
+      prompt += 'Agent messages stored in db.messages. Used for SIGNAL/NOISE classified comms from executors.\\n';
+      prompt += 'User replies via user:reply event. Conflict resolutions use this channel.\\n';
+      prompt += '\\n';
+
+      prompt += '--- CONFIGURATION FLOW ---\\n';
+      prompt += 'Settings (repoUrl, branch, API keys) → localStorage → HostConfig → Orchestrator\\n';
+      prompt += 'Constitutions → moduleKnowledge / projectConfigs (you can read/write these via kb tools)\\n';
+      prompt += 'Module configs → per-module configFields in manifest.json (not agent-writable)\\n';
+
       return prompt;
     }
 

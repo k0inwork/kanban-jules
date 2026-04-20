@@ -116,6 +116,51 @@
           "limit": { "type": "number" }
         }
       }
+    },
+    {
+      "name": "knowledge-kb.getKnowledge",
+      "description": "Read moduleKnowledge entries (agent constitutions, identities). Returns single entry by id, or all entries. Optional prefix filter.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Knowledge entry ID (e.g. 'system:architect', 'system:programmer'). Omit to list all." },
+          "prefix": { "type": "string", "description": "Filter entries by ID prefix (e.g. 'system:' returns all system entries)." }
+        }
+      }
+    },
+    {
+      "name": "knowledge-kb.setKnowledge",
+      "description": "Write or update a moduleKnowledge entry. Used to set agent constitutions, identities, and behavior configs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Knowledge entry ID (e.g. 'system:architect', 'system:programmer')." },
+          "content": { "type": "string", "description": "The knowledge content (constitution text, instructions, etc.)." }
+        },
+        "required": ["id", "content"]
+      }
+    },
+    {
+      "name": "knowledge-kb.getProjectConfig",
+      "description": "Read project configuration (constitution). Returns single config by id (repoUrl:branch) or all configs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Project config ID (format: 'repoUrl:branch'). Omit to list all." }
+        }
+      }
+    },
+    {
+      "name": "knowledge-kb.setProjectConfig",
+      "description": "Write or update a project configuration (constitution). Used to set per-repo project rules.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Project config ID (format: 'repoUrl:branch')." },
+          "constitution": { "type": "string", "description": "The project constitution text." }
+        },
+        "required": ["id", "constitution"]
+      }
     }
   ],
   "sandboxBindings": {
@@ -124,7 +169,11 @@
     "kb.saveDocument": "knowledge-kb.saveDocument",
     "kb.updateDocument": "knowledge-kb.updateDocument",
     "kb.deleteDocument": "knowledge-kb.deleteDocument",
-    "kb.queryDocs": "knowledge-kb.queryDocs"
+    "kb.queryDocs": "knowledge-kb.queryDocs",
+    "kb.getKnowledge": "knowledge-kb.getKnowledge",
+    "kb.setKnowledge": "knowledge-kb.setKnowledge",
+    "kb.getProjectConfig": "knowledge-kb.getProjectConfig",
+    "kb.setProjectConfig": "knowledge-kb.setProjectConfig"
   },
   "permissions": ["storage"],
   "enabled": true
