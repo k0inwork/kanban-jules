@@ -859,6 +859,8 @@ export default function App() {
             currentProjectId={currentProjectId}
             onProjectChange={handleProjectChange}
             onProjectDelete={handleProjectDelete}
+            githubToken={githubToken}
+            julesApiKey={moduleConfigs['executor-jules']?.julesApiKey}
           />
         </div>
 

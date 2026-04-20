@@ -8,9 +8,11 @@ interface Props {
   currentProjectId: string | null;
   onProjectChange: (project: Project) => void;
   onProjectDelete: () => void;
+  githubToken?: string;
+  julesApiKey?: string;
 }
 
-export default function ProjectDropdown({ currentProjectId, onProjectChange, onProjectDelete }: Props) {
+export default function ProjectDropdown({ currentProjectId, onProjectChange, onProjectDelete, githubToken, julesApiKey }: Props) {
   const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editProject, setEditProject] = useState<Project | undefined>(undefined);
@@ -158,6 +160,8 @@ export default function ProjectDropdown({ currentProjectId, onProjectChange, onP
           project={editProject}
           onSave={handleFormSave}
           onClose={() => { setShowForm(false); setEditProject(undefined); }}
+          githubToken={githubToken}
+          julesApiKey={julesApiKey}
         />
       )}
     </>
