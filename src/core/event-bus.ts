@@ -5,7 +5,8 @@ export type YuanEvent =
   | { kind: 'agent:tool_result', tool: string, success: boolean, output?: string }
   | { kind: 'agent:completed', summary: string }
   | { kind: 'agent:error', message: string }
-  | { kind: 'agent-message', from: string, messageType: string, payload: any, taskId?: string };
+  | { kind: 'agent-message', from: string, messageType: string, payload: any, taskId?: string }
+  | { kind: 'agent-message-response', content?: string };
 
 export type SystemEvent =
   | { type: 'project:review', data: any }

@@ -20,7 +20,7 @@ import openaiShimSource from './openai-shim.js?raw';
 import fleetToolsShimSource from './fleet-tools-shim.js?raw';
 import fsBridgeShimSource from './fs-bridge-shim.js?raw';
 import fastGlobShimSource from './fast-glob-shim.js?raw';
-import { yuanContext } from './yuan-context';
+import { yuanContext, conversationSearch } from './yuan-context';
 
 // --- Types ---
 type AlmostNodeContainer = {
@@ -383,6 +383,14 @@ function createAgentRunner(c: AlmostNodeContainer): void {
             return result;
           }
 
+          // Route conversationSearch to injected handler (pure JS, no WASM)
+          if (toolName === 'conversationSearch' && globalThis._conversationSearch) {
+            var searchResult = await globalThis._conversationSearch(args.query || '', args.limit || 5);
+            var dur = Date.now() - startTime;
+            console.log('[tool-exec] ← conversationSearch ok, ms:', dur);
+            return { tool_call_id: call.id, name: toolName, output: searchResult, success: true, durationMs: dur };
+          }
+
           // Route Fleet tools to boardVM.dispatchTool
           if (!boardVM || !boardVM.dispatchTool) {
             return { tool_call_id: call.id, name: toolName, output: 'Error: boardVM.dispatchTool not available', success: false, durationMs: Date.now() - startTime };
@@ -448,6 +456,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '3. SEARCH TOOLS:\\n';
       prompt += '   - web_search — search the web or fetch URLs\\n';
       prompt += '   - code_search — symbol-based code search\\n';
+      prompt += '   - conversationSearch(query) — search your past conversation history. Use SHORT KEYWORD queries (e.g. "auth middleware", "error handling"), not full sentences. Returns matching chunks with surrounding context. Use this to recall earlier discussions.\\n';
       prompt += '\\n';
 
       prompt += '4. BASH TOOLS (run shell commands inside the v86 VM):\\n';
@@ -807,7 +816,21 @@ export async function initYuanAgent(): Promise<void> {
   }
 
   // Inject tool definitions into globalThis for the sync runner to pick up
+  // Add conversationSearch as a virtual Fleet tool
+  toolDefs.push({
+    name: 'conversationSearch',
+    description: 'Search past Yuan conversation history by keywords. Use short keyword queries, not full sentences. Returns matching message chunks with context.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Short keywords to search for, e.g. "auth middleware" or "error handling"' },
+        limit: { type: 'number', description: 'Max result chunks (default 5)' }
+      },
+      required: ['query']
+    },
+  });
   (globalThis as any)._fleetToolDefs = toolDefs;
+  (globalThis as any)._conversationSearch = conversationSearch;
 
   console.log('[yuan-bootstrap] executing agent runner...');
   container.execute('require("/yuan-runner.js")');

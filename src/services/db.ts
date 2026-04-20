@@ -106,6 +106,13 @@ export interface KBDoc {
   project: string; // 'self' | 'target' (default: 'target')
 }
 
+export interface YuanHistory {
+  id?: number;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -118,6 +125,7 @@ export class MyDatabase extends Dexie {
   kbLog!: Table<KBEntry>;
   kbDocs!: Table<KBDoc>;
   pushQueue!: Table<PushQueueItem>;
+  yuanHistory!: Table<YuanHistory>;
 
   constructor() {
     super('AgentKanbanDB');
@@ -269,6 +277,20 @@ export class MyDatabase extends Dexie {
       kbLog: '++id, timestamp, category, abstraction, active, source, project',
       kbDocs: '++id, timestamp, title, type, active, source, project',
       pushQueue: '++id, branch, status, timestamp'
+    });
+    this.version(24).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName',
+      taskArtifactLinks: '++id, taskId, artifactId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp',
+      tasks: 'id, workflowStatus, agentState, createdAt',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project',
+      kbDocs: '++id, timestamp, title, type, active, source, project',
+      pushQueue: '++id, branch, status, timestamp',
+      yuanHistory: '++id, role, timestamp'
     });
   }
 }

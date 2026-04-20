@@ -92,7 +92,8 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
     "- kb.recordEntry({ text, category, abstraction, layer, tags, source }): Record an observation in the knowledge base. Use categories: 'error', 'observation', 'insight', 'decision', 'correction'. abstraction: 0=raw, 5=synthesized, 10=strategic. source: 'execution'. layer: ['L0'].",
     "- kb.queryLog({ category?, tags?, limit? }): Query the knowledge log for past observations, errors, or patterns.",
     "- kb.queryDocs({ type?, tags?, limit? }): Query knowledge documents (specs, designs, references).",
-    "- kb.saveDocument({ title, type, content, summary, tags, layer, source }): Save a document to the knowledge base."
+    "- kb.saveDocument({ title, type, content, summary, tags, layer, source }): Save a document to the knowledge base.",
+    "- conversationSearch(query): Search Yuan's past conversation history by keywords. Use SHORT keyword queries (e.g. 'auth middleware'), not full sentences. Returns matching chunks with context."
   ].join('\n');
 
   return `
