@@ -109,6 +109,13 @@ export interface KBDoc {
   project: string; // 'self' | 'target' (default: 'target')
 }
 
+export interface YuanHistory {
+  id?: number;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -121,6 +128,7 @@ export class MyDatabase extends Dexie {
   kbLog!: Table<KBEntry>;
   kbDocs!: Table<KBDoc>;
   pushQueue!: Table<PushQueueItem>;
+  yuanHistory!: Table<YuanHistory>;
 
   constructor() {
     super('AgentKanbanDB');
@@ -284,7 +292,8 @@ export class MyDatabase extends Dexie {
       moduleKnowledge: 'id',
       kbLog: '++id, timestamp, category, abstraction, active, source, project',
       kbDocs: '++id, timestamp, title, type, active, source, project',
-      pushQueue: '++id, branch, status, timestamp'
+      pushQueue: '++id, branch, status, timestamp',
+      yuanHistory: '++id, role, timestamp'
     }).upgrade(tx => {
       return tx.table('taskArtifacts').toCollection().modify(artifact => {
         if (!artifact.status) artifact.status = 'draft';
@@ -301,7 +310,8 @@ export class MyDatabase extends Dexie {
       moduleKnowledge: 'id',
       kbLog: '++id, timestamp, category, abstraction, active, source, project',
       kbDocs: '++id, timestamp, title, type, active, source, project',
-      pushQueue: '++id, branch, status, timestamp'
+      pushQueue: '++id, branch, status, timestamp',
+      yuanHistory: '++id, role, timestamp'
     }).upgrade(tx => {
       return tx.table('taskArtifacts').toCollection().modify(artifact => {
         if (artifact.status === 'reviewed') artifact.status = 'in_review';

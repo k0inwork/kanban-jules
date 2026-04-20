@@ -202,8 +202,6 @@ export default function App() {
     setIsReviewing(true);
     try {
       eventBus.emit('project:review', {});
-      setSidebarMode('mailbox');
-      setIsRepoBrowserOpen(true);
     } catch (error) {
       console.error("Review failed:", error);
     } finally {
@@ -834,7 +832,11 @@ export default function App() {
 
         <div className="flex items-center space-x-4">
           <button
-            onClick={(e) => handleReviewProject(e)}
+            onClick={(e) => {
+              handleReviewProject(e);
+              setSidebarMode('mailbox');
+              setIsRepoBrowserOpen(true);
+            }}
             disabled={isReviewing}
             className={cn(
               "p-2 rounded-md transition-all",

@@ -824,3 +824,121 @@ async function generateDecisionLog(): Promise<string> {
 
   return `Decision log generated (${decisions.length} decisions).`;
 }
+
+/**
+ * watchdogDream — the only dream that can ACT.
+ *
+ * Scans recent dream/reflection outputs for actionable findings,
+ * checks if any IN_PROGRESS task is affected, and sends
+ * intervention or alert via AgentBus if so.
+ *
+ * Filter logic:
+ *   1. Source starts with 'dream:' or 'reflection:' (actionable findings)
+ *   2. Categories that warrant action: error, observation (with error/gap tags)
+ *   3. Cross-reference tags with IN_PROGRESS task IDs
+ *
+ * Action types:
+ *   - intervention → orchestrator (pause/stop a task)
+ *   - alert → process-agent (notify, no interruption)
+ */
+export async function watchdogDream(context: RequestContext): Promise<string> {
+  // 1. Get all IN_PROGRESS tasks
+  const runningTasks = await db.tasks
+    .filter(t => t.workflowStatus === 'IN_PROGRESS')
+    .toArray();
+
+  if (runningTasks.length === 0) {
+    return 'Watchdog: no running tasks, nothing to watch.';
+  }
+
+  const runningTaskIds = new Set(runningTasks.map(t => t.id));
+
+  // 2. Get recent dream/reflection outputs that are actionable
+  const recentCutoff = Date.now() - 30 * 60 * 1000; // last 30 minutes
+  const findings = await db.kbLog
+    .filter(e =>
+      e.active &&
+      e.timestamp >= recentCutoff &&
+      (
+        e.source.startsWith('dream:') ||
+        e.source.startsWith('reflection:')
+      ) &&
+      (
+        e.category === 'error' ||
+        (e.category === 'observation' && (
+          e.tags.some(t => t === 'gap' || t === 'error' || t === 'conflict')
+        )) ||
+        e.category === 'insight' ||
+        e.category === 'correction'
+      )
+    )
+    .toArray();
+
+  if (findings.length === 0) {
+    return `Watchdog: no actionable findings. ${runningTasks.length} tasks running.`;
+  }
+
+  // 3. Match findings to running tasks
+  const actions: { finding: typeof findings[0]; taskIds: string[]; severity: 'intervention' | 'alert' }[] = [];
+
+  for (const finding of findings) {
+    const affectedTaskIds = finding.tags.filter(t => runningTaskIds.has(t));
+
+    // Also check if finding mentions an executor/module that a running task uses
+    if (affectedTaskIds.length === 0) {
+      // Broader match: finding mentions something that could affect any running task
+      // e.g. "executor-local fails" should match tasks using executor-local
+      const executorTags = finding.tags.filter(t => t.startsWith('executor-'));
+      if (executorTags.length > 0) {
+        for (const task of runningTasks) {
+          // Check task's executor or module logs for matching executor
+          const taskExecutors = task.steps?.map(s => s.executor).filter(Boolean) || [];
+          if (taskExecutors.some(ex => executorTags.includes(ex))) {
+            affectedTaskIds.push(task.id);
+          }
+        }
+      }
+    }
+
+    if (affectedTaskIds.length === 0) continue;
+
+    // Determine severity
+    const isCritical =
+      finding.category === 'error' ||
+      finding.tags.includes('conflict') ||
+      (finding.category === 'correction' && finding.abstraction >= 5);
+
+    actions.push({
+      finding,
+      taskIds: [...new Set(affectedTaskIds)],
+      severity: isCritical ? 'intervention' : 'alert',
+    });
+  }
+
+  if (actions.length === 0) {
+    return `Watchdog: ${findings.length} findings scanned, none match running tasks.`;
+  }
+
+  // 4. Send messages via AgentBus
+  const { AgentBus } = await import('../../core/agent-bus');
+  const sent: string[] = [];
+
+  for (const action of actions) {
+    const msg = AgentBus.send({
+      from: 'watchdog',
+      to: action.severity === 'intervention' ? 'orchestrator' : 'process-agent',
+      type: action.severity,
+      payload: {
+        action: action.severity === 'intervention' ? 'pause' : 'notify',
+        taskIds: action.taskIds,
+        reason: action.finding.text,
+        source: action.finding.source,
+        findingCategory: action.finding.category,
+        findingAbs: action.finding.abstraction,
+      },
+    });
+    sent.push(`${action.severity} → ${action.taskIds.join(',')}: ${action.finding.text.slice(0, 80)}`);
+  }
+
+  return `Watchdog: ${sent.length} actions taken.\n${sent.join('\n')}`;
+}

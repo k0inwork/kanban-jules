@@ -31,6 +31,14 @@
         "type": "object",
         "properties": {}
       }
+    },
+    {
+      "name": "process-dream.watchdogDream",
+      "description": "Watchdog dream: scans recent dream/reflection findings, checks if any IN_PROGRESS task is affected, sends intervention or alert via agent bus.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
     }
   ],
   "sandboxBindings": {},

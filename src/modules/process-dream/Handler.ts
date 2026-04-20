@@ -1,5 +1,5 @@
 import { RequestContext } from '../../core/types';
-import { microDream, sessionDream, deepDream } from './dream-levels';
+import { microDream, sessionDream, deepDream, watchdogDream } from './dream-levels';
 import { ReflectionHandler } from '../process-reflection/Handler';
 
 export class DreamHandler {
@@ -8,7 +8,7 @@ export class DreamHandler {
       case 'process-dream.microDream':
         return microDream(args[0]?.taskId, context);
       case 'process-dream.sessionDream': {
-        // Phase 3: After session-dream extracts patterns, trigger reflection
+        // Phase 3: After session-dream extracts patterns, trigger reflection then watchdog
         const dreamResult = await sessionDream(context);
         let reflectionResult = null;
         try {
@@ -18,10 +18,26 @@ export class DreamHandler {
         } catch {
           // Reflection failure should not block dream cycle
         }
-        return { dream: dreamResult, reflection: reflectionResult };
+        let watchdogResult = null;
+        try {
+          watchdogResult = await watchdogDream(context);
+        } catch {
+          // Watchdog failure should not block dream cycle
+        }
+        return { dream: dreamResult, reflection: reflectionResult, watchdog: watchdogResult };
       }
-      case 'process-dream.deepDream':
-        return deepDream(context);
+      case 'process-dream.deepDream': {
+        const dreamResult = await deepDream(context);
+        let watchdogResult = null;
+        try {
+          watchdogResult = await watchdogDream(context);
+        } catch {
+          // Watchdog failure should not block dream cycle
+        }
+        return { dream: dreamResult, watchdog: watchdogResult };
+      }
+      case 'process-dream.watchdogDream':
+        return watchdogDream(context);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }

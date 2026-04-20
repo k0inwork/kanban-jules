@@ -153,7 +153,7 @@ async function julesRequest<T>(
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+      const timeoutId = setTimeout(() => controller.abort('Jules API call timed out after 60 seconds'), 60000); // 60s timeout
 
       try {
         const response = await fetch(url, {

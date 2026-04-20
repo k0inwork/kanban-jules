@@ -115,8 +115,25 @@ self.onmessage = async (event) => {
       }
 
       // 2. Inject allowed tools based on sandboxBindings
+      // Sval doesn't support dotted names in import() — group them into nested objects
+      const namespaces: Record<string, Record<string, any>> = {};
+      const plain: Record<string, any> = {};
       for (const [bindingName, toolName] of Object.entries(sandboxBindings)) {
-        interpreter.import(bindingName, createToolHandler(toolName, permissions));
+        const dotIndex = bindingName.indexOf('.');
+        if (dotIndex !== -1) {
+          const ns = bindingName.substring(0, dotIndex);
+          const method = bindingName.substring(dotIndex + 1);
+          if (!namespaces[ns]) namespaces[ns] = {};
+          namespaces[ns][method] = createToolHandler(toolName, permissions);
+        } else {
+          plain[bindingName] = createToolHandler(toolName, permissions);
+        }
+      }
+      for (const [ns, methods] of Object.entries(namespaces)) {
+        interpreter.import(ns, methods);
+      }
+      for (const [name, fn] of Object.entries(plain)) {
+        interpreter.import(name, fn);
       }
 
       // 3. Define AgentContext using tool bindings

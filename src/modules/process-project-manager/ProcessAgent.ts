@@ -3,6 +3,7 @@ import { RequestContext } from '../../core/types';
 import { KBHandler } from '../knowledge-kb/Handler';
 import { ProjectorHandler } from '../knowledge-projector/Handler';
 import { ArtifactTool } from '../knowledge-artifacts/ArtifactTool';
+import { messageQueue } from '../../core/message-queue';
 
 const MAX_ITERATIONS = 10;
 const MAX_TOTAL_TOKENS = 80_000;       // ~80k chars ≈ 20k tokens rough estimate
@@ -217,6 +218,12 @@ export class ProcessAgent {
     let consecutiveErrors = 0;
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
+      // ── Agent bus: drain incoming messages into iteration log ──
+      let msg;
+      while ((msg = messageQueue.poll('process-agent'))) {
+        this.iterationLog.push(`INCOMING: [${msg.type}] from ${msg.from}: ${JSON.stringify(msg.payload).substring(0, 200)}`);
+      }
+
       // ── Wall-clock timeout check ──
       if (Date.now() - startTime > WALL_CLOCK_TIMEOUT_MS) {
         console.log('[ProcessAgent] Wall-clock timeout exceeded. Stopping.');

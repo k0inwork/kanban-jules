@@ -8,6 +8,8 @@ import { AgentContext } from '../services/AgentContext';
 import { Sandbox, injectBindings } from './sandbox';
 import { GitFs } from '../services/GitFs';
 import { evaluateBranch } from '../services/BranchEvaluator';
+import { messageQueue } from './message-queue';
+import { AgentMessage } from './agent-message';
 import { pushQueue } from '../services/PushQueue';
 import { ProjectorHandler } from '../modules/knowledge-projector/Handler';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
@@ -15,6 +17,7 @@ import { KBHandler } from '../modules/knowledge-kb/Handler';
 export class Orchestrator {
   private config: OrchestratorConfig | null = null;
   private context: { accumulatedAnalysis: string[] } = { accumulatedAnalysis: [] };
+  private abortControllers: Map<string, AbortController> = new Map();
 
   init(config: OrchestratorConfig) {
     this.config = config;
@@ -137,7 +140,7 @@ export class Orchestrator {
       };
 
       eventBus.on('module:response', handler);
-      eventBus.emit('module:request', { requestId, taskId, toolName, args });
+      eventBus.emit('module:request', { requestId, taskId, toolName, args, abortSignal: this.abortControllers.get(taskId)?.signal });
     });
   }
 
@@ -301,6 +304,7 @@ export class Orchestrator {
       'kb.queryLog': 'knowledge-kb.queryLog',
       'kb.saveDocument': 'knowledge-kb.saveDocument',
       'kb.queryDocs': 'knowledge-kb.queryDocs',
+      'agent.sendMessage': 'core-agent-bus.sendMessage',
     };
 
     this.context.accumulatedAnalysis = [];
@@ -352,8 +356,46 @@ export class Orchestrator {
     eventBus.emit('task:manual-trigger', { taskId: task.id });
   }
 
+  /** Poll agent bus for interventions targeting this task */
+  private pollIntervention(taskId: string): AgentMessage | undefined {
+    const msg = messageQueue.poll('orchestrator');
+    if (msg?.type === 'intervention' && (!msg.taskId || msg.taskId === taskId)) {
+      return msg;
+    }
+    // Not an intervention for us — put it back by re-delivering
+    if (msg) messageQueue.deliver(msg);
+    return undefined;
+  }
+
+  /** Handle an intervention message (pause, cancel, replan) */
+  private async handleIntervention(msg: AgentMessage, taskId: string, appendLog: (text: string) => Promise<void>) {
+    const { action, reason } = msg.payload || {};
+    await appendLog(`> [Orchestrator] Intervention from ${msg.from}: ${action}${reason ? ` — ${reason}` : ''}\n`);
+
+    switch (action) {
+      case 'pause':
+        await db.tasks.update(taskId, { workflowStatus: 'IN_PROGRESS', agentState: 'PAUSED' });
+        await appendLog(`> [Orchestrator] Task paused.\n`);
+        break;
+      case 'cancel':
+        this.abortControllers.get(taskId)?.abort('Task cancelled by intervention');
+        await db.tasks.update(taskId, { workflowStatus: 'TODO', agentState: 'IDLE' });
+        await appendLog(`> [Orchestrator] Task cancelled.\n`);
+        break;
+      case 'replan':
+        // Clear protocol so architect re-runs on next processTask
+        await db.tasks.update(taskId, { protocol: undefined });
+        await appendLog(`> [Orchestrator] Protocol cleared — will re-plan on resume.\n`);
+        break;
+    }
+  }
+
   async processTask(task: Task, appendLog: (text: string) => Promise<void>) {
     if (!this.config) throw new Error("Orchestrator not initialized");
+
+    // Per-task abort controller — allows intervention to cancel running executors
+    const abortController = new AbortController();
+    this.abortControllers.set(task.id, abortController);
 
     // Per-task agent context — prevents clobbering when multiple tasks run concurrently
     const agentContext = new AgentContext();
@@ -446,6 +488,16 @@ export class Orchestrator {
       let pendingStep = currentTask?.protocol?.steps.find(s => s.status === 'pending' || s.status === 'in_progress');
       
       while (pendingStep) {
+        // ── Agent bus: check for interventions between steps ──
+        const intervention = this.pollIntervention(task.id);
+        if (intervention) {
+          await this.handleIntervention(intervention, task.id, appendLog);
+          if (intervention.payload.action === 'cancel' || intervention.payload.action === 'pause') {
+            status = 'PAUSED';
+            break;
+          }
+        }
+
         if (pendingStep.status === 'pending') {
           const updatedSteps = (await db.tasks.get(task.id))!.protocol!.steps.map(s => 
             s.id === pendingStep!.id ? { ...s, status: 'in_progress' as const } : s
@@ -548,10 +600,12 @@ export class Orchestrator {
       const isSessionMissing = error.status === 404 || error.message?.includes('not found');
       const nextWorkflowStatus: WorkflowStatus = isSessionMissing ? 'TODO' : 'IN_REVIEW';
       const nextAgentState: AgentState = 'ERROR';
-      
+
       await appendLog(`\n\n[FATAL ERROR] ${error.message}`);
       await db.tasks.update(task.id, { workflowStatus: nextWorkflowStatus, agentState: nextAgentState, agentId: undefined });
       throw error;
+    } finally {
+      this.abortControllers.delete(task.id);
     }
   }
 }

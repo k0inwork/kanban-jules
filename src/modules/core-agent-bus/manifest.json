@@ -1,0 +1,28 @@
+{
+  "id": "core-agent-bus",
+  "name": "Agent Bus",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Inter-agent messaging. Send messages between agents (yuan, orchestrator, process-agent, etc).",
+  "tools": [
+    {
+      "name": "core-agent-bus.sendMessage",
+      "description": "Send a message to another agent. Args: { from, to, type, payload, taskId?, replyTo? }",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string", "description": "Sender agent id" },
+          "to": { "type": "string", "description": "Recipient agent id or 'broadcast'" },
+          "type": { "type": "string", "description": "info|alert|request|reply|directive|proposal|status|intervention" },
+          "payload": { "type": "object", "description": "Message payload" },
+          "taskId": { "type": "string" },
+          "replyTo": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "sandboxBindings": {
+    "agent.sendMessage": "core-agent-bus.sendMessage"
+  },
+  "permissions": []
+}

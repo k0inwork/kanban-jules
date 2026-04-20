@@ -13,7 +13,8 @@ export class JulesNegotiator {
     branch: string,
     prompt: string,
     successCriteria: string,
-    llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>
+    llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>,
+    abortSignal?: AbortSignal
   ): Promise<string> {
     
     console.log(`[JulesNegotiator] Negotiating with key: ${julesApiKey ? 'PRESENT' : 'MISSING'}`);
@@ -93,7 +94,15 @@ export class JulesNegotiator {
       // Poll loop
       while (true) {
         await new Promise(r => setTimeout(r, 5000)); // Poll every 5s
-        
+
+        // Cancel check
+        if (abortSignal?.aborted) {
+          appendJnaLog(`Cancelled by abort signal. Deleting Jules session.`);
+          try { await julesApi.deleteSession(julesApiKey, session.name); } catch {}
+          await db.julesSessions.where('name').equals(session.name).delete();
+          throw new Error(`Jules execution cancelled.`);
+        }
+
         if (Date.now() - startTime > MAX_WAIT_MS) {
           throw new Error("Jules timeout: No final response after 15 minutes.");
         }

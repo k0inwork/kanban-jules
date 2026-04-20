@@ -551,6 +551,14 @@ export class AgentTreeModel {
         break;
       }
 
+      case 'agent-message-response': {
+        this.markAllRunningCompleted(root);
+        root.state = 'completed';
+        root.detail = (ev as any).content?.slice(0, 100);
+        this.emit();
+        break;
+      }
+
       case 'agent:error': {
         root.state = 'error';
         root.detail = ev.message?.slice(0, 100);
