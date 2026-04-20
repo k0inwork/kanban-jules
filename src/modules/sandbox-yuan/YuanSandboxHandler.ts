@@ -61,7 +61,24 @@ export class YuanSandboxHandler {
     };
 
     for (const [bindingName, qualifiedName] of Object.entries(sandboxBindings)) {
-      interpreter.import(bindingName, toolHandler(qualifiedName));
+      const dotIndex = bindingName.indexOf('.');
+      if (dotIndex !== -1) {
+        // Sval doesn't support dotted import names — group into nested objects
+        const ns = bindingName.substring(0, dotIndex);
+        const method = bindingName.substring(dotIndex + 1);
+        // Merge with existing namespace object
+        const existing = (interpreter as any).__namespaces || {};
+        if (!existing[ns]) existing[ns] = {};
+        existing[ns][method] = toolHandler(qualifiedName);
+        (interpreter as any).__namespaces = existing;
+      } else {
+        interpreter.import(bindingName, toolHandler(qualifiedName));
+      }
+    }
+    // Import namespace objects
+    const ns = (interpreter as any).__namespaces || {};
+    for (const [name, methods] of Object.entries(ns)) {
+      interpreter.import(name, methods);
     }
 
     // Inject console

@@ -6,7 +6,8 @@ export class UserNegotiator {
     taskId: string,
     question: string,
     format?: string,
-    llmCall?: (prompt: string) => Promise<string>
+    llmCall?: (prompt: string) => Promise<string>,
+    agentId: string = 'local-agent'
   ): Promise<string> {
 
     const task = await db.tasks.get(taskId);
@@ -21,7 +22,7 @@ export class UserNegotiator {
     // Check if we already asked this question
     const existingMsg = await db.messages
       .where('taskId').equals(taskId)
-      .filter(m => m.sender === 'local-agent' && m.content === question)
+      .filter(m => m.sender === agentId && m.content === question)
       .first();
 
     let messageId: number;
@@ -47,7 +48,7 @@ export class UserNegotiator {
       appendUnaLog(`Sending new question to user: "${question}"`);
       questionTimestamp = Date.now();
       messageId = await db.messages.add({
-        sender: 'local-agent',
+        sender: agentId,
         taskId: taskId,
         type: 'alert',
         content: question,
@@ -91,7 +92,7 @@ export class UserNegotiator {
     return reply;
   }
 
-  static async sendMessage(taskId: string, message: string): Promise<string> {
+  static async sendMessage(taskId: string, message: string, agentId: string = 'local-agent'): Promise<string> {
     const appendUnaLog = (msg: string) => {
       eventBus.emit('module:log', { taskId, moduleId: 'channel-user-negotiator', message: msg });
     };
@@ -99,7 +100,7 @@ export class UserNegotiator {
     appendUnaLog(`Sending message to user: "${message}"`);
 
     await db.messages.add({
-      sender: 'local-agent',
+      sender: agentId,
       taskId: taskId,
       type: 'alert',
       content: message,

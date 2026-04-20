@@ -37,6 +37,9 @@ import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutor
 import boardManifest from '../modules/knowledge-board/manifest.json';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 
+import agentBusManifest from '../modules/core-agent-bus/manifest.json';
+import { AgentBus } from './agent-bus';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -56,9 +59,15 @@ export class ModuleRegistry {
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
     { ...claudeExecutorManifest, enabled: true, init: ClaudeExecutorHandler.init, destroy: () => {} },
     { ...boardManifest, enabled: true, init: BoardTool.init, destroy: () => {} },
+    { ...agentBusManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();
+  private interceptor?: (toolName: string, args: any[], context: RequestContext, result: any, durationMs: number) => void;
+
+  setInterceptor(fn: (toolName: string, args: any[], context: RequestContext, result: any, durationMs: number) => void) {
+    this.interceptor = fn;
+  }
 
   registerHandler(toolName: string, handler: (toolName: string, args: any[], context: RequestContext) => Promise<any>) {
     this.handlers.set(toolName, handler);
@@ -82,7 +91,10 @@ export class ModuleRegistry {
     if (!handler) {
       throw new Error(`No handler registered for tool: ${toolName}`);
     }
-    return handler(toolName, args, context);
+    const start = Date.now();
+    const result = await handler(toolName, args, context);
+    this.interceptor?.(toolName, args, context, result, Date.now() - start);
+    return result;
   }
 
   /** Look up timeout: tool-level > module-level > default */

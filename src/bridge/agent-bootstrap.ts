@@ -20,6 +20,7 @@ import openaiShimSource from './openai-shim.js?raw';
 import fleetToolsShimSource from './fleet-tools-shim.js?raw';
 import fsBridgeShimSource from './fs-bridge-shim.js?raw';
 import fastGlobShimSource from './fast-glob-shim.js?raw';
+import { yuanContext } from './yuan-context';
 
 // --- Types ---
 type AlmostNodeContainer = {
@@ -577,6 +578,31 @@ function createAgentRunner(c: AlmostNodeContainer): void {
     // Capture last LLM response text for fallback when agent errors
     globalThis._lastLLMText = '';
 
+    // --- Agent bus message injection: buffer incoming agent messages, inject into LLM context ---
+    globalThis._agentMsgBuffer = [];
+    globalThis._agentMsgWakeTimer = null;
+    globalThis.boardVM.on('yuan:event', function(ev) {
+      if (!ev || ev.kind !== 'agent-message') return;
+      globalThis._agentMsgBuffer.push(ev);
+      console.log('[yuan-runner] agent message from', ev.from, ':', String(ev.payload || '').substring(0, 200));
+      // Schedule wake-up in 10s — coalesces multiple messages arriving close together
+      clearTimeout(globalThis._agentMsgWakeTimer);
+      globalThis._agentMsgWakeTimer = setTimeout(function() {
+        var yStatus = globalThis.boardVM.yuan && globalThis.boardVM.yuan.status && globalThis.boardVM.yuan.status();
+        console.log('[yuan-runner] agent-msg wake-up: status=' + yStatus + ' buffer=' + (globalThis._agentMsgBuffer || []).length + ' agent=' + !!globalThis._yuanAgent);
+        if (yStatus !== 'idle' || globalThis._agentMsgBuffer.length === 0) {
+          console.log('[yuan-runner] agent-msg wake-up SKIPPED (not idle or empty buffer)');
+          return;
+        }
+        var lines = globalThis._agentMsgBuffer.map(function(m) {
+          return '[' + m.messageType + '] from ' + m.from + ': ' + JSON.stringify(m.payload).substring(0, 300);
+        });
+        var msg = '[agent-message] You received messages while idle:\\n' + lines.join('\\n') + '\\n\\nReview and act if needed.';
+        globalThis._agentMsgBuffer = [];
+        globalThis._yuanRunWithCallback(msg);
+      }, 10000);
+    });
+
     // --- Async task injection: inject completed async results into LLM context ---
     globalThis._yuanWakeUp = function() {
       var finished = globalThis._asyncTasks ? globalThis._asyncTasks.getFinished() : [];
@@ -618,6 +644,21 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         globalThis._asyncTasks.clearFinished();
         console.log('[yuan-runner] Injected', finished.length, 'async results into LLM context');
       }
+      // Inject pending agent bus messages
+      var pending = globalThis._agentMsgBuffer || [];
+      if (pending.length > 0) {
+        globalThis._agentMsgBuffer = [];
+        clearTimeout(globalThis._agentMsgWakeTimer);
+        var agentLines = pending.map(function(m) {
+          return '[' + m.messageType + '] from ' + m.from + ': ' + JSON.stringify(m.payload).substring(0, 300);
+        });
+        try {
+          if (reqJSON && reqJSON.messages) {
+            reqJSON.messages.push({ role: 'system', content: '[agent-messages]\\n' + agentLines.join('\\n') + '\\n\\nThese messages arrived while you were running. Acknowledge and act if needed.' });
+          }
+        } catch(e) { console.warn('[yuan-runner] Failed to inject agent messages:', e); }
+        console.log('[yuan-runner] Injected', pending.length, 'agent messages into LLM context');
+      }
       console.log('[yuan-runner] llmfs.sendRequest →');
       var resp = await _origSendRequest.call(globalThis.boardVM.llmfs, reqJSON);
       try {
@@ -642,15 +683,16 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         if (cb && cb._onError) cb._onError(new Error('Agent not initialized'));
         return;
       }
-      // Clear context history so each message starts fresh (no accumulation)
+      // Sync conversation history from yuanContext into agent's contextManager
       try {
-        globalThis._yuanAgent.contextManager.clear();
-        // Re-add system prompt (clear() removes it; run() will replaceSystemMessage via criticalInit)
-        globalThis._yuanAgent.contextManager.addMessage({
-          role: 'system',
-          content: globalThis._yuanAgent.config.loop.systemPrompt
-        });
-      } catch(e) { console.warn('[yuan-runner] contextManager.clear failed:', e); }
+        var msgs = yuanContext.buildMessages(message);
+        if (globalThis._yuanAgent.contextManager) {
+          globalThis._yuanAgent.contextManager.clear();
+          for (var mi = 0; mi < msgs.length; mi++) {
+            globalThis._yuanAgent.contextManager.addMessage(msgs[mi]);
+          }
+        }
+      } catch(e) { console.warn('[yuan-runner] yuanContext sync failed:', e); }
       // Prepend English-only instruction to user message so it survives criticalInit's system prompt replacement
       var englishPrefix = '[System: You MUST respond in English only.]\\n\\n';
       var enrichedMessage = englishPrefix + message;
@@ -662,7 +704,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       // Run with a 5-minute timeout so the UI never hangs forever
       var _runTimeout = setTimeout(function() {
         console.error('[yuan-runner] TIMEOUT — aborting agent after 300s');
-        try { globalThis._yuanAgent.abort(); } catch(e) {}
+        try { globalThis._yuanAgent.abort('Yuan agent timed out after 300 seconds'); } catch(e) {}
         var cbt = globalThis.boardVM && globalThis.boardVM.yuan;
         var fallbackText = globalThis._lastLLMText ? '\x1b[33m[timeout-fallback]\x1b[0m ' + globalThis._lastLLMText : 'Agent timed out after 300 seconds.';
         if (cbt && cbt._onResult) cbt._onResult(fallbackText);
@@ -682,8 +724,16 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         console.log('═══════ [yuan-runner] END RESULT ═══════');
         // Prefer the actual LLM content over generic summaries like "Task completed"
         var text = globalThis._lastLLMText || (result && result.summary) || '';
+        // Record exchange in persistent context for memory across runs
+        try { yuanContext.recordExchange(message, text); } catch(e) {}
         var cb = globalThis.boardVM && globalThis.boardVM.yuan;
-        if (cb && cb._onResult) cb._onResult(text || 'completed');
+        if (cb && cb._onResult) {
+          cb._onResult(text || 'completed');
+        } else {
+          // No explicit listener (e.g. wake-up from agent bus) — emit to UI
+          console.log('[yuan-runner] no _onResult listener, emitting yuan:agent-response');
+          if (globalThis.boardVM) globalThis.boardVM.emit('yuan:event', { kind: 'agent-message-response', content: text || 'completed' });
+        }
       }).catch(function(err) {
         clearTimeout(_runTimeout);
         console.error('═══════ [yuan-runner] RUN ERROR ═══════');

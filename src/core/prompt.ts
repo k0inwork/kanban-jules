@@ -85,7 +85,8 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
 
   const commonTools = [
     "- askUser(prompt): Asks the user for input or clarification. Pauses execution until they reply.",
-    "- sendUser(message): Sends a message to the user without waiting for a reply. Use this to report final results.",
+    "- sendUser(message): Sends a message to the user without waiting for a reply. IMPORTANT: Only use for user-facing updates that belong in the mailbox. Do NOT use sendUser() to confirm tool calls or report intermediate results — use addToContext() instead.",
+    "- agent.sendMessage({ to, type, payload }): Send a message to another agent (e.g. 'yuan') or 'broadcast'. type: 'info'|'alert'|'proposal'. payload: any object. Use this for inter-agent communication.",
     "- analyze(data, options?): Analyzes the provided data using an LLM and adds the summary to the AgentContext. options: { includeContext?: boolean } (default: true). Set includeContext: false for a 'clean' analysis of only the provided data.",
     "- addToContext(key, value): Directly adds a key-value pair to the AgentContext. If only one argument is provided, it directly appends the data to the context without an LLM call.",
     "- kb.recordEntry({ text, category, abstraction, layer, tags, source }): Record an observation in the knowledge base. Use categories: 'error', 'observation', 'insight', 'decision', 'correction'. abstraction: 0=raw, 5=synthesized, 10=strategic. source: 'execution'. layer: ['L0'].",

@@ -1,5 +1,6 @@
 import { UserNegotiator } from '../../services/negotiators/UserNegotiator';
 import { RequestContext } from '../../core/types';
+import { AgentId } from '../../core/agent-message';
 
 export class UserHandler {
   async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<any> {
@@ -24,10 +25,10 @@ export class UserHandler {
       [question, format] = args;
     }
 
-    return UserNegotiator.negotiate(context.taskId, question, format, context.llmCall);
+    return UserNegotiator.negotiate(context.taskId, question, format, context.llmCall, 'orchestrator');
   }
 
-  private async sendUser(args: any[], context: RequestContext): Promise<void> {
+  private async sendUser(args: any[], context: RequestContext): Promise<string> {
     let message: string;
 
     if (args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])) {
@@ -36,6 +37,6 @@ export class UserHandler {
       message = args[0];
     }
 
-    return UserNegotiator.sendMessage(context.taskId, message);
+    return UserNegotiator.sendMessage(context.taskId, message, 'orchestrator');
   }
 }

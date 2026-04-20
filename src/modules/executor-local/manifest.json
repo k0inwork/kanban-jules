@@ -33,7 +33,8 @@
     "kb.recordEntry": "knowledge-kb.recordEntry",
     "kb.queryLog": "knowledge-kb.queryLog",
     "kb.queryDocs": "knowledge-kb.queryDocs",
-    "kb.saveDocument": "knowledge-kb.saveDocument"
+    "kb.saveDocument": "knowledge-kb.saveDocument",
+    "agent.sendMessage": "core-agent-bus.sendMessage"
   },
   "permissions": ["storage"],
   "enabled": true

@@ -40,7 +40,8 @@ export class JulesHandler {
       context.repoBranch,
       prompt,
       successCriteria || 'Task completed successfully',
-      context.llmCall
+      context.llmCall,
+      context.abortSignal
     );
   }
 }

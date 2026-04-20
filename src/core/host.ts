@@ -23,6 +23,7 @@ import { pushQueue } from '../services/PushQueue';
 import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandler';
 import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
+import { AgentBus } from './agent-bus';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -89,7 +90,7 @@ export class ModuleHost {
       }
     });
 
-    eventBus.on('module:request', async ({ requestId, taskId, toolName, args }) => {
+    eventBus.on('module:request', async ({ requestId, taskId, toolName, args, abortSignal }) => {
       try {
         const moduleId = toolName.split('.')[0];
         const task = taskId ? await db.tasks.get(taskId) : null;
@@ -101,13 +102,28 @@ export class ModuleHost {
           taskDir: task?.branchDir,
           branchName: task?.branchName,
           llmCall: this.llmCall.bind(this),
-          moduleConfig: this.config?.moduleConfigs?.[moduleId] || {}
+          moduleConfig: this.config?.moduleConfigs?.[moduleId] || {},
+          abortSignal
         };
         const result = await registry.invokeHandler(toolName, args, context);
         eventBus.emit('module:response', { requestId, result });
       } catch (error: any) {
         eventBus.emit('module:response', { requestId, result: null, error: error.message });
       }
+    });
+
+    // Agent bus → Yuan UI: forward agent messages to the Yuan event stream
+    eventBus.on('agent:message', (msg: any) => {
+      if (msg.to !== 'yuan' && msg.to !== 'broadcast') return;
+      if (msg.from === 'yuan') return; // skip self-echo
+      console.log('[host] agent:message → yuan:event', msg.from, msg.type);
+      eventBus.emit('yuan:event', {
+        kind: 'agent-message',
+        from: msg.from,
+        messageType: msg.type,
+        payload: msg.payload,
+        taskId: msg.taskId,
+      });
     });
   }
 
@@ -120,7 +136,7 @@ export class ModuleHost {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+        const timeoutId = setTimeout(() => controller.abort('LLM call timed out after 60 seconds'), 60000); // 60s timeout
         
         try {
           const llmPromise = (async () => {
@@ -239,6 +255,14 @@ export class ModuleHost {
     registry.registerModuleHandlers('bash-executor', bashHandler.handleRequest.bind(bashHandler));
     registry.registerModuleHandlers('executor-claude', claudeHandler.handleRequest.bind(claudeHandler));
     registry.registerModuleHandlers('knowledge-board', BoardTool.handleRequest);
+
+    // Agent bus — sandbox agents call agent.sendMessage to emit inter-agent messages
+    registry.registerHandler('core-agent-bus.sendMessage', AgentBus.handleRequest);
+
+    // Trace interceptor — every tool call emits a trace event
+    registry.setInterceptor((toolName, args, ctx, result, durationMs) => {
+      eventBus.emit('trace:tool-call', { toolName, taskId: ctx.taskId, durationMs, timestamp: Date.now() });
+    });
 
     // host.agentContextGet/Set handled per-task in orchestrator.moduleRequest
   }

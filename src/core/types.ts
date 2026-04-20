@@ -63,6 +63,7 @@ export interface RequestContext {
   branchName?: string;   // task branch name (e.g. 'task/550e8400')
   llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
   moduleConfig: any;
+  abortSignal?: AbortSignal;
 }
 
 export interface HostConfig {
