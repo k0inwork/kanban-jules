@@ -17,13 +17,20 @@ vi.mock('../../services/db', () => ({
       update: vi.fn(),
     },
     messages: { add: vi.fn() },
+    projectConfigs: { get: vi.fn() },
   },
-  ArtifactStatus: { draft: 'draft', reviewed: 'reviewed', approved: 'approved' },
+  ArtifactStatus: { draft: 'draft', in_review: 'in_review', revised: 'revised', approved: 'approved' },
 }));
 
 vi.mock('../knowledge-kb/Handler', () => ({
   KBHandler: {
     handleRequest: vi.fn(),
+  },
+}));
+
+vi.mock('../knowledge-artifacts/ArtifactTool', () => ({
+  ArtifactTool: {
+    updateStatus: vi.fn(),
   },
 }));
 
@@ -157,6 +164,8 @@ describe('ProcessAgent', () => {
       const fakeFilter = { first: vi.fn().mockResolvedValue({ id: 1, name: 'x' }) };
       const fakeWhere = { toArray: vi.fn(), filter: vi.fn().mockReturnValue(fakeFilter) };
       (db.taskArtifacts.where as any).mockReturnValue(fakeWhere);
+      const { ArtifactTool } = await import('../knowledge-artifacts/ArtifactTool');
+      (ArtifactTool.updateStatus as any).mockRejectedValue(new Error('Invalid status: bogus. Must be draft, in_review, revised, or approved.'));
 
       const result = await agentInternals(agent).executeTool('updateArtifactStatus', { name: 'x', status: 'bogus' });
       expect(result.success).toBe(false);
@@ -164,11 +173,12 @@ describe('ProcessAgent', () => {
     });
 
     it('updateArtifactStatus should accept valid statuses', async () => {
-      for (const status of ['draft', 'reviewed', 'approved']) {
+      const { ArtifactTool } = await import('../knowledge-artifacts/ArtifactTool');
+      for (const status of ['draft', 'in_review', 'revised', 'approved']) {
         const fakeFilter = { first: vi.fn().mockResolvedValue({ id: 1, name: 'x' }) };
         const fakeWhere = { toArray: vi.fn(), filter: vi.fn().mockReturnValue(fakeFilter) };
         (db.taskArtifacts.where as any).mockReturnValue(fakeWhere);
-        (db.taskArtifacts.update as any).mockResolvedValue(1);
+        (ArtifactTool.updateStatus as any).mockResolvedValue(undefined);
 
         const result = await agentInternals(agent).executeTool('updateArtifactStatus', { name: 'x', status });
         expect(result.success).toBe(true);
@@ -229,6 +239,39 @@ describe('ProcessAgent', () => {
       const result = await agentInternals(agent).executeTool('listTasks', {});
       expect(result.success).toBe(false);
       expect(result.error).toBe('DB down');
+    });
+
+    it('checkGates should return constitution and artifact summary', async () => {
+      (db.projectConfigs.get as any).mockResolvedValue({
+        id: 'my-repo:main',
+        constitution: '# Test Constitution\n## Stages\n- **Discovery**: Research Notes',
+      });
+      const fakeWhere = {
+        toArray: vi.fn().mockResolvedValue([
+          { id: 1, name: 'Research Notes', type: 'doc', status: 'approved' },
+          { id: 2, name: 'Design Spec', type: 'doc', status: 'draft' },
+          { id: 3, name: '_internal', type: 'doc', status: 'draft' },
+        ]),
+      };
+      (db.taskArtifacts.where as any).mockReturnValue(fakeWhere);
+
+      const result = await agentInternals(agent).executeTool('checkGates', {});
+      expect(result.success).toBe(true);
+      expect(result.data.constitution).toContain('Discovery');
+      expect(result.data.artifacts).toHaveLength(2); // _internal filtered out
+      expect(result.data.artifacts[0].status).toBe('approved');
+      expect(result.data.artifacts[1].status).toBe('draft');
+    });
+
+    it('checkGates should work without project config', async () => {
+      (db.projectConfigs.get as any).mockResolvedValue(undefined);
+      const fakeWhere = { toArray: vi.fn().mockResolvedValue([]) };
+      (db.taskArtifacts.where as any).mockReturnValue(fakeWhere);
+
+      const result = await agentInternals(agent).executeTool('checkGates', {});
+      expect(result.success).toBe(true);
+      expect(result.data.constitution).toBe('');
+      expect(result.data.artifacts).toHaveLength(0);
     });
   });
 
@@ -344,6 +387,7 @@ describe('ProcessAgent', () => {
       expect(desc).toContain('proposeTask:');
       expect(desc).toContain('sendMessage:');
       expect(desc).toContain('analyze:');
+      expect(desc).toContain('checkGates:');
     });
   });
 });

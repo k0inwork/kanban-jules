@@ -1,7 +1,8 @@
-import { db, Artifact, ArtifactStatus } from '../../services/db';
+import { db, ArtifactStatus } from '../../services/db';
 import { RequestContext } from '../../core/types';
 import { KBHandler } from '../knowledge-kb/Handler';
 import { ProjectorHandler } from '../knowledge-projector/Handler';
+import { ArtifactTool } from '../knowledge-artifacts/ArtifactTool';
 
 const MAX_ITERATIONS = 10;
 const MAX_TOTAL_TOKENS = 80_000;       // ~80k chars ≈ 20k tokens rough estimate
@@ -106,15 +107,17 @@ export class ProcessAgent {
         }
       },
       updateArtifactStatus: {
-        description: 'Update artifact lifecycle status. Args: { name, status: "draft"|"reviewed"|"approved" }',
+        description: 'Update artifact lifecycle status. Args: { name, status: "draft"|"in_review"|"revised"|"approved" }',
         execute: async (args: { name: string; status: string }) => {
           const artifact = await db.taskArtifacts.where({ repoName, branchName }).filter(a => a.name === args.name).first();
           if (!artifact) return { success: false, error: `Artifact "${args.name}" not found` };
-          if (!['draft', 'reviewed', 'approved'].includes(args.status)) {
-            return { success: false, error: `Invalid status: ${args.status}` };
+          if (!artifact.id) return { success: false, error: `Artifact "${args.name}" has no ID` };
+          try {
+            await ArtifactTool.updateStatus(artifact.id, args.status as ArtifactStatus);
+            return { success: true, data: { name: args.name, status: args.status } };
+          } catch (e: any) {
+            return { success: false, error: e.message };
           }
-          await db.taskArtifacts.update(artifact.id!, { status: args.status as ArtifactStatus });
-          return { success: true, data: { name: args.name, status: args.status } };
         }
       },
       analyze: {
@@ -150,6 +153,26 @@ export class ProcessAgent {
             timestamp: Date.now()
           });
           return { success: true, data: { sent: true } };
+        }
+      },
+      checkGates: {
+        description: 'Gather constitution stages + current artifact statuses for gate analysis. Returns constitution text and artifact summary.',
+        execute: async () => {
+          // Get constitution from project config
+          const config = await db.projectConfigs.get(`${repoName}:${branchName}`);
+          const constitution = config?.constitution || '';
+
+          // Get all non-internal artifacts for this repo/branch
+          let artifacts = await db.taskArtifacts.where({ repoName, branchName }).toArray();
+          artifacts = artifacts.filter(a => typeof a.name !== 'string' || !a.name.startsWith('_'));
+
+          const artifactSummary = artifacts.map(a => ({
+            name: a.name,
+            type: a.type,
+            status: a.status || 'draft',
+          }));
+
+          return { success: true, data: { constitution, artifacts: artifactSummary } };
         }
       }
     };
@@ -226,19 +249,21 @@ ${this.buildToolDescriptions()}
 
 INSTRUCTIONS:
 1. Start by listing tasks and artifacts to understand current state.
-2. Check which artifacts exist, their status (draft/reviewed/approved), and their quality.
-3. Use queryKB to find relevant knowledge for context.
-4. Determine what stage the project is in based on the CONSTITUTION and which artifacts are approved.
-5. Identify gaps — missing artifacts, unreviewed work, tasks that need follow-up.
-6. If you find something actionable: proposeTask or sendMessage.
-7. If artifacts are mature and correct: updateArtifactStatus to reviewed/approved.
-8. If approved artifacts should be in KB: saveToKB.
+2. Use checkGates to get the constitution and current artifact statuses.
+3. Compare artifacts against constitution stages — identify which artifacts are missing or not yet approved.
+4. If you find gate gaps (missing artifacts, stuck in draft/in_review): send a sendMessage with type "alert" describing the gap.
+5. Use queryKB to find relevant knowledge for context.
+6. If artifacts are mature and correct: updateArtifactStatus to in_review, then approved.
+7. If approved artifacts should be in KB: saveToKB.
+8. If you find actionable work: proposeTask or sendMessage.
+9. Gate gaps are WARNINGS only — do NOT block or enforce, just alert the user.
 
 RULES:
 - Do NOT propose tasks that already exist on the board.
 - Do NOT repeat proposals already sent in messages.
 - Be specific about WHY you're proposing something.
 - When reviewing artifacts, check substance not just existence.
+- Artifact lifecycle: draft → in_review → approved. Use "revised" if changes are needed, then back to draft.
 
 Respond in JSON:
 {
