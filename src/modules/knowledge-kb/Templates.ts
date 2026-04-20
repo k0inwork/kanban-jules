@@ -1,5 +1,17 @@
 import { db } from '../../services/db';
 
+// Canonical artifact names that Fleet agents produce
+export const ARTIFACT_NAMES = [
+  'design-spec',
+  'api-analysis',
+  'implementation-plan',
+  'test-report',
+  'research-report',
+  'architecture-review',
+  'code-analysis',
+  'decision-log',
+] as const;
+
 const DEFAULT_TEMPLATES: Record<string, { title: string; content: string }> = {
   'template_design-spec.md': {
     title: 'template_design-spec.md',
