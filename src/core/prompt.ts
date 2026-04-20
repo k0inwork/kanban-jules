@@ -96,8 +96,21 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
     "- conversationSearch(query): Search Yuan's past conversation history by keywords. Use SHORT keyword queries (e.g. 'auth middleware'), not full sentences. Returns matching chunks with context."
   ].join('\n');
 
+  const artifactRules = `
+ARTIFACT FORMAT RULE:
+1. All artifact names MUST end with .md (e.g. "design-spec.md", "api-analysis.md", "implementation-plan.md").
+2. All artifact content MUST be valid Markdown — use headings (#), lists (- or 1.), code blocks (\`\`\`), tables, bold/italic as appropriate.
+3. This is required for indexing in the knowledge base and RAG search. Artifacts without .md extension or with non-Markdown content will NOT be indexed.
+
+ARTIFACT TEMPLATE RULE:
+Before creating an artifact, use \`kb.queryDocs({ type: 'template', search: '<artifact_purpose>' })\` to find a matching template.
+If a template exists, follow its structure. If no template matches, use your best judgment but keep the document well-structured.
+`;
+
   return `
 ${projectedKnowledge || ''}
+
+${artifactRules}
 
 TASK CONTEXT:
 Task Title: ${task.title}

@@ -13,6 +13,9 @@ const SCAN_PATTERNS: FilePattern[] = [
   { glob: '*.md', docType: 'spec', tags: ['documentation'] },
 ];
 
+// Prefix for persisted KB documents from Fleet
+const KB_DOCS_PREFIX = '.kb/docs/';
+
 const TECH_MARKERS: Record<string, string[]> = {
   'react': ['jsx', 'react', 'component'],
   'typescript': ['typescript', 'ts', 'tsx'],
@@ -85,6 +88,39 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
           docsCreated++;
         }
       }
+    }
+  }
+
+  // Scan .kb/docs/ for persisted KB documents
+  for (const file of files) {
+    if (!file.path.startsWith(KB_DOCS_PREFIX) || !file.content) continue;
+
+    const basename = file.path.slice(KB_DOCS_PREFIX.length);
+    const isTemplate = basename.startsWith('template_');
+    const docType = isTemplate ? 'template' : 'kb-doc';
+    const tags = isTemplate ? ['template', 'knowledge-base'] : ['knowledge-base'];
+
+    const existing = await db.kbDocs
+      .where('title').equals(file.path)
+      .and(d => d.project === 'target' && d.active)
+      .first();
+
+    if (!existing) {
+      const summary = file.content.substring(0, 300).replace(/[#*`]/g, '').trim();
+      await db.kbDocs.add({
+        timestamp: Date.now(),
+        title: file.path,
+        type: docType,
+        content: file.content,
+        summary,
+        tags,
+        layer: ['L1'],
+        source: 'repo-scan',
+        active: true,
+        version: 1,
+        project: 'target',
+      });
+      docsCreated++;
     }
   }
 

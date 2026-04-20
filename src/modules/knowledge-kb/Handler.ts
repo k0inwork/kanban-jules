@@ -1,5 +1,7 @@
 import { db, KBEntry, KBDoc } from '../../services/db';
 import { RequestContext } from '../../core/types';
+import { GitFs } from '../../services/GitFs';
+import { seedTemplates } from './Templates';
 
 export class KBHandler {
   static async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<any> {
@@ -11,7 +13,7 @@ export class KBHandler {
       case 'knowledge-kb.updateEntries':
         return KBHandler.updateEntries(args[0]);
       case 'knowledge-kb.saveDocument':
-        return KBHandler.saveDocument(args[0]);
+        return KBHandler.saveDocument(args[0], context);
       case 'knowledge-kb.queryDocs':
         return KBHandler.queryDocs(args[0]);
       case 'knowledge-kb.updateDocument':
@@ -30,6 +32,8 @@ export class KBHandler {
         return KBHandler.getProjectConfig(args[0]);
       case 'knowledge-kb.setProjectConfig':
         return KBHandler.setProjectConfig(args[0]);
+      case 'knowledge-kb.seedTemplates':
+        return seedTemplates(args[0]?.project);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
@@ -197,7 +201,7 @@ export class KBHandler {
     }
   }
 
-  private static async saveDocument(params: any): Promise<number> {
+  private static async saveDocument(params: any, context?: RequestContext): Promise<number> {
     // Content is required — documents must have markdown content for chunking
     if (!params.content || typeof params.content !== 'string' || params.content.trim().length === 0) {
       throw new Error('Document content is required and must be non-empty markdown');
@@ -207,6 +211,7 @@ export class KBHandler {
       .and(d => d.project === (params.project || 'target') && d.active)
       .first();
 
+    let docId: number;
     if (existing) {
       await db.kbDocs.update(existing.id!, {
         ...params,
@@ -214,22 +219,38 @@ export class KBHandler {
         active: true,
         project: params.project || 'target'
       });
-      return existing.id!;
+      docId = existing.id!;
+    } else {
+      docId = await db.kbDocs.add({
+        timestamp: Date.now(),
+        title: params.title,
+        type: params.type,
+        content: params.content,
+        summary: params.summary,
+        tags: params.tags || [],
+        layer: params.layer,
+        source: params.source,
+        active: true,
+        version: 1,
+        project: params.project || 'target'
+      });
     }
 
-    return db.kbDocs.add({
-      timestamp: Date.now(),
-      title: params.title,
-      type: params.type,
-      content: params.content,
-      summary: params.summary,
-      tags: params.tags || [],
-      layer: params.layer,
-      source: params.source,
-      active: true,
-      version: 1,
-      project: params.project || 'target'
-    });
+    // Dual-write: persist to .kb/docs/ in git repo (skip repo-scan to avoid echo)
+    if (context && params.source !== 'repo-scan') {
+      const token = context.githubToken || (typeof import.meta !== 'undefined' ? import.meta.env.VITE_GITHUB_TOKEN : '') || '';
+      if (context.repoUrl && context.repoBranch && token) {
+        try {
+          const gitFs = new GitFs(context.repoUrl, context.repoBranch, token);
+          const path = `.kb/docs/${params.title}`;
+          await gitFs.writeFile(path, params.content, `Fleet: KB doc ${params.title}`);
+        } catch (e) {
+          console.error(`[KBHandler] Failed to write KB doc to repo:`, e);
+        }
+      }
+    }
+
+    return docId;
   }
 
   private static async updateDocument(params: any): Promise<void> {

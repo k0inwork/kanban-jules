@@ -271,6 +271,8 @@ RULES:
 - Be specific about WHY you're proposing something.
 - When reviewing artifacts, check substance not just existence.
 - Artifact lifecycle: draft → in_review → approved. Use "revised" if changes are needed, then back to draft.
+- All artifact names MUST end with .md. All artifact content MUST be valid Markdown (headings, lists, code blocks, tables). Required for KB indexing and RAG search.
+- Before creating artifacts, agents should use queryKB({ type: 'template' }) to find matching templates and follow their structure.
 
 Respond in JSON:
 {
