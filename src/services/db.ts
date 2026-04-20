@@ -59,6 +59,7 @@ export interface AgentMessage {
 export interface ProjectConfig {
   id: string; // repoUrl + branch
   constitution: string;
+  artifactNames?: string[]; // extracted from constitution via LLM
   updatedAt: number;
 }
 

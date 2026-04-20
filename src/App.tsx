@@ -1059,6 +1059,12 @@ export default function App() {
             <ConstitutionEditor
               repoUrl={repoUrl}
               branch={repoBranch}
+              apiProvider={apiProvider}
+              geminiModel={geminiModel}
+              openaiUrl={openaiUrl}
+              openaiKey={openaiKey}
+              openaiModel={openaiModel}
+              geminiApiKey={geminiApiKey}
               onSave={() => setIsConstitutionOpen(false)}
             />
           ) : (

@@ -185,3 +185,54 @@ Classification tags must be one of: architectural, api, dependency, pattern, loc
 If no non-obvious decisions were made, output: "decisions": []
   `;
 }
+
+export const extractArtifactNames = async (
+  constitution: string,
+  apiProvider: string,
+  geminiModel: string,
+  openaiUrl: string,
+  openaiKey: string,
+  openaiModel: string,
+  geminiApiKey: string
+): Promise<string[]> => {
+  const prompt = `Extract the artifact type names from this project constitution's "Project Stages & Artifacts" section.
+Return ONLY a JSON array of slug-style names (lowercase, hyphenated). Each name should be a concise artifact type, not a stage name.
+
+Examples of good names: "design-spec", "api-analysis", "test-report", "research-notes", "feasibility-study"
+Examples of bad names: "Discovery", "Stage 1", "planning"
+
+Constitution:
+${constitution}
+
+Output ONLY valid JSON: ["artifact-name-1", "artifact-name-2", ...]`;
+
+  try {
+    if (apiProvider === 'gemini') {
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey || process.env.GEMINI_API_KEY || '' });
+      const response = await ai.models.generateContent({
+        model: geminiModel,
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+      });
+      return JSON.parse(response.text || '[]');
+    } else {
+      const response = await fetch(`${openaiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: openaiModel,
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          temperature: 0.1
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return JSON.parse(data.choices[0].message.content || '[]');
+      }
+    }
+  } catch (e) {
+    console.error("Failed to extract artifact names:", e);
+  }
+  return [];
+};

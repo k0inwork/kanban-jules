@@ -3,7 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, KBDoc, Artifact } from '../services/db';
 import { BookOpen, Plus, Upload, Copy, X, Database, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { ARTIFACT_NAMES } from '../modules/knowledge-kb/Templates';
+
+// Fallback artifact names when no project config exists
+const FALLBACK_ARTIFACT_NAMES = [
+  'design-spec', 'api-analysis', 'implementation-plan', 'test-report',
+  'research-report', 'architecture-review', 'code-analysis', 'decision-log',
+];
 
 interface KBBrowserProps {
   onBrowseKB?: () => void;
@@ -30,9 +35,13 @@ export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
   const entries = (useLiveQuery(() => db.kbLog.filter(e => e.active).toArray()) ?? []);
   const docs = (useLiveQuery(() => db.kbDocs.filter(d => d.active).toArray()) ?? []);
   const artifacts = (useLiveQuery(() => db.taskArtifacts.toArray()) ?? []);
+  const projectConfigs = (useLiveQuery(() => db.projectConfigs.toArray()) ?? []);
 
   const templates = docs.filter(d => d.type === 'template');
   const templateNames = new Set(templates.map(t => t.title));
+  const artifactNames = projectConfigs[0]?.artifactNames?.length
+    ? projectConfigs[0].artifactNames
+    : FALLBACK_ARTIFACT_NAMES;
 
   // Counts by category
   const counts = entries.reduce<Record<string, number>>((acc, e) => {
@@ -206,7 +215,7 @@ export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
               <div>
                 <div className="text-[10px] font-mono text-neutral-500 mb-1.5">Select artifact type</div>
                 <div className="grid grid-cols-2 gap-1">
-                  {ARTIFACT_NAMES.map(name => {
+                  {artifactNames.map(name => {
                     const exists = templateNames.has(`template_${name}.md`);
                     return (
                       <button

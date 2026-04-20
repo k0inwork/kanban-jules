@@ -5,14 +5,21 @@ import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION, OVERSEER_CONSTITUTION 
 import { Save, RefreshCw, BookOpen, BrainCircuit, Code2, Eye } from 'lucide-react';
 import { registry } from '../core/registry';
 import { cn } from '../lib/utils';
+import { extractArtifactNames } from '../core/prompt';
 
 interface ConstitutionEditorProps {
   repoUrl: string;
   branch: string;
+  apiProvider: string;
+  geminiModel: string;
+  openaiUrl: string;
+  openaiKey: string;
+  openaiModel: string;
+  geminiApiKey: string;
   onSave?: () => void;
 }
 
-export default function ConstitutionEditor({ repoUrl, branch, onSave }: ConstitutionEditorProps) {
+export default function ConstitutionEditor({ repoUrl, branch, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, onSave }: ConstitutionEditorProps) {
   const configId = `${repoUrl}:${branch}`;
   const [activeTab, setActiveTab] = useState<string>('constitution');
   const [constitution, setConstitution] = useState('');
@@ -51,9 +58,13 @@ export default function ConstitutionEditor({ repoUrl, branch, onSave }: Constitu
     setIsSaving(true);
     try {
       if (activeTab === 'constitution') {
+        const artifactNames = await extractArtifactNames(
+          constitution, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey
+        );
         await db.projectConfigs.put({
           id: configId,
           constitution,
+          artifactNames,
           updatedAt: Date.now()
         });
       } else {
