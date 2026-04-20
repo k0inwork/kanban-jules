@@ -114,6 +114,7 @@ function WorkspaceTabs() {
 
 export default function App() {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId'));
+  const createProjectRef = useRef<(() => void) | null>(null);
 
   const tasks = useLiveQuery(() =>
     currentProjectId
@@ -861,6 +862,7 @@ export default function App() {
             onProjectDelete={handleProjectDelete}
             githubToken={githubToken}
             julesApiKey={moduleConfigs['executor-jules']?.julesApiKey}
+            createTriggerRef={createProjectRef}
           />
         </div>
 
@@ -1073,13 +1075,16 @@ export default function App() {
         <div className="flex-1 overflow-hidden flex flex-col">
           {!currentProjectId ? (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center space-y-4">
-                <div className="p-4 bg-blue-500/10 rounded-xl border border-blue-500/20 inline-block">
+              <button
+                onClick={() => createProjectRef.current?.()}
+                className="text-center space-y-4 p-8 rounded-xl hover:bg-neutral-800/50 border border-transparent hover:border-neutral-700 transition-colors cursor-pointer group"
+              >
+                <div className="p-4 bg-blue-500/10 rounded-xl border border-blue-500/20 inline-block group-hover:bg-blue-500/20 transition-colors">
                   <FolderOpen className="w-10 h-10 text-blue-400" />
                 </div>
                 <h2 className="text-xl font-semibold text-white">No Project Selected</h2>
-                <p className="text-neutral-400 text-sm max-w-sm">Create or select a project using the dropdown in the header to get started.</p>
-              </div>
+                <p className="text-neutral-400 text-sm max-w-sm">Click to create or select a project to get started.</p>
+              </button>
             </div>
           ) : (<>
           {tabs.length > 0 && !isConstitutionOpen && (

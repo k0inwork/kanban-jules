@@ -10,9 +10,11 @@ interface Props {
   onProjectDelete: () => void;
   githubToken?: string;
   julesApiKey?: string;
+  /** Call to open the create-project form from outside */
+  createTriggerRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export default function ProjectDropdown({ currentProjectId, onProjectChange, onProjectDelete, githubToken, julesApiKey }: Props) {
+export default function ProjectDropdown({ currentProjectId, onProjectChange, onProjectDelete, githubToken, julesApiKey, createTriggerRef }: Props) {
   const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editProject, setEditProject] = useState<Project | undefined>(undefined);
@@ -47,6 +49,12 @@ export default function ProjectDropdown({ currentProjectId, onProjectChange, onP
     setEditProject(undefined);
     setShowForm(true);
   };
+
+  // Expose handleCreate to parent via ref
+  useEffect(() => {
+    if (createTriggerRef) createTriggerRef.current = handleCreate;
+    return () => { if (createTriggerRef) createTriggerRef.current = null; };
+  }, [createTriggerRef]);
 
   const handleEdit = () => {
     setOpen(false);
