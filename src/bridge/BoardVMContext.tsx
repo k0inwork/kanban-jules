@@ -450,6 +450,7 @@ export function BoardVMProvider({
           const killPayload = btoa(`kill:${id}`);
           const killSeq = new TextEncoder().encode(`\x1b]89;${killPayload}\x07`);
           sendRaw(killSeq);
+          try { await fs.rm(resultDir); } catch {}
           return { stdout: '', exitCode: -1, error: `timeout after ${timeout}ms`, durationMs: Date.now() - start };
         }
 
