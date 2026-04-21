@@ -132,6 +132,19 @@ export default function App() {
     initDb();
   }, []);
 
+  // Sync project repoUrl/repoBranch from DB on mount — localStorage can go stale
+  useEffect(() => {
+    if (!currentProjectId) return;
+    db.projects.get(currentProjectId).then(project => {
+      if (project && project.repoUrl) {
+        setRepoUrl(project.repoUrl);
+        setRepoBranch(project.repoBranch || 'main');
+        localStorage.setItem('repoUrl', project.repoUrl);
+        localStorage.setItem('repoBranch', project.repoBranch || 'main');
+      }
+    });
+  }, []); // run once on mount
+
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => (localStorage.getItem('autonomyMode') as AutonomyMode) || 'assisted');
   const [globalLogs, setGlobalLogs] = useState<string[]>([]);
   const [isReviewing, setIsReviewing] = useState(false);

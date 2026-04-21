@@ -4,11 +4,13 @@ import { db } from '../../services/db';
 import { eventBus } from '../../core/event-bus';
 
 export class AskUserForHandler {
-  async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<AskResult> {
+  async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<string> {
     if (toolName !== 'channel-ask-user.askUserFor') {
       throw new Error(`Unknown tool: ${toolName}`);
     }
-    return this.askUserFor(args, context);
+    const result = await this.askUserFor(args, context);
+    // Return the plain value string — agent code expects a simple string, not an object
+    return result.value;
   }
 
   private async askUserFor(args: any[], context: RequestContext): Promise<AskResult> {
