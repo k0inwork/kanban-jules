@@ -9,14 +9,18 @@ import ArtifactTree from './ArtifactTree';
 interface ArtifactBrowserProps {
   tasks: Task[];
   onArtifactSelect?: (artifact: Artifact) => void;
+  projectId?: string | null;
 }
 
-export default function ArtifactBrowser({ tasks, onArtifactSelect }: ArtifactBrowserProps) {
+export default function ArtifactBrowser({ tasks, onArtifactSelect, projectId }: ArtifactBrowserProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
 
-  const artifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
-  const artifactCount = useLiveQuery(() => db.taskArtifacts.count());
-  const loading = artifacts.length === 0 && !artifactCount;
+  const artifacts = useLiveQuery(
+    () => projectId
+      ? db.taskArtifacts.where('projectId').equals(projectId).toArray()
+      : [],
+    [projectId]
+  ) || [];
 
   const handleDeleteArtifact = async (id: number) => {
     const taskFs = new TaskFs();
@@ -36,7 +40,6 @@ export default function ArtifactBrowser({ tasks, onArtifactSelect }: ArtifactBro
     }
   };
 
-  if (loading) return <div className="text-xs text-neutral-500 font-mono p-4">Loading artifacts...</div>;
   if (artifacts.length === 0) return <div className="text-xs text-neutral-500 font-mono p-4">No artifacts found.</div>;
 
   return (

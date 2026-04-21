@@ -24,6 +24,7 @@ import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandle
 import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 import { AgentBus } from './agent-bus';
+import { AskUserForHandler } from '../modules/channel-ask-user/AskUserForHandler';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -261,6 +262,10 @@ export class ModuleHost {
 
     // Agent bus — sandbox agents call agent.sendMessage to emit inter-agent messages
     registry.registerHandler('core-agent-bus.sendMessage', AgentBus.handleRequest);
+
+    // AskUserFor — unified user interaction (choice, text, document, artifact, file, chat)
+    const askUserForHandler = new AskUserForHandler();
+    registry.registerModuleHandlers('channel-ask-user', askUserForHandler.handleRequest.bind(askUserForHandler));
 
     // Trace interceptor — every tool call emits a trace event
     registry.setInterceptor((toolName, args, ctx, result, durationMs) => {

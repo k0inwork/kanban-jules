@@ -20,6 +20,7 @@ export interface Artifact {
   status?: ArtifactStatus;
   metadata?: any;
   createdAt?: number;
+  projectId?: string;
 }
 
 export interface ArtifactLink {
@@ -80,6 +81,7 @@ export interface KBEntry {
   supersedes?: number[];
   active: boolean;
   project: string; // 'self' | 'target' (default: 'target')
+  projectId?: string;
 }
 
 export interface PushQueueItem {
@@ -107,6 +109,7 @@ export interface KBDoc {
   active: boolean;
   version: number;
   project: string; // 'self' | 'target' (default: 'target')
+  projectId?: string;
 }
 
 export interface YuanHistory {
@@ -126,6 +129,21 @@ export interface Project {
   updatedAt: number;
 }
 
+export interface YuanChatSession {
+  id: string;            // uuid, primary key
+  tabLabel: string;      // e.g. "Scope", "Auth"
+  objective: string;     // the prompt from askUserFor
+  successCriteria?: string;
+  chatStyle: 'explorer' | 'analyst' | 'worker';
+  status: 'active' | 'resolved' | 'abandoned';
+  sourceMode: string;    // the original AskMode that spawned or escalated to this chat
+  taskId?: string;
+  projectId?: string;
+  artifactId?: number;   // artifact produced when resolved
+  createdAt: number;
+  resolvedAt?: number;
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -139,6 +157,7 @@ export class MyDatabase extends Dexie {
   kbDocs!: Table<KBDoc>;
   pushQueue!: Table<PushQueueItem>;
   yuanHistory!: Table<YuanHistory>;
+  yuanChatSessions!: Table<YuanChatSession>;
   projects!: Table<Project>;
 
   constructor() {
@@ -342,6 +361,22 @@ export class MyDatabase extends Dexie {
       pushQueue: '++id, branch, status, timestamp, projectId',
       yuanHistory: '++id, role, timestamp',
       projects: 'id, name, createdAt'
+    });
+    this.version(27).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName, status, projectId',
+      taskArtifactLinks: '++id, taskId, artifactId, projectId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName, projectId',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp, projectId',
+      tasks: 'id, workflowStatus, agentState, createdAt, projectId',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, project, projectId',
+      kbDocs: '++id, timestamp, title, type, active, source, project, projectId',
+      pushQueue: '++id, branch, status, timestamp, projectId',
+      yuanHistory: '++id, role, timestamp',
+      projects: 'id, name, createdAt',
+      yuanChatSessions: 'id, status, taskId, projectId, createdAt'
     });
   }
 }

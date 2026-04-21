@@ -8,6 +8,7 @@ interface RepoConfig {
 
 export class BashExecutorHandler {
   private static _configs: Map<string, RepoConfig> = new Map();
+  private static _prefetching: Set<string> = new Set();
 
   /** Get the per-project repo root path in v86 */
   static repoRootPath(projectId: string): string {
@@ -40,6 +41,11 @@ export class BashExecutorHandler {
   }
 
   private static prefetchRepo(projectId: string) {
+    if (BashExecutorHandler._prefetching.has(projectId)) {
+      console.log(`[bash-executor] Prefetch already in progress for project ${projectId}, skipping`);
+      return;
+    }
+    BashExecutorHandler._prefetching.add(projectId);
     const cfg = BashExecutorHandler._configs.get(projectId);
     if (!cfg?.repoUrl) {
       console.log(`[bash-executor] No repoUrl configured for project ${projectId}, skipping prefetch`);
@@ -88,19 +94,47 @@ export class BashExecutorHandler {
           const authUrl = cfg.githubToken
             ? cfg.repoUrl.replace('https://', `https://${cfg.githubToken}@`)
             : cfg.repoUrl;
+          // Step 1: ensure parent dir exists
+          await boardVM.bashExec({
+            command: `mkdir -p /tmp/repo-root`,
+            cwd: '/tmp',
+            timeout: 10000,
+          });
+          // Step 2: remove old clone (separate command to ensure completion)
+          await boardVM.bashExec({
+            command: `rm -rf ${repoRoot}`,
+            cwd: '/tmp',
+            timeout: 30000,
+          });
+          // Step 3: verify dir is gone, retry if needed
+          const stillExists = await boardVM.fsBridge.exists(repoRoot);
+          if (stillExists) {
+            console.warn(`[bash-executor] rm -rf didn't clean ${repoRoot}, retrying...`);
+            await boardVM.bashExec({
+              command: `rm -rf ${repoRoot} && sleep 0.5`,
+              cwd: '/tmp',
+              timeout: 30000,
+            });
+          }
+          // Step 4: clone
           const r = await boardVM.bashExec({
-            command: `mkdir -p /tmp/repo-root && rm -rf ${repoRoot} && git clone --branch ${cfg.repoBranch} ${authUrl} ${repoRoot}`,
+            command: `git clone --branch ${cfg.repoBranch} ${authUrl} ${repoRoot}`,
             cwd: '/tmp',
             timeout: 120000,
           });
           if (r.exitCode !== 0) {
-            console.warn('[bash-executor] git clone failed:', r.stdout || r.error);
+            console.warn('[bash-executor] git clone failed (exitCode=' + r.exitCode + ')');
+            if (r.stderr) console.warn('[bash-executor]   stderr:', r.stderr);
+            if (r.stdout) console.warn('[bash-executor]   stdout:', r.stdout);
+            if (r.error) console.warn('[bash-executor]   error:', r.error);
             return;
           }
         }
         console.log(`[bash-executor] Prefetch complete for project ${projectId}`);
       } catch (err: any) {
         console.warn('[bash-executor] Prefetch failed:', err.message);
+      } finally {
+        BashExecutorHandler._prefetching.delete(projectId);
       }
     })();
   }

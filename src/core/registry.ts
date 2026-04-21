@@ -40,6 +40,9 @@ import { BoardTool } from '../modules/knowledge-board/BoardTool';
 import agentBusManifest from '../modules/core-agent-bus/manifest.json';
 import { AgentBus } from './agent-bus';
 
+import askUserManifest from '../modules/channel-ask-user/manifest.json';
+import { AskUserForHandler } from '../modules/channel-ask-user/AskUserForHandler';
+
 export class ModuleRegistry {
   private modules: ModuleManifest[] = [
     { ...julesManifest, enabled: true, init: JulesPostman.init, destroy: JulesPostman.destroy },
@@ -60,6 +63,7 @@ export class ModuleRegistry {
     { ...claudeExecutorManifest, enabled: true, init: ClaudeExecutorHandler.init, destroy: () => {} },
     { ...boardManifest, enabled: true, init: BoardTool.init, destroy: () => {} },
     { ...agentBusManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...askUserManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
 
   private handlers: Map<string, (toolName: string, args: any[], context: RequestContext) => Promise<any>> = new Map();

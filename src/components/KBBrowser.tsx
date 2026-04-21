@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 interface KBBrowserProps {
   onBrowseKB?: () => void;
   onDocSelect?: (doc: KBDoc) => void;
+  projectId?: string | null;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -18,14 +19,29 @@ const CATEGORY_COLORS: Record<string, string> = {
   resolution: 'text-emerald-400 bg-emerald-500/15',
 };
 
-export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
+export default function KBBrowser({ onBrowseKB, onDocSelect, projectId }: KBBrowserProps) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showArtifactPicker, setShowArtifactPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const entries = (useLiveQuery(() => db.kbLog.filter(e => e.active).toArray()) ?? []);
-  const docs = (useLiveQuery(() => db.kbDocs.filter(d => d.active).toArray()) ?? []);
-  const artifacts = (useLiveQuery(() => db.taskArtifacts.toArray()) ?? []);
+  const entries = (useLiveQuery(
+    () => projectId
+      ? db.kbLog.where('projectId').equals(projectId).filter(e => e.active).toArray()
+      : [],
+    [projectId]
+  ) ?? []);
+  const docs = (useLiveQuery(
+    () => projectId
+      ? db.kbDocs.where('projectId').equals(projectId).filter(d => d.active).toArray()
+      : [],
+    [projectId]
+  ) ?? []);
+  const artifacts = (useLiveQuery(
+    () => projectId
+      ? db.taskArtifacts.where('projectId').equals(projectId).toArray()
+      : [],
+    [projectId]
+  ) ?? []);
 
   // Counts by category
   const counts = entries.reduce<Record<string, number>>((acc, e) => {
@@ -47,7 +63,8 @@ export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
       await db.kbDocs.add({
         timestamp: Date.now(), title, type: typeMap[ext] || 'reference',
         content, summary: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
-        tags: [ext], layer: ['L0'], source: 'upload', active: true, version: 1, project: 'target'
+        tags: [ext], layer: ['L0'], source: 'upload', active: true, version: 1, project: 'target',
+        projectId: projectId || undefined
       });
     }
     setShowAddMenu(false);
@@ -60,7 +77,8 @@ export default function KBBrowser({ onBrowseKB, onDocSelect }: KBBrowserProps) {
       timestamp: Date.now(), title, type: 'reference',
       content: artifact.content, summary: artifact.content.substring(0, 200) + (artifact.content.length > 200 ? '...' : ''),
       tags: ['artifact', artifact.type || 'unknown'], layer: ['L0'], source: 'artifact',
-      active: true, version: 1, project: 'target'
+      active: true, version: 1, project: 'target',
+      projectId: projectId || undefined
     });
     setShowArtifactPicker(false);
     setShowAddMenu(false);

@@ -297,6 +297,7 @@ export class Orchestrator {
       'analyze': 'host.analyze',
       'addToContext': 'host.addToContext',
       'askUser': 'channel-user-negotiator.askUser',
+      'askUserFor': 'channel-ask-user.askUserFor',
       'sendUser': 'channel-user-negotiator.sendUser',
       '__agentContextGet': 'host.agentContextGet',
       '__agentContextSet': 'host.agentContextSet',
