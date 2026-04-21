@@ -214,7 +214,6 @@ async function runExtraction(prompt: string, taskId: string, agentTag: string): 
         tags: [...(d.tags || []), taskId, agentTag],
         source: 'dream:micro',
         active: true,
-        project: 'target' as const,
       }));
   } catch (e) {
     console.error('[decision-harvest] LLM extraction error:', e);

@@ -126,31 +126,31 @@ export class ProjectorHandler {
   }
 
   public static async project(
-    params: { layer: string; project?: string; taskId?: string; executor?: string; tags?: string[]; taskDescription?: string; focus?: string[] },
+    params: { layer: string; projectId?: string; taskId?: string; executor?: string; tags?: string[]; taskDescription?: string; focus?: string[] },
     _context?: RequestContext
   ): Promise<string> {
     const { layer } = params;
     const budget = BUDGETS[layer] || BUDGETS.L3;
-    const project = params.project || 'target';
+    const projectId = params.projectId || _context?.projectId;
     const keywords = extractKeywords(params.taskDescription || '');
     const focusKeywords = (params.focus || []).map(k => k.toLowerCase());
     const sections: string[] = [];
 
     // 1. BASE — constitution + role + executor knowledge
-    const baseSection = await ProjectorHandler.projectBase(project, layer, params.executor, _context?.projectId);
+    const baseSection = await ProjectorHandler.projectBase(layer, params.executor, projectId);
     if (baseSection) sections.push(baseSection);
 
     // 2. RAG — docs scored by keyword relevance to task
-    const ragSection = await ProjectorHandler.projectRAG(layer, project, params, budget.rag, keywords, focusKeywords);
+    const ragSection = await ProjectorHandler.projectRAG(layer, params, budget.rag, keywords, focusKeywords, projectId);
     if (ragSection) sections.push(ragSection);
 
     // 3. EXPERIENCE — log entries filtered by tags/executor, scored by keywords
-    const expSection = await ProjectorHandler.projectExperience(layer, project, params, budget.experience, keywords, focusKeywords);
+    const expSection = await ProjectorHandler.projectExperience(layer, params, budget.experience, keywords, focusKeywords, projectId);
     if (expSection) sections.push(expSection);
 
     // 4. Board state (L0/L1 only)
     if (layer === 'L0' || layer === 'L1') {
-      const boardState = await ProjectorHandler.computeBoardState(project);
+      const boardState = await ProjectorHandler.computeBoardState(projectId);
       if (boardState) sections.push(boardState);
     }
 
@@ -163,7 +163,7 @@ export class ProjectorHandler {
     return sections.join('\n\n');
   }
 
-  private static async projectBase(project: string, layer: string, executor?: string, projectId?: string): Promise<string> {
+  private static async projectBase(layer: string, executor?: string, projectId?: string): Promise<string> {
     const sections: string[] = [];
 
     const knowledgeRecords = await db.moduleKnowledge.toArray();
@@ -207,10 +207,10 @@ export class ProjectorHandler {
     return sections.length > 0 ? `## Base\n${sections.join('\n\n')}` : '';
   }
 
-  private static async projectRAG(layer: string, project: string, opts: any, charBudget: number, keywords: string[], focusKeywords: string[] = []): Promise<string> {
+  private static async projectRAG(layer: string, opts: any, charBudget: number, keywords: string[], focusKeywords: string[] = [], projectId?: string): Promise<string> {
     let docs = await db.kbDocs.filter(d => d.active).toArray();
     docs = docs.filter(d => {
-      if (project !== 'all' && d.project !== project) return false;
+      if (projectId && d.projectId !== projectId) return false;
       if (!d.layer.includes(layer)) return false;
       if (opts.tags && opts.tags.length > 0 && !opts.tags.some((t: string) => d.tags.includes(t))) return false;
       return true;
@@ -241,10 +241,10 @@ export class ProjectorHandler {
     return lines.length > 0 ? `## Retrieved Knowledge\n${lines.join('\n\n')}` : '';
   }
 
-  private static async projectExperience(layer: string, project: string, opts: any, charBudget: number, keywords: string[], focusKeywords: string[] = []): Promise<string> {
+  private static async projectExperience(layer: string, opts: any, charBudget: number, keywords: string[], focusKeywords: string[] = [], projectId?: string): Promise<string> {
     let entries = await db.kbLog.filter(e => e.active).toArray();
     entries = entries.filter(e => {
-      if (project !== 'all' && e.project !== project) return false;
+      if (projectId && e.projectId !== projectId) return false;
       if (!e.layer.includes(layer)) return false;
       if (opts.executor && !e.tags.includes(opts.executor)) return false;
       if (opts.taskId && !e.tags.includes(opts.taskId)) return false;
@@ -275,9 +275,9 @@ export class ProjectorHandler {
     return lines.length > 0 ? `## Experience\n${lines.join('\n')}` : '';
   }
 
-  private static async computeBoardState(project: string): Promise<string> {
+  private static async computeBoardState(projectId?: string): Promise<string> {
     const tasks = await db.tasks.toArray();
-    const filtered = project === 'all' ? tasks : tasks.filter(t => (t.project || 'target') === project);
+    const filtered = projectId ? tasks.filter(t => t.projectId === projectId) : tasks;
     const counts: Record<string, number> = {};
     for (const t of filtered) {
       counts[t.workflowStatus] = (counts[t.workflowStatus] || 0) + 1;

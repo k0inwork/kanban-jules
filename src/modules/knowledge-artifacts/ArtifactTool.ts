@@ -58,7 +58,6 @@ export const ArtifactTool = {
       tags: [artifact.type || 'artifact', 'promoted'],
       layer: ['L1'],
       source: 'artifact',
-      project: 'target',
     }], context);
 
     // Track promotion in artifact metadata

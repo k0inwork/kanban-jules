@@ -4,7 +4,7 @@
  * verifying the KB state evolves correctly across modules.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { db } from '../services/db';
+import { db, SELF_PROJECT_ID } from '../services/db';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
@@ -68,7 +68,7 @@ describe('Integration: multi-task failure triggers self-healing', () => {
         layer: ['L2'],
         tags: [taskId, 'api'],
         source: 'execution',
-        project: 'target',
+        projectId: 'test-project-id',
       }], ctx);
     }
 
@@ -98,16 +98,16 @@ describe('Integration: multi-task failure triggers self-healing', () => {
     const originalErrors = allEntries.filter(e =>
       e.text === 'Failed to parse JSON response from API endpoint' && e.category === 'error'
     );
-    expect(originalErrors.every(e => e.project === 'self')).toBe(true);
+    expect(originalErrors.every(e => e.projectId === SELF_PROJECT_ID)).toBe(true);
 
     // — Reflection entry logged
     const reflections = allEntries.filter(e => e.category === 'correction' && e.source === 'dream:session');
     expect(reflections.length).toBeGreaterThan(0);
-    expect(reflections[0].project).toBe('self');
+    expect(reflections[0].projectId).toBe(SELF_PROJECT_ID);
 
     // — Self-task created
     const tasks = await db.tasks.toArray();
-    const selfTasks = tasks.filter(t => t.project === 'self');
+    const selfTasks = tasks.filter(t => t.projectId === SELF_PROJECT_ID);
     expect(selfTasks.length).toBeGreaterThan(0);
     expect(selfTasks[0].title).toContain('[self]');
 
@@ -134,7 +134,7 @@ describe('Integration: dream levels propagate correctly through KB', () => {
           tags: [taskId, 'testing'],
           source: 'execution',
           active: true,
-          project: 'target',
+          projectId: 'test-project-id',
         });
       }
     }
@@ -232,7 +232,7 @@ describe('Integration: constitution evolves through deep-dream', () => {
       e.category === 'decision' && e.tags.includes('constitution-amendment')
     );
     expect(amendment).toBeDefined();
-    expect(amendment!.project).toBe('self');
+    expect(amendment!.projectId).toBe(SELF_PROJECT_ID);
     expect(amendment!.abstraction).toBe(8);
 
     // Now run reflection — should trigger CONSTITUTION-VIOLATION rule
@@ -245,7 +245,7 @@ describe('Integration: constitution evolves through deep-dream', () => {
     const tasks = await db.tasks.toArray();
     const constTask = tasks.find(t => t.title?.includes('constitution'));
     expect(constTask).toBeDefined();
-    expect(constTask!.project).toBe('self');
+    expect(constTask!.projectId).toBe(SELF_PROJECT_ID);
   });
 });
 
@@ -262,7 +262,7 @@ describe('Integration: knowledge gap detection and tagging', () => {
       tags: ['config', 'task-400'],
       source: 'execution',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     // Session-dream flags a documentation gap
@@ -291,7 +291,7 @@ describe('Integration: knowledge gap detection and tagging', () => {
       tags: ['config', 'task-401'],
       source: 'execution',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     // Reflection should detect KNOWN-GAP and tag (not reclassify)
@@ -308,7 +308,7 @@ describe('Integration: knowledge gap detection and tagging', () => {
     const gapTagged = errors.filter(e => e.tags.includes('gap-confirmed'));
     expect(gapTagged.length).toBeGreaterThan(0);
     // All errors still on target project
-    expect(gapTagged.every(e => e.project === 'target')).toBe(true);
+    expect(gapTagged.every(e => e.projectId !== SELF_PROJECT_ID)).toBe(true);
   });
 });
 
@@ -417,10 +417,10 @@ describe('Integration: full agent session lifecycle', () => {
     const tsErrors = await db.kbLog.filter(e =>
       e.text === 'Failed to resolve module TypeScript' && e.active
     ).toArray();
-    expect(tsErrors.every(e => e.project === 'self')).toBe(true);
+    expect(tsErrors.every(e => e.projectId === SELF_PROJECT_ID)).toBe(true);
 
     // 5. Self-task created for the recurring error
-    const selfTasks = await db.tasks.filter(t => t.project === 'self').toArray();
+    const selfTasks = await db.tasks.filter(t => t.projectId === SELF_PROJECT_ID).toArray();
     expect(selfTasks.length).toBeGreaterThan(0);
     expect(selfTasks[0].title).toContain('typescript');
 
@@ -463,7 +463,7 @@ describe('Integration: deep-dream prunes old data and evolves constitution', () 
         tags: ['task-old', 'legacy'],
         source: 'execution',
         active: true,
-        project: 'target',
+        projectId: 'test-project-id',
       });
     }
 
@@ -477,7 +477,7 @@ describe('Integration: deep-dream prunes old data and evolves constitution', () 
       tags: ['architecture', 'event-sourcing'],
       source: 'dream:session',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     // Recent raw entry (should survive)
@@ -490,7 +490,7 @@ describe('Integration: deep-dream prunes old data and evolves constitution', () 
       tags: ['task-new'],
       source: 'execution',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     // Deep-dream
@@ -524,7 +524,7 @@ describe('Integration: deep-dream prunes old data and evolves constitution', () 
     // Amendment proposed in kb_log
     const amendment = active.find(e => e.category === 'decision' && e.tags.includes('constitution-amendment'));
     expect(amendment).toBeDefined();
-    expect(amendment!.project).toBe('self');
+    expect(amendment!.projectId).toBe(SELF_PROJECT_ID);
 
     // Amendment also proposed as AgentMessage for user approval
     const messages = await db.messages.toArray();
@@ -550,7 +550,7 @@ describe('Integration: deepDream amendment → user approval → constitution up
       tags: ['auth', 'testing'],
       source: 'execution',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     // Deep-dream proposes an amendment
@@ -600,7 +600,7 @@ describe('Integration: deepDream amendment → user approval → constitution up
       tags: ['test'],
       source: 'execution',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     const deepCtx = trackingContext([
@@ -753,10 +753,10 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
     const timeoutErrors = await db.kbLog.filter(e =>
       e.text === 'Payment API timeout: stripe/v1/charges took >30s' && e.active
     ).toArray();
-    expect(timeoutErrors.every(e => e.project === 'self')).toBe(true);
+    expect(timeoutErrors.every(e => e.projectId === SELF_PROJECT_ID)).toBe(true);
 
     // Self-task created
-    const selfTasks = await db.tasks.filter(t => t.project === 'self').toArray();
+    const selfTasks = await db.tasks.filter(t => t.projectId === SELF_PROJECT_ID).toArray();
     expect(selfTasks.length).toBeGreaterThan(0);
 
     // Gap flagged
@@ -791,7 +791,7 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
       e.category === 'decision' && e.tags.includes('constitution-amendment')
     ).first();
     expect(amendment).toBeDefined();
-    expect(amendment!.project).toBe('self');
+    expect(amendment!.projectId).toBe(SELF_PROJECT_ID);
 
     // Amendment proposed as AgentMessage
     const proposal = await db.messages.filter(m => m.type === 'proposal').first();
@@ -825,25 +825,25 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
     expect(abstractions).toContain(9);  // deep-dream strategic insight
 
     // 6b: Self-task exists with correct title
-    const selfTask = await db.tasks.filter(t => t.project === 'self').first();
+    const selfTask = await db.tasks.filter(t => t.projectId === SELF_PROJECT_ID).first();
     expect(selfTask).toBeDefined();
     expect(selfTask!.title).toMatch(/\[self\].*payment api timeout/);
 
     // 6c: Projector returns self-knowledge (error patterns)
     const selfProjection = await ProjectorHandler.project({
-      layer: 'L0', project: 'self',
+      layer: 'L0', projectId: SELF_PROJECT_ID,
     });
     expect(selfProjection).toContain('Experience');
     expect(selfProjection.length).toBeGreaterThan(0);
 
     // 6d: Projector returns target-knowledge (tech stack, README)
     const targetProjection = await ProjectorHandler.project({
-      layer: 'L0', project: 'target', taskDescription: 'payment checkout stripe',
+      layer: 'L0', projectId: 'test-project-id', taskDescription: 'payment checkout stripe',
     });
     expect(targetProjection).toContain('E-Commerce Checkout'); // from README doc
 
     // 6e: KB has entries across multiple projects
-    const projects = [...new Set(allActive.map(e => e.project))];
+    const projects = [...new Set(allActive.map(e => e.projectId))];
     expect(projects).toContain('self');
     expect(projects).toContain('target');
 
@@ -1194,7 +1194,7 @@ describe('F6: External KB gap resolution', () => {
       tags: ['gap', 'api', 'auth'],
       source: 'dream:session',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     await db.kbLog.add({
@@ -1206,7 +1206,7 @@ describe('F6: External KB gap resolution', () => {
       tags: ['gap', 'cors'],
       source: 'dream:session',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     // Add a regular entry so deepDream has context
@@ -1219,7 +1219,7 @@ describe('F6: External KB gap resolution', () => {
       tags: ['api'],
       source: 'execution',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     const ctx = {
@@ -1267,7 +1267,7 @@ describe('F6: External KB gap resolution', () => {
       tags: ['gap'],
       source: 'dream:session',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     const ctx = {
@@ -1305,22 +1305,22 @@ describe('F3: Focus-based context narrowing', () => {
     await db.kbLog.add({
       timestamp: Date.now(), text: 'Authentication with JWT tokens works well',
       category: 'observation', abstraction: 3, layer: ['L0', 'L1', 'L2', 'L3'],
-      tags: ['auth', 'jwt'], source: 'execution', active: true, project: 'target'
+      tags: ['auth', 'jwt'], source: 'execution', active: true, projectId: 'test-project-id'
     });
     await db.kbLog.add({
       timestamp: Date.now(), text: 'Database migration failed on column rename',
       category: 'error', abstraction: 3, layer: ['L0', 'L1', 'L2', 'L3'],
-      tags: ['database', 'migration'], source: 'execution', active: true, project: 'target'
+      tags: ['database', 'migration'], source: 'execution', active: true, projectId: 'test-project-id'
     });
     await db.kbLog.add({
       timestamp: Date.now(), text: 'CSS grid layout issues in Safari browser',
       category: 'observation', abstraction: 2, layer: ['L0', 'L1', 'L2', 'L3'],
-      tags: ['css', 'layout'], source: 'execution', active: true, project: 'target'
+      tags: ['css', 'layout'], source: 'execution', active: true, projectId: 'test-project-id'
     });
 
     // Project with focus on auth
     const result = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'Implement API security',
       focus: ['auth', 'jwt', 'tokens']
     });
@@ -1341,22 +1341,22 @@ describe('F3: Focus-based context narrowing', () => {
     await db.kbLog.add({
       timestamp: Date.now(), text: 'React component state management patterns',
       category: 'insight', abstraction: 5, layer: ['L0', 'L1', 'L2', 'L3'],
-      tags: ['react', 'state'], source: 'dream:micro', active: true, project: 'target'
+      tags: ['react', 'state'], source: 'dream:micro', active: true, projectId: 'test-project-id'
     });
     await db.kbLog.add({
       timestamp: Date.now(), text: 'PostgreSQL query optimization for large datasets',
       category: 'insight', abstraction: 5, layer: ['L0', 'L1', 'L2', 'L3'],
-      tags: ['database', 'postgres'], source: 'dream:micro', active: true, project: 'target'
+      tags: ['database', 'postgres'], source: 'dream:micro', active: true, projectId: 'test-project-id'
     });
 
     const reactResult = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'Build UI',
       focus: ['react', 'state', 'component']
     });
 
     const dbResult = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'Optimize queries',
       focus: ['database', 'postgres', 'query']
     });

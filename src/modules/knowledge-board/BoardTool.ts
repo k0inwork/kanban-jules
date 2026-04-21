@@ -30,15 +30,16 @@ export const BoardTool = {
       case 'knowledge-board.listTasks': {
         const obj = unpack(args[0]) || {};
         let collection = db.tasks.orderBy('createdAt');
-        const tasks = await collection.toArray();
+        let tasks = await collection.toArray();
+        if (context.projectId) tasks = tasks.filter(t => t.projectId === context.projectId);
 
         let filtered = tasks.filter(t => (t as any).workflowStatus !== 'ARCHIVED');
         if (obj.status) {
           const status = obj.status.toUpperCase();
           filtered = filtered.filter(t => t.workflowStatus === status);
         }
-        if (obj.project) {
-          filtered = filtered.filter(t => (t.project || 'target') === obj.project);
+        if (obj.projectId) {
+          filtered = filtered.filter(t => t.projectId === obj.projectId);
         }
 
         if (filtered.length === 0) {
@@ -71,8 +72,8 @@ export const BoardTool = {
           workflowStatus: 'TODO',
           agentState: 'IDLE',
           createdAt: Date.now(),
-          project: obj.project || 'target',
           moduleLogs: {},
+          projectId: context.projectId || undefined,
         };
 
         await db.tasks.add(task);

@@ -9,13 +9,22 @@ import ArtifactTree from './ArtifactTree';
 interface ArtifactBrowserProps {
   tasks: Task[];
   onArtifactSelect?: (artifact: Artifact) => void;
+  projectId?: string | null;
 }
 
-export default function ArtifactBrowser({ tasks, onArtifactSelect }: ArtifactBrowserProps) {
+export default function ArtifactBrowser({ tasks, onArtifactSelect, projectId }: ArtifactBrowserProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
 
-  const artifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
-  const artifactCount = useLiveQuery(() => db.taskArtifacts.count());
+  const artifacts = useLiveQuery(() =>
+    projectId
+      ? db.taskArtifacts.where('projectId').equals(projectId).toArray()
+      : db.taskArtifacts.toArray()
+  , [projectId]) || [];
+  const artifactCount = useLiveQuery(() =>
+    projectId
+      ? db.taskArtifacts.where('projectId').equals(projectId).count()
+      : db.taskArtifacts.count()
+  , [projectId]);
   const loading = artifacts.length === 0 && !artifactCount;
 
   const handleDeleteArtifact = async (id: number) => {

@@ -1,6 +1,9 @@
 import Dexie, { Table } from 'dexie';
 import { Task } from '../types';
 
+/** Fixed ID for the self-project — the kanban app itself (github.com/k0inwork/kanban_jules) */
+export const SELF_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
+
 export interface GitCache {
   path: string;
   content: string;
@@ -26,6 +29,7 @@ export interface ArtifactLink {
   id?: number;
   taskId: string;
   artifactId: number;
+  projectId?: string;
 }
 
 export interface JulesSession {
@@ -37,6 +41,7 @@ export interface JulesSession {
   createdAt: number;
   repoUrl?: string;
   branchName?: string;
+  projectId?: string;
 }
 
 export interface AgentMessage {
@@ -54,6 +59,7 @@ export interface AgentMessage {
   status: 'unread' | 'read' | 'archived';
   timestamp: number;
   replyToId?: number;
+  projectId?: string;
 }
 
 export interface ProjectConfig {
@@ -80,7 +86,7 @@ export interface KBEntry {
   source: string; // 'execution' | 'dream:micro' | 'dream:session' | 'dream:deep' | 'user' | 'external:*'
   supersedes?: number[];
   active: boolean;
-  project: string; // 'self' | 'target' (default: 'target')
+  projectId?: string;
 }
 
 export interface PushQueueItem {
@@ -93,6 +99,7 @@ export interface PushQueueItem {
   error?: string;
   timestamp: number;
   taskId?: string;
+  projectId?: string;
 }
 
 export interface KBDoc {
@@ -107,7 +114,7 @@ export interface KBDoc {
   source: string; // 'upload' | 'artifact' | 'repo-scan' | 'external:*'
   active: boolean;
   version: number;
-  project: string; // 'self' | 'target' (default: 'target')
+  projectId?: string;
 }
 
 export interface YuanHistory {
@@ -344,6 +351,54 @@ export class MyDatabase extends Dexie {
       pushQueue: '++id, branch, status, timestamp, projectId',
       yuanHistory: '++id, role, timestamp',
       projects: 'id, name, createdAt'
+    });
+    this.version(27).stores({
+      gitCache: 'path',
+      taskArtifacts: '++id, taskId, repoName, branchName, status, projectId',
+      taskArtifactLinks: '++id, taskId, artifactId, projectId',
+      julesSessions: 'id, taskId, name, createdAt, repoUrl, branchName, projectId',
+      messages: '++id, sender, taskId, type, status, category, activityName, timestamp, projectId',
+      tasks: 'id, workflowStatus, agentState, createdAt, projectId',
+      projectConfigs: 'id',
+      moduleKnowledge: 'id',
+      kbLog: '++id, timestamp, category, abstraction, active, source, projectId',
+      kbDocs: '++id, timestamp, title, type, active, source, projectId',
+      pushQueue: '++id, branch, status, timestamp, projectId',
+      yuanHistory: '++id, role, timestamp',
+      projects: 'id, name, createdAt'
+    }).upgrade(async tx => {
+      // Migrate project → projectId on kbLog
+      await tx.table('kbLog').toCollection().modify(entry => {
+        if (!entry.projectId && entry.project) {
+          entry.projectId = entry.project === 'self' ? SELF_PROJECT_ID : undefined;
+          delete entry.project;
+        } else if (entry.project) {
+          delete entry.project;
+        }
+      });
+      // Migrate project → projectId on kbDocs
+      await tx.table('kbDocs').toCollection().modify(doc => {
+        if (!doc.projectId && doc.project) {
+          doc.projectId = doc.project === 'self' ? SELF_PROJECT_ID : undefined;
+          delete doc.project;
+        } else if (doc.project) {
+          delete doc.project;
+        }
+      });
+      // Seed self-project if not present
+      const projects = tx.table('projects');
+      const selfExists = await projects.get(SELF_PROJECT_ID);
+      if (!selfExists) {
+        await projects.add({
+          id: SELF_PROJECT_ID,
+          name: 'kanban-jules (self)',
+          repoUrl: 'https://github.com/k0inwork/kanban_jules',
+          repoBranch: 'main',
+          constitution: '',
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+      }
     });
   }
 }

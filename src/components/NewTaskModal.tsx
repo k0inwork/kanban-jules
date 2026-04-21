@@ -11,14 +11,19 @@ interface NewTaskModalProps {
   onClose: () => void;
   onSubmit: (title: string, description: string, artifactIds: number[]) => void;
   tasks: Task[];
+  projectId?: string | null;
 }
 
-export default function NewTaskModal({ isOpen, onClose, onSubmit, tasks }: NewTaskModalProps) {
+export default function NewTaskModal({ isOpen, onClose, onSubmit, tasks, projectId }: NewTaskModalProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<number[]>([]);
 
-  const artifacts = useLiveQuery(() => db.taskArtifacts.toArray()) || [];
+  const artifacts = useLiveQuery(() =>
+    projectId
+      ? db.taskArtifacts.where('projectId').equals(projectId).toArray()
+      : db.taskArtifacts.toArray()
+  , [projectId]) || [];
 
   if (!isOpen) return null;
 

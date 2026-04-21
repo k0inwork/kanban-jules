@@ -33,27 +33,27 @@ export class KBHandler {
       case 'knowledge-kb.setProjectConfig':
         return KBHandler.setProjectConfig(args[0]);
       case 'knowledge-kb.seedTemplates':
-        return seedTemplates(args[0]?.project);
+        return seedTemplates(args[0]?.projectId);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
   }
 
   // Convenience writers (self-healing §3.3)
-  static async recordExecution(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 1, layer: ['L1'], tags: [...tags, 'execution'], source: 'execution', project });
+  static async recordExecution(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 1, layer: ['L1'], tags: [...tags, 'execution'], source: 'execution', projectId });
   }
 
-  static async recordObservation(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 2, layer: ['L0'], tags, source: 'observation', project });
+  static async recordObservation(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 2, layer: ['L0'], tags, source: 'observation', projectId });
   }
 
-  static async recordDecision(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'decision', abstraction: 4, layer: ['L0', 'L1'], tags, source: 'decision', project });
+  static async recordDecision(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'decision', abstraction: 4, layer: ['L0', 'L1'], tags, source: 'decision', projectId });
   }
 
-  static async recordError(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'error', abstraction: 2, layer: ['L0', 'L1'], tags, source: 'execution', project });
+  static async recordError(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'error', abstraction: 2, layer: ['L0', 'L1'], tags, source: 'execution', projectId });
   }
 
   /**
@@ -71,7 +71,7 @@ export class KBHandler {
     tags: string[];
     source: string;
     supersedes: number[];
-    project?: string;
+    projectId?: string;
   }): Promise<{ id: number; deactivated: number }> {
     const { supersedes: targetIds, ...entryParams } = params;
 
@@ -118,7 +118,7 @@ export class KBHandler {
       source: entryParams.source,
       supersedes: [...inheritedChains],
       active: true,
-      project: entryParams.project || 'target',
+      projectId: entryParams.projectId,
     });
 
     // Deactivate all superseded entries (direct targets + chain)
@@ -167,7 +167,7 @@ export class KBHandler {
       source: params.source,
       supersedes: params.supersedes,
       active: true,
-      project: params.project || 'target'
+      projectId: params.projectId
     };
     return db.kbLog.add(entry);
   }
@@ -182,7 +182,7 @@ export class KBHandler {
       }
     }
     let results = await collection.toArray();
-    if (params.project) results = results.filter(e => e.project === params.project);
+    if (params.projectId) results = results.filter(e => e.projectId === params.projectId);
     if (params.category) results = results.filter(e => e.category === params.category);
     if (params.source) results = results.filter(e => e.source === params.source);
     if (params.layer) results = results.filter(e => e.layer.includes(params.layer));
@@ -208,7 +208,7 @@ export class KBHandler {
     }
     const existing = await db.kbDocs
       .where('title').equals(params.title)
-      .and(d => d.project === (params.project || 'target') && d.active)
+      .and(d => d.projectId === (params.projectId || context?.projectId) && d.active)
       .first();
 
     let docId: number;
@@ -217,7 +217,7 @@ export class KBHandler {
         ...params,
         version: (existing.version || 1) + 1,
         active: true,
-        project: params.project || 'target'
+        projectId: params.projectId || context?.projectId
       });
       docId = existing.id!;
     } else {
@@ -232,7 +232,7 @@ export class KBHandler {
         source: params.source,
         active: true,
         version: 1,
-        project: params.project || 'target'
+        projectId: params.projectId || context?.projectId
       });
     }
 
@@ -331,7 +331,7 @@ export class KBHandler {
 
   private static async queryDocs(params: any): Promise<KBDoc[]> {
     let results = await db.kbDocs.filter(d => d.active).toArray();
-    if (params.project) results = results.filter(d => d.project === params.project);
+    if (params.projectId) results = results.filter(d => d.projectId === params.projectId);
     if (params.type) results = results.filter(d => d.type === params.type);
     if (params.source) results = results.filter(d => d.source === params.source);
     if (params.layer) results = results.filter(d => d.layer.includes(params.layer));

@@ -17,12 +17,14 @@ interface MailboxViewProps {
   openaiKey?: string;
   openaiModel?: string;
   geminiApiKey?: string;
+  projectId?: string | null;
 }
 
-export default function MailboxView({ 
+export default function MailboxView({
   onAcceptProposal, onOpenMail, onSendMessageToTask, autonomyMode,
-  apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview', 
-  openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = ''
+  apiProvider = 'gemini', geminiModel = 'gemini-3-flash-preview',
+  openaiUrl = '', openaiKey = '', openaiModel = '', geminiApiKey = '',
+  projectId
 }: MailboxViewProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
@@ -31,11 +33,17 @@ export default function MailboxView({
   const [extractingMsgId, setExtractingMsgId] = useState<number | null>(null);
 
   const messages = useLiveQuery(async () => {
-    const all = await db.messages.orderBy('timestamp').reverse().toArray();
+    const all = projectId
+      ? await db.messages.where('projectId').equals(projectId).reverse().sortBy('timestamp')
+      : await db.messages.orderBy('timestamp').reverse().toArray();
     return all.filter(m => m.status !== 'archived');
-  });
+  }, [projectId]);
 
-  const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
+  const tasks = useLiveQuery(() =>
+    projectId
+      ? db.tasks.where('projectId').equals(projectId).toArray()
+      : db.tasks.toArray()
+  , [projectId]) || [];
 
   const threads = React.useMemo(() => {
     if (!messages) return [];

@@ -30,7 +30,7 @@ const TECH_MARKERS: Record<string, string[]> = {
  * Populates kb_docs and kb_log with initial knowledge entries.
  * Called once when a project is first loaded (mvp §7 Step 9).
  */
-export async function scanRepo(files: { path: string; content?: string }[]): Promise<{ docs: number; entries: number }> {
+export async function scanRepo(files: { path: string; content?: string }[], projectId?: string): Promise<{ docs: number; entries: number }> {
   let docsCreated = 0;
   let entriesCreated = 0;
 
@@ -67,7 +67,7 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
       if (matchesGlob && file.content) {
         const existing = await db.kbDocs
           .where('title').equals(file.path)
-          .and(d => d.project === 'target' && d.active)
+          .and(d => d.projectId === projectId && d.active)
           .first();
 
         if (!existing) {
@@ -83,7 +83,7 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
             source: 'repo-scan',
             active: true,
             version: 1,
-            project: 'target',
+            projectId,
           });
           docsCreated++;
         }
@@ -102,7 +102,7 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
 
     const existing = await db.kbDocs
       .where('title').equals(file.path)
-      .and(d => d.project === 'target' && d.active)
+      .and(d => d.projectId === projectId && d.active)
       .first();
 
     if (!existing) {
@@ -118,7 +118,7 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
         source: 'repo-scan',
         active: true,
         version: 1,
-        project: 'target',
+        projectId,
       });
       docsCreated++;
     }
@@ -153,7 +153,7 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
         tags: ['tech-stack', 'repo-scan', ...detectedTech],
         source: 'repo-scan',
         active: true,
-        project: 'target',
+        projectId,
       });
       entriesCreated++;
     }

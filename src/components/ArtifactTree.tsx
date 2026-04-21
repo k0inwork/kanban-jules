@@ -22,21 +22,26 @@ interface ArtifactTreeProps {
   onDelete?: (id: number) => void;
   className?: string;
   showCheckboxes?: boolean;
+  projectId?: string | null;
 }
 
-export default function ArtifactTree({ 
-  artifacts, 
-  tasks, 
-  selectedIds = [], 
-  onToggle, 
+export default function ArtifactTree({
+  artifacts,
+  tasks,
+  selectedIds = [],
+  onToggle,
   onSelect,
   onDelete,
   className,
-  showCheckboxes = false
+  showCheckboxes = false,
+  projectId
 }: ArtifactTreeProps) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const links = useLiveQuery(() => db.taskArtifactLinks.toArray()) || [];
+  const links = useLiveQuery(async () => {
+    const all = await db.taskArtifactLinks.toArray();
+    return projectId ? all.filter(l => l.projectId === projectId) : all;
+  }, [projectId]) || [];
 
   const buildTree = (artifacts: Artifact[], links: any[]): TreeNode[] => {
     const root: TreeNode[] = [];

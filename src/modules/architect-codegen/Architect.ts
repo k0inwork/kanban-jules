@@ -5,7 +5,7 @@ import { ProjectorHandler } from '../knowledge-projector/Handler';
 
 export class Architect {
   async generateProtocol(title: string, description: string, context: RequestContext): Promise<any> {
-    const projectedKnowledge = await ProjectorHandler.project({ layer: 'L2', project: 'target', taskDescription: `${title} ${description}` });
+    const projectedKnowledge = await ProjectorHandler.project({ layer: 'L2', projectId: context.projectId, taskDescription: `${title} ${description}` });
 
     const prompt = composeArchitectPrompt(registry.getEnabled(), projectedKnowledge) + `\n\nTask Title: ${title}\nTask Description: ${description}`;
 

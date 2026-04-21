@@ -53,7 +53,7 @@ describe('watchdogDream', () => {
       tags: opts.tags || [],
       source: opts.source || 'dream:session',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
   }
 
@@ -162,7 +162,7 @@ describe('watchdogDream', () => {
       tags: ['task-1'],
       source: 'dream:session',
       active: true,
-      project: 'target',
+      projectId: 'test-project-id',
     });
 
     const result = await watchdogDream(mockContext);

@@ -10,10 +10,14 @@ import CollapsiblePane from './CollapsiblePane';
 interface JulesProcessBrowserProps {
   tasks: Task[];
   julesApiKey: string;
+  projectId?: string | null;
 }
 
-export default function JulesProcessBrowser({ tasks, julesApiKey }: JulesProcessBrowserProps) {
-  const sessions = useLiveQuery(() => db.julesSessions.orderBy('createdAt').reverse().toArray()) || [];
+export default function JulesProcessBrowser({ tasks, julesApiKey, projectId }: JulesProcessBrowserProps) {
+  const sessions = useLiveQuery(async () => {
+    const all = await db.julesSessions.orderBy('createdAt').reverse().toArray();
+    return projectId ? all.filter(s => s.projectId === projectId) : all;
+  }, [projectId]) || [];
 
   useEffect(() => {
     const pruneSessions = async () => {
@@ -22,7 +26,9 @@ export default function JulesProcessBrowser({ tasks, julesApiKey }: JulesProcess
         const res = await julesApi.listSessions(julesApiKey, 100);
         const remoteSessionNames = new Set((res.sessions || []).map(s => s.name));
         
-        const localSessions = await db.julesSessions.toArray();
+        const localSessions = projectId
+          ? (await db.julesSessions.toArray()).filter(s => s.projectId === projectId)
+          : await db.julesSessions.toArray();
         for (const localSession of localSessions) {
           if (!remoteSessionNames.has(localSession.name)) {
             console.log(`Pruning missing Jules session: ${localSession.name}`);

@@ -3,7 +3,7 @@
  * Uses fake-indexeddb (vitest setup) and mock LLM calls.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { db, KBEntry } from '../services/db';
+import { db, KBEntry, SELF_PROJECT_ID } from '../services/db';
 import { applyRules } from '../modules/process-reflection/rules';
 import { ReflectionHandler } from '../modules/process-reflection/Handler';
 import { DreamHandler } from '../modules/process-dream/Handler';
@@ -26,7 +26,7 @@ function makeEntry(overrides: Partial<KBEntry> & { text: string }): KBEntry {
     tags: [],
     source: 'execution',
     active: true,
-    project: 'target',
+    projectId: 'test-project-id',
     ...overrides,
   };
 }
@@ -106,8 +106,8 @@ describe('applyRules', () => {
 
   it('Rule 2: CONSTITUTION-VIOLATION — fires when ≥2 errors tagged constitution', () => {
     const errors = [
-      makeEntry({ text: 'Constitution rule X prevented action', tags: ['constitution'], project: 'target' }),
-      makeEntry({ text: 'Constitution rule Y also failed', tags: ['constitution'], project: 'target' }),
+      makeEntry({ text: 'Constitution rule X prevented action', tags: ['constitution'], projectId: 'test-project-id' }),
+      makeEntry({ text: 'Constitution rule Y also failed', tags: ['constitution'], projectId: 'test-project-id' }),
     ];
     const results = applyRules(errors, errors);
     const match = results.find(r => r.ruleName === 'CONSTITUTION-VIOLATION');
@@ -118,8 +118,8 @@ describe('applyRules', () => {
 
   it('Rule 2: ignores self-project constitution errors', () => {
     const errors = [
-      makeEntry({ text: 'Error', tags: ['constitution'], project: 'self' }),
-      makeEntry({ text: 'Error2', tags: ['constitution'], project: 'self' }),
+      makeEntry({ text: 'Error', tags: ['constitution'], projectId: SELF_PROJECT_ID }),
+      makeEntry({ text: 'Error2', tags: ['constitution'], projectId: SELF_PROJECT_ID }),
     ];
     const results = applyRules(errors, errors);
     expect(results.find(r => r.ruleName === 'CONSTITUTION-VIOLATION')).toBeUndefined();
@@ -234,11 +234,11 @@ describe('applyRules', () => {
 
   it('Rule 1 + Rule 5 on same entries: KNOWN-GAP does not overwrite Rule 1 project change', async () => {
     // Seed 3 same errors across 3 tasks + a gap observation sharing a tag
-    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-1', 'config'], category: 'error', source: 'execution', project: 'target' }));
-    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-2', 'config'], category: 'error', source: 'execution', project: 'target' }));
-    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-3', 'config'], category: 'error', source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-1', 'config'], category: 'error', source: 'execution', projectId: 'test-project-id' }));
+    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-2', 'config'], category: 'error', source: 'execution', projectId: 'test-project-id' }));
+    await db.kbLog.add(makeEntry({ text: 'Config error X', tags: ['task-3', 'config'], category: 'error', source: 'execution', projectId: 'test-project-id' }));
     // Gap shares 'config' tag with errors
-    await db.kbLog.add(makeEntry({ text: 'GAP: no config docs', category: 'observation', tags: ['gap', 'config'], source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'GAP: no config docs', category: 'observation', tags: ['gap', 'config'], source: 'execution', projectId: 'test-project-id' }));
 
     const ctx = mockContext();
     const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
@@ -248,16 +248,16 @@ describe('applyRules', () => {
 
     // KNOWN-GAP should have also tagged them gap-confirmed
     const errors = await db.kbLog.filter(e => e.category === 'error' && e.source === 'execution').toArray();
-    expect(errors.every(e => e.project === 'self')).toBe(true);
+    expect(errors.every(e => e.projectId === SELF_PROJECT_ID)).toBe(true);
     expect(errors.every(e => e.tags.includes('gap-confirmed'))).toBe(true);
   });
 
   it('Rule 1 + Rule 3 + Rule 5 on same entries: all mutations coexist', async () => {
     // 3 same errors across 3 tasks, all from same executor, sharing tag with gap
-    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-1', 'executor-local', 'build'], category: 'error', source: 'execution', project: 'target' }));
-    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-2', 'executor-local', 'build'], category: 'error', source: 'execution', project: 'target' }));
-    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-3', 'executor-local', 'build'], category: 'error', source: 'execution', project: 'target' }));
-    await db.kbLog.add(makeEntry({ text: 'GAP: no build docs', category: 'observation', tags: ['gap', 'build'], source: 'execution', project: 'target' }));
+    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-1', 'executor-local', 'build'], category: 'error', source: 'execution', projectId: 'test-project-id' }));
+    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-2', 'executor-local', 'build'], category: 'error', source: 'execution', projectId: 'test-project-id' }));
+    await db.kbLog.add(makeEntry({ text: 'Build step failed', tags: ['task-3', 'executor-local', 'build'], category: 'error', source: 'execution', projectId: 'test-project-id' }));
+    await db.kbLog.add(makeEntry({ text: 'GAP: no build docs', category: 'observation', tags: ['gap', 'build'], source: 'execution', projectId: 'test-project-id' }));
 
     const ctx = mockContext();
     const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
@@ -267,12 +267,12 @@ describe('applyRules', () => {
 
     const errors = await db.kbLog.filter(e => e.category === 'error' && e.source === 'execution').toArray();
     // project='self' from Rule 1
-    expect(errors.every(e => e.project === 'self')).toBe(true);
+    expect(errors.every(e => e.projectId === SELF_PROJECT_ID)).toBe(true);
     // gap-confirmed tag from Rule 5
     expect(errors.every(e => e.tags.includes('gap-confirmed'))).toBe(true);
     // Self-task created (Rule 1 or Rule 3)
     const tasks = await db.tasks.toArray();
-    expect(tasks.filter(t => t.project === 'self').length).toBeGreaterThan(0);
+    expect(tasks.filter(t => t.projectId === SELF_PROJECT_ID).length).toBeGreaterThan(0);
   });
 });
 
@@ -286,7 +286,7 @@ describe('ReflectionHandler', () => {
 
   it('reclassify returns 0 when no matching errors', async () => {
     await seedErrors([
-      { text: 'Not an error', category: 'observation', source: 'execution', project: 'target', active: true },
+      { text: 'Not an error', category: 'observation', source: 'execution', projectId: 'test-project-id', active: true },
     ]);
     const ctx = mockContext();
     const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
@@ -295,9 +295,9 @@ describe('ReflectionHandler', () => {
 
   it('reclassify skips inactive entries', async () => {
     await seedErrors([
-      { text: 'Old error', category: 'error', source: 'execution', project: 'target', active: false },
-      { text: 'Another old', category: 'error', source: 'execution', project: 'target', active: false },
-      { text: 'Third old', category: 'error', source: 'execution', project: 'target', active: false },
+      { text: 'Old error', category: 'error', source: 'execution', projectId: 'test-project-id', active: false },
+      { text: 'Another old', category: 'error', source: 'execution', projectId: 'test-project-id', active: false },
+      { text: 'Third old', category: 'error', source: 'execution', projectId: 'test-project-id', active: false },
     ]);
     const ctx = mockContext();
     const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
@@ -307,9 +307,9 @@ describe('ReflectionHandler', () => {
   it('reclassify changes project to "self" for matched rules', async () => {
     // Seed 3 same errors across different tasks to trigger SAME-ERROR DIFFERENT-TASK
     await seedErrors([
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-1'] },
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-2'] },
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-3'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-1'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-2'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-3'] },
     ]);
     const ctx = mockContext();
     const result = await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
@@ -318,15 +318,15 @@ describe('ReflectionHandler', () => {
 
     // Verify DB entries were reclassified
     const selfEntries = await db.kbLog.filter(e => e.active).toArray();
-    const reclassified = selfEntries.filter(e => e.project === 'self' && e.category === 'error');
+    const reclassified = selfEntries.filter(e => e.projectId === SELF_PROJECT_ID && e.category === 'error');
     expect(reclassified).toHaveLength(3);
   });
 
   it('reclassify appends a reflection entry to KB log', async () => {
     await seedErrors([
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-1'] },
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-2'] },
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-3'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-1'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-2'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-3'] },
     ]);
     const ctx = mockContext();
     await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
@@ -334,21 +334,21 @@ describe('ReflectionHandler', () => {
     const entries = await db.kbLog.toArray();
     const reflection = entries.find(e => e.category === 'correction' && e.source === 'dream:session');
     expect(reflection).toBeDefined();
-    expect(reflection!.project).toBe('self');
+    expect(reflection!.projectId).toBe(SELF_PROJECT_ID);
     expect(reflection!.tags).toContain('reflection');
   });
 
   it('reclassify creates self-task when rule requests it', async () => {
     await seedErrors([
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-1'] },
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-2'] },
-      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', project: 'target', tags: ['task-3'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-1'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-2'] },
+      { text: 'Failed to parse JSON response', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-3'] },
     ]);
     const ctx = mockContext();
     await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], ctx);
 
     const tasks = await db.tasks.toArray();
-    const selfTasks = tasks.filter(t => t.project === 'self');
+    const selfTasks = tasks.filter(t => t.projectId === SELF_PROJECT_ID);
     expect(selfTasks.length).toBeGreaterThan(0);
     expect(selfTasks[0].title).toContain('[self]');
   });
@@ -356,11 +356,11 @@ describe('ReflectionHandler', () => {
   it('reclassify: KNOWN-GAP tags entries but does not reclassify to self', async () => {
     // Seed 1 error + 1 gap observation sharing a tag
     await seedErrors([
-      { text: 'Config error', category: 'error', source: 'execution', project: 'target', tags: ['config', 'task-1'] },
+      { text: 'Config error', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['config', 'task-1'] },
     ]);
     await db.kbLog.add(makeEntry({
       text: 'GAP: no config docs', category: 'observation', tags: ['gap', 'config'],
-      source: 'execution', project: 'target',
+      source: 'execution', projectId: 'test-project-id',
     }));
 
     const ctx = mockContext();
@@ -372,15 +372,15 @@ describe('ReflectionHandler', () => {
     // Error should still be project='target', but tagged gap-confirmed
     const errors = await db.kbLog.filter(e => e.category === 'error').toArray();
     expect(errors).toHaveLength(1);
-    expect(errors[0].project).toBe('target');
+    expect(errors[0].projectId).toBe('test-project-id');
     expect(errors[0].tags).toContain('gap-confirmed');
   });
 
   it('reclassify with entryIds filters to specific entries', async () => {
     await seedErrors([
-      { text: 'Error A', category: 'error', source: 'execution', project: 'target', tags: ['task-1'] },
-      { text: 'Error B', category: 'error', source: 'execution', project: 'target', tags: ['task-2'] },
-      { text: 'Error C', category: 'error', source: 'execution', project: 'target', tags: ['task-3'] },
+      { text: 'Error A', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-1'] },
+      { text: 'Error B', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-2'] },
+      { text: 'Error C', category: 'error', source: 'execution', projectId: 'test-project-id', tags: ['task-3'] },
     ]);
     // Only pass id 1 (won't trigger any rule — too few)
     const ctx = mockContext();
@@ -410,7 +410,7 @@ describe('DreamHandler', () => {
         abstraction: 1,
         tags: ['task-42'],
         source: 'execution',
-        project: 'target',
+        projectId: 'test-project-id',
       }));
     }
     const ctx = mockContext('Consolidated: observations show pattern X');
@@ -435,7 +435,7 @@ describe('DreamHandler', () => {
     for (let i = 0; i < 3; i++) {
       const id = await db.kbLog.add(makeEntry({
         text: `Raw ${i}`, category: 'observation', abstraction: 1,
-        tags: ['task-55'], source: 'execution', project: 'target',
+        tags: ['task-55'], source: 'execution', projectId: 'test-project-id',
       }));
       ids.push(id);
     }
@@ -749,7 +749,7 @@ describe('DreamHandler', () => {
     const entries = await db.kbLog.toArray();
     const amendment = entries.find(e => e.category === 'decision' && e.tags.includes('constitution-amendment'));
     expect(amendment).toBeDefined();
-    expect(amendment!.project).toBe('self');
+    expect(amendment!.projectId).toBe(SELF_PROJECT_ID);
 
     // Should also create an AgentMessage for user approval
     const messages = await db.messages.toArray();
@@ -870,7 +870,7 @@ describe('KBHandler', () => {
     expect(entry).toBeDefined();
     expect(entry!.text).toBe('Test observation');
     expect(entry!.active).toBe(true);
-    expect(entry!.project).toBe('target');
+    expect(entry!.projectId).toBe('test-project-id');
   });
 
   it('recordEntry respects project param', async () => {
@@ -882,10 +882,10 @@ describe('KBHandler', () => {
       layer: ['L0'],
       tags: [],
       source: 'user',
-      project: 'self',
+      projectId: SELF_PROJECT_ID,
     }], ctx);
     const entry = await db.kbLog.get(id);
-    expect(entry!.project).toBe('self');
+    expect(entry!.projectId).toBe(SELF_PROJECT_ID);
   });
 
   it('queryLog filters by category', async () => {
@@ -924,11 +924,11 @@ describe('KBHandler', () => {
   });
 
   it('queryLog filters by project', async () => {
-    await db.kbLog.add(makeEntry({ text: 'Target entry', project: 'target' }));
-    await db.kbLog.add(makeEntry({ text: 'Self entry', project: 'self' }));
+    await db.kbLog.add(makeEntry({ text: 'Target entry', projectId: 'test-project-id' }));
+    await db.kbLog.add(makeEntry({ text: 'Self entry', projectId: SELF_PROJECT_ID }));
 
     const ctx = mockContext();
-    const results = await KBHandler.handleRequest('knowledge-kb.queryLog', [{ project: 'self' }], ctx);
+    const results = await KBHandler.handleRequest('knowledge-kb.queryLog', [{ projectId: SELF_PROJECT_ID }], ctx);
     expect(results).toHaveLength(1);
     expect(results[0].text).toBe('Self entry');
   });
@@ -1041,7 +1041,7 @@ describe('KBHandler', () => {
       tags: [],
       layer: ['L0'],
       source: 'upload',
-      project: 'target',
+      projectId: 'test-project-id',
     }], ctx);
 
     const id2 = await KBHandler.handleRequest('knowledge-kb.saveDocument', [{
@@ -1052,7 +1052,7 @@ describe('KBHandler', () => {
       tags: [],
       layer: ['L0'],
       source: 'upload',
-      project: 'self',
+      projectId: SELF_PROJECT_ID,
     }], ctx);
 
     expect(id2).not.toBe(id1); // Different IDs = different docs
@@ -1062,17 +1062,17 @@ describe('KBHandler', () => {
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Spec A', type: 'spec', content: '',
       summary: 'Spec', tags: ['api'], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Design B', type: 'design', content: '',
       summary: 'Design', tags: ['ui'], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Self Spec', type: 'spec', content: '',
       summary: 'Self', tags: ['internal'], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'self',
+      active: true, version: 1, projectId: SELF_PROJECT_ID,
     });
 
     const ctx = mockContext();
@@ -1080,7 +1080,7 @@ describe('KBHandler', () => {
     const specs = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ type: 'spec' }], ctx);
     expect(specs).toHaveLength(2);
 
-    const targetSpecs = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ type: 'spec', project: 'target' }], ctx);
+    const targetSpecs = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{ type: 'spec', projectId: 'test-project-id' }], ctx);
     expect(targetSpecs).toHaveLength(1);
     expect(targetSpecs[0].title).toBe('Spec A');
 
@@ -1092,12 +1092,12 @@ describe('KBHandler', () => {
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Uploaded', type: 'spec', content: '',
       summary: '', tags: [], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Scanned', type: 'spec', content: '',
       summary: '', tags: [], layer: ['L0'], source: 'repo-scan',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
 
     const ctx = mockContext();
@@ -1110,17 +1110,17 @@ describe('KBHandler', () => {
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'L0 Doc', type: 'spec', content: '',
       summary: '', tags: [], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'L1 Doc', type: 'spec', content: '',
       summary: '', tags: [], layer: ['L1'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'L0+L1 Doc', type: 'spec', content: '',
       summary: '', tags: [], layer: ['L0', 'L1'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
 
     const ctx = mockContext();
@@ -1134,7 +1134,7 @@ describe('KBHandler', () => {
       await db.kbDocs.add({
         timestamp: Date.now() + i, title: `Doc ${i}`, type: 'spec', content: '',
         summary: '', tags: [], layer: ['L0'], source: 'upload',
-        active: true, version: 1, project: 'target',
+        active: true, version: 1, projectId: 'test-project-id',
       });
     }
 
@@ -1147,12 +1147,12 @@ describe('KBHandler', () => {
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Active', type: 'spec', content: '',
       summary: '', tags: [], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Inactive', type: 'spec', content: '',
       summary: '', tags: [], layer: ['L0'], source: 'upload',
-      active: false, version: 1, project: 'target',
+      active: false, version: 1, projectId: 'test-project-id',
     });
 
     const ctx = mockContext();
@@ -1165,12 +1165,12 @@ describe('KBHandler', () => {
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'React Patterns', type: 'spec',
       content: 'Use hooks for state management', summary: 'Common React patterns',
-      tags: [], layer: ['L0'], source: 'upload', active: true, version: 1, project: 'target',
+      tags: [], layer: ['L0'], source: 'upload', active: true, version: 1, projectId: 'test-project-id',
     });
     await db.kbDocs.add({
       timestamp: Date.now(), title: 'Database Design', type: 'reference',
       content: 'Normalization and indexing strategies', summary: 'SQL best practices',
-      tags: [], layer: ['L0'], source: 'upload', active: true, version: 1, project: 'target',
+      tags: [], layer: ['L0'], source: 'upload', active: true, version: 1, projectId: 'test-project-id',
     });
 
     const ctx = mockContext();
@@ -1198,7 +1198,7 @@ describe('KBHandler', () => {
     const id = await db.kbDocs.add({
       timestamp: Date.now(), title: 'Old Title', type: 'spec', content: 'old',
       summary: 'old summary', tags: ['a'], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
 
     const ctx = mockContext();
@@ -1224,7 +1224,7 @@ describe('KBHandler', () => {
     const id = await db.kbDocs.add({
       timestamp: Date.now(), title: 'To Delete', type: 'reference', content: '',
       summary: '', tags: [], layer: ['L0'], source: 'upload',
-      active: true, version: 1, project: 'target',
+      active: true, version: 1, projectId: 'test-project-id',
     });
 
     const ctx = mockContext();
@@ -1251,14 +1251,14 @@ describe('KBHandler convenience writers', () => {
     expect(entries[0].layer).toEqual(['L1']);
     expect(entries[0].source).toBe('execution');
     expect(entries[0].tags).toEqual(['task-1', 'execution']);
-    expect(entries[0].project).toBe('target');
+    expect(entries[0].projectId).toBe('test-project-id');
     expect(entries[0].active).toBe(true);
   });
 
   it('recordExecution — respects explicit project', async () => {
     await KBHandler.recordExecution('Self-healing ran', ['self'], 'self');
     const entries = await db.kbLog.toArray();
-    expect(entries[0].project).toBe('self');
+    expect(entries[0].projectId).toBe(SELF_PROJECT_ID);
   });
 
   it('recordObservation — creates entry with correct defaults', async () => {
@@ -1445,11 +1445,11 @@ describe('Projector: doc chunking in RAG', () => {
       timestamp: Date.now(), title: 'Architecture Guide', type: 'spec',
       content: '# Architecture\n\nSystem overview.\n\n## Frontend\n\nReact with TypeScript components.\n\n## Backend\n\nNode.js with Express API.',
       summary: 'Architecture guide', tags: ['architecture'],
-      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, projectId: 'test-project-id'
     });
 
     const result = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'frontend React components'
     });
 
@@ -1462,11 +1462,11 @@ describe('Projector: doc chunking in RAG', () => {
       timestamp: Date.now(), title: 'Ops Manual', type: 'reference',
       content: '# Deployment\n\nDeploy info.\n\n## Staging\n\nStaging deploy steps.\n\n## Production\n\nProd deploy steps.',
       summary: 'Ops manual', tags: ['ops'],
-      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, projectId: 'test-project-id'
     });
 
     const result = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'staging deployment'
     });
 
@@ -1479,11 +1479,11 @@ describe('Projector: doc chunking in RAG', () => {
       timestamp: Date.now(), title: 'Notes', type: 'report',
       content: 'Authentication uses JWT tokens for stateless sessions.\n\nDatabase migrations are managed by Drizzle ORM toolkit.',
       summary: 'Various notes', tags: ['notes'],
-      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, projectId: 'test-project-id'
     });
 
     const result = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'JWT authentication tokens'
     });
 
@@ -1495,11 +1495,11 @@ describe('Projector: doc chunking in RAG', () => {
       timestamp: Date.now(), title: 'Guide', type: 'spec',
       content: '## Auth\n\nLogin flow with OAuth.\n\n## UI\n\nButton styles and colors.',
       summary: 'Guide', tags: ['auth'],
-      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, project: 'target'
+      layer: ['L0', 'L1', 'L2', 'L3'], source: 'test', active: true, version: 1, projectId: 'test-project-id'
     });
 
     const result = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'implement login',
       tags: ['auth'],
       focus: ['auth', 'oauth']
@@ -1512,16 +1512,16 @@ describe('Projector: doc chunking in RAG', () => {
     await db.kbLog.add({
       timestamp: Date.now(), text: 'Use REST API for external integrations',
       category: 'decision', abstraction: 5, layer: ['L0', 'L3'],
-      tags: ['api', 'verified'], source: 'execution', active: true, project: 'target',
+      tags: ['api', 'verified'], source: 'execution', active: true, projectId: 'test-project-id',
     });
     await db.kbLog.add({
       timestamp: Date.now(), text: 'Use GraphQL for external integrations',
       category: 'decision', abstraction: 5, layer: ['L0', 'L3'],
-      tags: ['api', 'verified', 'conflict-pending'], source: 'execution', active: true, project: 'target',
+      tags: ['api', 'verified', 'conflict-pending'], source: 'execution', active: true, projectId: 'test-project-id',
     });
 
     const result = await ProjectorHandler.project({
-      layer: 'L3', project: 'target',
+      layer: 'L3', projectId: 'test-project-id',
       taskDescription: 'build api integration',
       focus: ['api'],
     });
@@ -1555,7 +1555,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Implement auth',
       description: 'Add JWT auth',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now(),
@@ -1602,7 +1602,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Tiny task',
       description: 'Fix typo',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now(),
@@ -1628,7 +1628,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Refactor module',
       description: 'Clean up',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now(),
@@ -1665,7 +1665,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Simple task',
       description: 'No real decisions',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now(),
@@ -1696,7 +1696,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Another task',
       description: 'With decisions',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now(),
@@ -1740,7 +1740,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Build API',
       description: 'Create REST endpoints',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now() - 300000,
@@ -1799,7 +1799,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Test task',
       description: '',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now(),
@@ -1825,7 +1825,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'After destroy',
       description: '',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now(),
@@ -1848,7 +1848,7 @@ describe('commit-harvest: event-driven decision extraction', () => {
       id: taskId,
       title: 'Test GH error',
       description: '',
-      project: 'target',
+      projectId: 'test-project-id',
       workflowStatus: 'DONE',
       agentState: 'IDLE',
       createdAt: Date.now() - 300000,

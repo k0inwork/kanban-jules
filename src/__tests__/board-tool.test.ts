@@ -6,6 +6,7 @@ const tasksMap = new Map<string, Task>();
 let nextId = 1;
 
 vi.mock('../services/db', () => ({
+  SELF_PROJECT_ID: '00000000-0000-0000-0000-000000000000',
   db: {
     tasks: {
       get: vi.fn((id: string) => Promise.resolve(tasksMap.get(id) || undefined)),
@@ -25,6 +26,7 @@ vi.mock('../services/db', () => ({
 
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 import { RequestContext } from '../core/types';
+import { SELF_PROJECT_ID } from '../services/db';
 
 const ctx: RequestContext = {
   taskId: '',
@@ -83,10 +85,10 @@ describe('board.listTasks', () => {
   });
 
   it('filters by project', async () => {
-    addTask({ id: 't1', title: 'Self task', project: 'self' });
-    addTask({ id: 't2', title: 'Target task', project: 'target' });
+    addTask({ id: 't1', title: 'Self task', projectId: SELF_PROJECT_ID });
+    addTask({ id: 't2', title: 'Target task', projectId: 'test-project-id' });
 
-    const result = await BoardTool.handleRequest('knowledge-board.listTasks', [{ project: 'self' }], ctx);
+    const result = await BoardTool.handleRequest('knowledge-board.listTasks', [{ projectId: SELF_PROJECT_ID }], ctx);
     expect(result).toContain('Self task');
     expect(result).not.toContain('Target task');
   });
@@ -139,12 +141,12 @@ describe('board.createTask', () => {
     await BoardTool.handleRequest('knowledge-board.createTask', [{
       title: 'Self improvement',
       description: 'Make the system better',
-      project: 'self',
+      projectId: SELF_PROJECT_ID,
     }], ctx);
 
     const task = Array.from(tasksMap.values())[0];
     expect(task.description).toBe('Make the system better');
-    expect(task.project).toBe('self');
+    expect(task.projectId).toBe(SELF_PROJECT_ID);
   });
 
   it('throws if title is missing', async () => {

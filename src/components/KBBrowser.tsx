@@ -33,9 +33,19 @@ export default function KBBrowser({ onBrowseKB, onDocSelect, projectId }: KBBrow
   const templateFileRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const entries = (useLiveQuery(() => db.kbLog.filter(e => e.active).toArray()) ?? []);
-  const docs = (useLiveQuery(() => db.kbDocs.filter(d => d.active).toArray()) ?? []);
-  const artifacts = (useLiveQuery(() => db.taskArtifacts.toArray()) ?? []);
+  const entries = (useLiveQuery(async () => {
+    const all = await db.kbLog.filter(e => e.active).toArray();
+    return projectId ? all.filter(e => e.projectId === projectId) : all;
+  }, [projectId]) ?? []);
+  const docs = (useLiveQuery(async () => {
+    const all = await db.kbDocs.filter(d => d.active).toArray();
+    return projectId ? all.filter(d => d.projectId === projectId) : all;
+  }, [projectId]) ?? []);
+  const artifacts = (useLiveQuery(() =>
+    projectId
+      ? db.taskArtifacts.where('projectId').equals(projectId).toArray()
+      : db.taskArtifacts.toArray()
+  , [projectId]) ?? []);
   const project = (useLiveQuery(() => projectId ? db.projects.get(projectId) : undefined, [projectId]) ?? null);
 
   const templates = docs.filter(d => d.type === 'template');
@@ -65,7 +75,7 @@ export default function KBBrowser({ onBrowseKB, onDocSelect, projectId }: KBBrow
       await db.kbDocs.add({
         timestamp: Date.now(), title, type: isTemplate ? 'template' : (typeMap[ext] || 'reference'),
         content, summary: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
-        tags: isTemplate ? ['template', 'knowledge-base'] : [ext], layer: ['L0'], source: 'upload', active: true, version: 1, project: 'target'
+        tags: isTemplate ? ['template', 'knowledge-base'] : [ext], layer: ['L0'], source: 'upload', active: true, version: 1, projectId: projectId || undefined
       });
     }
     setShowAddMenu(false);
@@ -81,7 +91,7 @@ export default function KBBrowser({ onBrowseKB, onDocSelect, projectId }: KBBrow
       await db.kbDocs.add({
         timestamp: Date.now(), title, type: 'template',
         content, summary: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
-        tags: ['template', 'knowledge-base'], layer: ['L1'], source: 'upload', active: true, version: 1, project: 'target'
+        tags: ['template', 'knowledge-base'], layer: ['L1'], source: 'upload', active: true, version: 1, projectId: projectId || undefined
       });
     }
     setShowTemplateModal(false);
@@ -95,7 +105,7 @@ export default function KBBrowser({ onBrowseKB, onDocSelect, projectId }: KBBrow
       timestamp: Date.now(), title, type: 'reference',
       content: artifact.content, summary: artifact.content.substring(0, 200) + (artifact.content.length > 200 ? '...' : ''),
       tags: ['artifact', artifact.type || 'unknown'], layer: ['L0'], source: 'artifact',
-      active: true, version: 1, project: 'target'
+      active: true, version: 1, projectId: projectId || undefined
     });
     setShowArtifactPicker(false);
     setShowAddMenu(false);

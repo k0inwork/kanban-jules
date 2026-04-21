@@ -54,7 +54,7 @@ describe('ArchitectTool', () => {
     await ArchitectTool.handleRequest('architect-codegen.generateProtocol', ['My Task', 'Do stuff'], ctx);
     expect(ProjectorHandler.project).toHaveBeenCalledWith({
       layer: 'L2',
-      project: 'target',
+      projectId: 'test-project-id',
       taskDescription: 'My Task Do stuff',
     });
   });

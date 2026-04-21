@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tab } from './PreviewTabs';
 import Markdown from 'react-markdown';
 import { Plus, X, Zap, Send, BookOpen, Activity, GitBranch, ScrollText, Shield, Check } from 'lucide-react';
-import { db, AgentMessage, KBEntry, KBDoc } from '../services/db';
+import { db, AgentMessage, KBEntry, KBDoc, SELF_PROJECT_ID } from '../services/db';
 import { cn } from '../lib/utils';
 import { parseTasksFromMessage } from '../core/prompt';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
@@ -111,7 +111,7 @@ function KBEntryDetail({ entry, onNavigateEntry }: { entry: KBEntry; onNavigateE
           <span className={cn("text-[10px] font-mono px-2 py-0.5 rounded uppercase", CATEGORY_COLORS[entry.category] || 'bg-neutral-800 text-neutral-400')}>
             {entry.category}
           </span>
-          {entry.project === 'self' && (
+          {entry.projectId === SELF_PROJECT_ID && (
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400">self</span>
           )}
           {alreadyPromoted && promotedTo && (
@@ -459,7 +459,7 @@ export default function PreviewPane({
             <BookOpen className="w-5 h-5 text-purple-400" />
             <h2 className="text-lg font-semibold text-neutral-100">{doc.title}</h2>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 uppercase">{doc.type}</span>
-            {doc.project === 'self' && (
+            {doc.projectId === SELF_PROJECT_ID && (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400">self</span>
             )}
           </div>

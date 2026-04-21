@@ -1,4 +1,4 @@
-import { KBEntry } from '../../services/db';
+import { KBEntry, SELF_PROJECT_ID } from '../../services/db';
 
 export interface RuleResult {
   match: boolean;
@@ -46,7 +46,7 @@ export function applyRules(
   // Rule 2: CONSTITUTION-VIOLATION
   // Errors that occurred while following a constitution rule
   const constitutionErrors = errors.filter(e =>
-    e.tags.some(t => t === 'constitution') && e.project === 'target'
+    e.tags.some(t => t === 'constitution') && e.projectId !== SELF_PROJECT_ID
   );
   if (constitutionErrors.length >= 2) {
     results.push({

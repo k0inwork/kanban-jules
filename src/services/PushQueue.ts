@@ -69,12 +69,17 @@ class PushQueueService {
   }
 
   /** Get all pending/failed items */
-  async getPending(): Promise<PushQueueItem[]> {
-    return db.pushQueue.where('status').anyOf(['pending', 'failed']).toArray();
+  async getPending(projectId?: string): Promise<PushQueueItem[]> {
+    const items = await db.pushQueue.where('status').anyOf(['pending', 'failed']).toArray();
+    return projectId ? items.filter(i => i.projectId === projectId) : items;
   }
 
   /** Get count of pending items */
-  async pendingCount(): Promise<number> {
+  async pendingCount(projectId?: string): Promise<number> {
+    if (projectId) {
+      const items = await db.pushQueue.where('status').equals('pending').toArray();
+      return items.filter(i => i.projectId === projectId).length;
+    }
     return db.pushQueue.where('status').equals('pending').count();
   }
 

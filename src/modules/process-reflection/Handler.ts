@@ -1,4 +1,4 @@
-import { db } from '../../services/db';
+import { db, SELF_PROJECT_ID } from '../../services/db';
 import { RequestContext } from '../../core/types';
 import { applyRules } from './rules';
 
@@ -13,7 +13,7 @@ export class ReflectionHandler {
   private static async reclassify(params: { entryIds?: number[] }): Promise<any> {
     // Gather error entries
     let errors = await db.kbLog.filter(e => e.active).toArray();
-    errors = errors.filter(e => e.category === 'error' && e.project === 'target' && e.source === 'execution');
+    errors = errors.filter(e => e.category === 'error' && e.projectId !== SELF_PROJECT_ID && e.source === 'execution');
 
     if (params.entryIds && params.entryIds.length > 0) {
       const idSet = new Set(params.entryIds);
@@ -49,7 +49,7 @@ export class ReflectionHandler {
 
       // Reclassify to project='self'
       for (const id of result.entryIds) {
-        await db.kbLog.update(id, { project: 'self' });
+        await db.kbLog.update(id, { projectId: SELF_PROJECT_ID });
         if (!reclassifiedIds.includes(id)) {
           reclassifiedIds.push(id);
         }
@@ -65,7 +65,7 @@ export class ReflectionHandler {
         tags: ['reflection', result.ruleName.toLowerCase().replace(/\s+/g, '-')],
         source: 'dream:session',
         active: true,
-        project: 'self'
+        projectId: SELF_PROJECT_ID
       });
 
       // Create self-task if flagged
@@ -77,7 +77,7 @@ export class ReflectionHandler {
           workflowStatus: 'TODO',
           agentState: 'IDLE',
           createdAt: Date.now(),
-          project: 'self'
+          projectId: SELF_PROJECT_ID
         });
       }
     }

@@ -48,7 +48,7 @@ import { cn } from './lib/utils';
 import { parseTasksFromMessage } from './core/prompt';
 
 /** WorkspaceTabs — internal tabbed view for Yuan Chat + v86 Terminal */
-function WorkspaceTabs() {
+function WorkspaceTabs({ projectId }: { projectId?: string | null }) {
   const [activeTab, setActiveTab] = useState<'yuan' | 'terminal'>('yuan');
   const [isAgentTreeOpen, setIsAgentTreeOpen] = useState(false);
   return (
@@ -105,7 +105,7 @@ function WorkspaceTabs() {
           </div>
         </div>
         {activeTab === 'yuan' && (
-          <AgentTreePanel open={isAgentTreeOpen} onClose={() => setIsAgentTreeOpen(false)} />
+          <AgentTreePanel open={isAgentTreeOpen} onClose={() => setIsAgentTreeOpen(false)} projectId={projectId} />
         )}
       </div>
     </div>
@@ -667,7 +667,8 @@ export default function App() {
         content: replyText,
         status: 'read',
         timestamp: Date.now(),
-        replyToId: message.id
+        replyToId: message.id,
+        projectId: currentProjectId || undefined
       });
 
       // Update task state back to IDLE so the orchestrator can pick it up again if it was paused
@@ -710,7 +711,8 @@ export default function App() {
       type: 'chat',
       content: message,
       status: 'read',
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      projectId: currentProjectId || undefined
     });
 
     eventBus.emit('module:log', { taskId: task.id, moduleId: 'orchestrator', message: `Sent message: ${message.substring(0, 50)}...` });
@@ -1031,12 +1033,12 @@ export default function App() {
 
                 <CollapsiblePane title="Artifacts" defaultExpanded={false} badge={tasks.reduce((acc, t) => acc + (t.artifactIds?.length || 0), 0)}>
                   <div className="p-2">
-                    <ArtifactBrowser tasks={tasks} onArtifactSelect={handleArtifactSelect} />
+                    <ArtifactBrowser tasks={tasks} onArtifactSelect={handleArtifactSelect} projectId={currentProjectId} />
                   </div>
                 </CollapsiblePane>
 
                 <CollapsiblePane title="Jules Processes" defaultExpanded={false}>
-                  <JulesProcessBrowser tasks={tasks} julesApiKey={moduleConfigs['executor-jules']?.julesApiKey || ''} />
+                  <JulesProcessBrowser tasks={tasks} julesApiKey={moduleConfigs['executor-jules']?.julesApiKey || ''} projectId={currentProjectId} />
                 </CollapsiblePane>
 
                 <CollapsiblePane title="GitHub Workflows" defaultExpanded={false}>
@@ -1058,8 +1060,8 @@ export default function App() {
                 </CollapsiblePane>
               </>
             ) : (
-              <MailboxView 
-                onAcceptProposal={handleAcceptProposal} 
+              <MailboxView
+                onAcceptProposal={handleAcceptProposal}
                 onOpenMail={handleOpenMail}
                 onSendMessageToTask={handleSendMessageToTask}
                 autonomyMode={autonomyMode}
@@ -1069,6 +1071,7 @@ export default function App() {
                 openaiUrl={openaiUrl}
                 openaiKey={openaiKey}
                 openaiModel={openaiModel}
+                projectId={currentProjectId}
               />
             )}
           </div>
@@ -1128,7 +1131,7 @@ export default function App() {
                   zIndex: 10,
                 }}
               >
-                <WorkspaceTabs />
+                <WorkspaceTabs projectId={currentProjectId} />
               </div>
               {/* Non-terminal content */}
               {tabs.length > 0 && !isViewingBoard ? (
@@ -1170,6 +1173,7 @@ export default function App() {
         onClose={() => setIsNewTaskModalOpen(false)}
         onSubmit={handleCreateTask}
         tasks={tasks}
+        projectId={currentProjectId}
       />
       
       <SettingsModal
@@ -1214,6 +1218,7 @@ export default function App() {
         openaiUrl={openaiUrl}
         openaiKey={openaiKey}
         openaiModel={openaiModel}
+        projectId={currentProjectId}
       />
 
       {taskToDelete && (

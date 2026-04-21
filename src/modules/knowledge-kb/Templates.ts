@@ -99,12 +99,12 @@ Next steps based on findings.
   },
 };
 
-export async function seedTemplates(project: string = 'target'): Promise<number> {
+export async function seedTemplates(projectId?: string): Promise<number> {
   let created = 0;
   for (const [, tpl] of Object.entries(DEFAULT_TEMPLATES)) {
     const existing = await db.kbDocs
       .where('title').equals(tpl.title)
-      .and(d => d.project === project && d.active)
+      .and(d => d.projectId === projectId && d.active)
       .first();
 
     if (!existing) {
@@ -119,7 +119,7 @@ export async function seedTemplates(project: string = 'target'): Promise<number>
         source: 'system',
         active: true,
         version: 1,
-        project,
+        projectId,
       });
       created++;
     }

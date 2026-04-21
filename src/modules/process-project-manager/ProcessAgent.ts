@@ -66,7 +66,6 @@ export class ProcessAgent {
         description: 'Search knowledge base docs. Args: { search?, tags?, type?, category?, limit? }',
         execute: async (args: { search?: string; tags?: string[]; type?: string; category?: string; limit?: number }) => {
           const results = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{
-            project: 'target',
             search: args.search,
             tags: args.tags,
             type: args.type,
@@ -79,7 +78,6 @@ export class ProcessAgent {
         description: 'Search knowledge base log entries. Args: { search?, category?, tags?, limit? }',
         execute: async (args: { category?: string; tags?: string[]; limit?: number }) => {
           const results = await KBHandler.handleRequest('knowledge-kb.queryLog', [{
-            project: 'target',
             category: args.category,
             tags: args.tags,
             active: true,
@@ -216,7 +214,7 @@ export class ProcessAgent {
 
     // Get project knowledge (constitution + overseer rules)
     const projectedKnowledge = await ProjectorHandler.project({
-      layer: 'L1', project: 'target', taskDescription: 'project review board analysis'
+      layer: 'L1', projectId: context.projectId, taskDescription: 'project review board analysis'
     });
 
     const startTime = Date.now();

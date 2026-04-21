@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, KBEntry, KBDoc } from '../services/db';
+import { db, KBEntry, KBDoc, SELF_PROJECT_ID } from '../services/db';
 import { Search, X, Hash, ArrowUpDown, FileText, BookOpen, Trash2, ScrollText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { chunkDoc, extractKeywords, scoreChunk, DocChunk } from '../modules/knowledge-projector/Handler';
@@ -77,8 +77,8 @@ export default function KBTableView({ onEntrySelect, onDocSelect, onConstitution
   }) ?? [];
 
   // Project filter
-  const projectEntries = entries.filter(e => projectFilter === 'all' || e.project === projectFilter);
-  const projectDocs = docs.filter(d => projectFilter === 'all' || d.project === projectFilter);
+  const projectEntries = entries.filter(e => projectFilter === 'all' || e.projectId === projectFilter);
+  const projectDocs = docs.filter(d => projectFilter === 'all' || d.projectId === projectFilter);
 
   // Tag counts
   const tagCounts = useMemo(() => {
@@ -333,7 +333,7 @@ export default function KBTableView({ onEntrySelect, onDocSelect, onConstitution
                     <span className="text-[8px] font-mono text-neutral-600">{entry.source}</span>
                   </td>
                   <td className="px-3 py-1.5">
-                    {entry.project === 'self' && (
+                    {entry.projectId === SELF_PROJECT_ID && (
                       <span className="text-[7px] font-mono bg-fuchsia-500/20 text-fuchsia-400 px-1 rounded">self</span>
                     )}
                   </td>
@@ -384,7 +384,7 @@ export default function KBTableView({ onEntrySelect, onDocSelect, onConstitution
                     <span className="text-[8px] font-mono text-neutral-600">{doc.source}</span>
                   </td>
                   <td className="px-3 py-1.5">
-                    {doc.project === 'self' && (
+                    {doc.projectId === SELF_PROJECT_ID && (
                       <span className="text-[7px] font-mono bg-fuchsia-500/20 text-fuchsia-400 px-1 rounded">self</span>
                     )}
                   </td>

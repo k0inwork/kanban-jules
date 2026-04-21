@@ -20,11 +20,13 @@ interface TaskDetailsModalProps {
   openaiUrl?: string;
   openaiKey?: string;
   openaiModel?: string;
+  projectId?: string | null;
 }
 
-export default function TaskDetailsModal({ 
+export default function TaskDetailsModal({
   task, onClose, tasks, onDeleteTask, onUpdateTask, onSendMessage, onAnalyzeArtifact,
-  apiProvider = 'gemini', openaiUrl = '', openaiKey = '', openaiModel = ''
+  apiProvider = 'gemini', openaiUrl = '', openaiKey = '', openaiModel = '',
+  projectId
 }: TaskDetailsModalProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [showAttach, setShowAttach] = useState(false);
@@ -37,9 +39,11 @@ export default function TaskDetailsModal({
   , [selectedArtifactId]);
 
   const availableArtifacts = useLiveQuery(async () => {
-    const all = await db.taskArtifacts.toArray();
+    const all = projectId
+      ? await db.taskArtifacts.where('projectId').equals(projectId).toArray()
+      : await db.taskArtifacts.toArray();
     return all.filter(a => typeof a.name !== 'string' || !a.name.startsWith('_') || a.taskId === task?.id);
-  }, [task?.id]) || [];
+  }, [task?.id, projectId]) || [];
   const taskArtifacts = useLiveQuery(async () => {
     if (!task) return [];
     const direct = await db.taskArtifacts.where('taskId').equals(task.id).toArray();
