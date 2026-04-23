@@ -75,19 +75,17 @@ export class BashExecutorHandler {
         const exists = await boardVM.fsBridge.exists(`${repoRoot}/.git`);
         if (exists) {
           console.log(`[bash-executor] ${repoRoot} already exists, pulling latest`);
-          const r = await boardVM.bashExec({
-            command: `cd ${repoRoot} && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
+          // cowfs doesn't support truncate — remove FETCH_HEAD so git creates it fresh
+          await boardVM.bashExec({
+            command: `rm -f ${repoRoot}/.git/FETCH_HEAD && cd ${repoRoot} && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
             cwd: '/tmp',
             timeout: 60000,
           });
-          if (r.exitCode !== 0) {
-            console.warn('[bash-executor] git fetch/reset failed (repo still usable):', r.stdout || r.error);
-          }
         } else {
-          console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → ${repoRoot}`);
           const authUrl = cfg.githubToken
             ? cfg.repoUrl.replace('https://', `https://${cfg.githubToken}@`)
             : cfg.repoUrl;
+          console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → ${repoRoot}`);
           const r = await boardVM.bashExec({
             command: `mkdir -p /tmp/repo-root && rm -rf ${repoRoot} && git clone --branch ${cfg.repoBranch} ${authUrl} ${repoRoot}`,
             cwd: '/tmp',
