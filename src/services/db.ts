@@ -44,6 +44,7 @@ export interface AgentMessage {
   id?: number;
   sender: string;
   taskId?: string;
+  projectId?: string;
   type: 'info' | 'proposal' | 'alert' | 'chat';
   category?: 'SIGNAL' | 'NOISE';
   content: string;

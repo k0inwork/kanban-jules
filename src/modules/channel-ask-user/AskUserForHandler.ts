@@ -130,6 +130,7 @@ export class AskUserForHandler {
       content: cardData.prompt,
       status: 'unread',
       timestamp: Date.now(),
+      projectId: context.projectId,
       // Store askUserFor card metadata in a structured field
       // The UI will detect this and render AskUserForCard instead of plain text
       category: 'SIGNAL',

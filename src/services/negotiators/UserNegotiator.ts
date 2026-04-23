@@ -51,6 +51,7 @@ export class UserNegotiator {
       messageId = await db.messages.add({
         sender: agentId,
         taskId: taskId,
+        projectId: task.projectId,
         type: 'alert',
         content: question,
         status: 'unread',
@@ -108,9 +109,11 @@ export class UserNegotiator {
 
     appendUnaLog(`Sending message to user: "${message}"`);
 
+    const task = await db.tasks.get(taskId);
     await db.messages.add({
       sender: agentId,
       taskId: taskId,
+      projectId: task?.projectId,
       type: 'alert',
       content: message,
       status: 'unread',
