@@ -44,16 +44,26 @@ export class UserNegotiator {
         appendUnaLog(`Found existing question, but no reply yet. Waiting...`);
       }
     } else {
-      // 1. Send message to mailbox
+      // 1. Send message to mailbox as SIGNAL with askUserFor card data
+      //    so the UI renders AskUserForCard with Yuan escalation button
       appendUnaLog(`Sending new question to user: "${question}"`);
       questionTimestamp = Date.now();
       messageId = await db.messages.add({
         sender: agentId,
         taskId: taskId,
+        projectId: task.projectId,
         type: 'alert',
         content: question,
         status: 'unread',
-        timestamp: questionTimestamp
+        timestamp: questionTimestamp,
+        category: 'SIGNAL',
+        proposedTask: {
+          title: 'askUserFor:text',
+          description: JSON.stringify({
+            mode: 'text',
+            prompt: question,
+          }),
+        },
       });
     }
 
@@ -99,9 +109,11 @@ export class UserNegotiator {
 
     appendUnaLog(`Sending message to user: "${message}"`);
 
+    const task = await db.tasks.get(taskId);
     await db.messages.add({
       sender: agentId,
       taskId: taskId,
+      projectId: task?.projectId,
       type: 'alert',
       content: message,
       status: 'unread',

@@ -828,20 +828,53 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       console.log('═══════ [yuan-runner] END INCOMING ═══════');
 
       // Run with a 5-minute timeout so the UI never hangs forever
+      // BUT: when agent is WAITING_FOR_USER (askUserFor, Yuan chat, etc.),
+      // extend the timeout to 30 minutes — user interaction can take a while.
+      var _runTimeoutMs = 300000;
       var _runTimeout = setTimeout(function() {
-        console.error('[yuan-runner] TIMEOUT — aborting agent after 300s');
-        try { globalThis._yuanAgent.abort('Yuan agent timed out after 300 seconds'); } catch(e) {}
+        console.error('[yuan-runner] TIMEOUT — aborting agent after ' + (_runTimeoutMs/1000) + 's');
+        try { globalThis._yuanAgent.abort('Yuan agent timed out after ' + (_runTimeoutMs/1000) + ' seconds'); } catch(e) {}
         var cbt = globalThis.boardVM && globalThis.boardVM.yuan;
-        var fallbackText = globalThis._lastLLMText ? '\x1b[33m[timeout-fallback]\x1b[0m ' + globalThis._lastLLMText : 'Agent timed out after 300 seconds.';
+        var fallbackText = globalThis._lastLLMText ? '\x1b[33m[timeout-fallback]\x1b[0m ' + globalThis._lastLLMText : 'Agent timed out.';
         if (cbt && cbt._onResult) cbt._onResult(fallbackText);
-      }, 300000);
+      }, _runTimeoutMs);
+
+      // Extend timeout when agent enters WAITING_FOR_USER — user interaction can take minutes
+      var _waitingForUserHandler = globalThis.boardVM.on('yuan:event', function(ev) {
+        if (ev && ev.kind === 'agent:waiting_for_user') {
+          console.log('[yuan-runner] Agent waiting for user — extending timeout to 30 min');
+          clearTimeout(_runTimeout);
+          _runTimeoutMs = 1800000;
+          _runTimeout = setTimeout(function() {
+            console.error('[yuan-runner] TIMEOUT (extended) — aborting agent');
+            try { globalThis._yuanAgent.abort('Agent timed out after waiting for user'); } catch(e) {}
+            var cbt2 = globalThis.boardVM && globalThis.boardVM.yuan;
+            var ft = globalThis._lastLLMText || 'Agent timed out.';
+            if (cbt2 && cbt2._onResult) cbt2._onResult(ft);
+          }, _runTimeoutMs);
+        }
+        if (ev && ev.kind === 'agent:tool_result') {
+          // Tool returned — agent is active again, reset to normal timeout
+          clearTimeout(_runTimeout);
+          _runTimeoutMs = 300000;
+          _runTimeout = setTimeout(function() {
+            console.error('[yuan-runner] TIMEOUT — aborting agent after 300s');
+            try { globalThis._yuanAgent.abort('Agent timed out'); } catch(e) {}
+            var cbt3 = globalThis.boardVM && globalThis.boardVM.yuan;
+            var ft2 = globalThis._lastLLMText || 'Agent timed out.';
+            if (cbt3 && cbt3._onResult) cbt3._onResult(ft2);
+          }, _runTimeoutMs);
+        }
+      });
 
       Promise.race([
         globalThis._yuanAgent.run(message),
-        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 305000); })
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 1805000); }) // 30 min + 5s buffer
       ]).then(function(result) {
         console.log('═══════ [yuan-runner] RUN RESULT ═══════');
         clearTimeout(_runTimeout);
+        // Clean up waiting-for-user handler
+        if (_waitingForUserHandler) { try { globalThis.boardVM.off('yuan:event', _waitingForUserHandler); } catch(e) {} }
         console.log('═══════ [yuan-runner] RUN RESULT ═══════');
         console.log('reason:', result && result.reason);
         console.log('summary:', result && result.summary);
@@ -862,6 +895,7 @@ function createAgentRunner(c: AlmostNodeContainer): void {
         }
       }).catch(function(err) {
         clearTimeout(_runTimeout);
+        if (_waitingForUserHandler) { try { globalThis.boardVM.off('yuan:event', _waitingForUserHandler); } catch(e) {} }
         console.error('═══════ [yuan-runner] RUN ERROR ═══════');
         console.error('message:', err.message);
         console.error('stack:', err.stack);

@@ -8,6 +8,10 @@ import { parseTasksFromMessage } from '../core/prompt';
 import { KBHandler } from '../modules/knowledge-kb/Handler';
 import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION, OVERSEER_CONSTITUTION } from '../core/constitution';
 import KBTableView from './KBTableView';
+import AskUserForCard from './AskUserForCard';
+import { AskMode } from '../core/types';
+import { YuanNegotiator } from '../services/negotiators/YuanNegotiator';
+import SpawnedYuanChat from '../bridge/SpawnedYuanChat';
 
 const CATEGORY_COLORS: Record<string, string> = {
   error: 'bg-red-500/20 text-red-400',
@@ -303,6 +307,26 @@ export default function PreviewPane({
     );
   }
 
+  if (activeTab.type === 'yuan-chat' && activeTab.chatId) {
+    return (
+      <SpawnedYuanChat
+        chatId={activeTab.chatId}
+        objective={activeTab.content}
+        chatStyle={activeTab.chatStyle || 'explorer'}
+        systemPrompt={activeTab.systemPrompt || ''}
+        onResolve={(summary) => {
+          YuanNegotiator.resolve(activeTab.chatId!, summary, '');
+        }}
+        apiProvider={apiProvider}
+        geminiApiKey={geminiApiKey}
+        geminiModel={geminiModel}
+        openaiUrl={openaiUrl}
+        openaiKey={openaiKey}
+        openaiModel={openaiModel}
+      />
+    );
+  }
+
   if (activeTab.type === 'mail') {
     const msg = activeTab.message;
     
@@ -400,7 +424,22 @@ export default function PreviewPane({
           )}
         </div>
         
-        {msg?.type === 'alert' && msg.taskId && (
+        {msg?.type === 'alert' && msg.category === 'SIGNAL' && msg.proposedTask?.title?.startsWith('askUserFor:') && msg.id && msg.taskId ? (() => {
+          const cardData = JSON.parse(msg.proposedTask.description || '{}');
+          return (
+            <div className="p-4 border-t border-neutral-800 bg-[#161b22] shrink-0">
+              <AskUserForCard
+                mailId={msg.id}
+                taskId={msg.taskId}
+                mode={cardData.mode as AskMode}
+                prompt={cardData.prompt}
+                choices={cardData.choices}
+                documentType={cardData.documentType}
+                template={cardData.template}
+              />
+            </div>
+          );
+        })() : msg?.type === 'alert' && msg.taskId && (
           <div className="p-4 border-t border-neutral-800 bg-[#161b22] shrink-0">
             <form 
               onSubmit={(e) => {

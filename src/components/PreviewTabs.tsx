@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, FileText, Paperclip, Mail, LayoutDashboard, BookOpen, Activity, Database } from 'lucide-react';
+import { X, FileText, Paperclip, Mail, LayoutDashboard, BookOpen, Activity, Database, MessageSquare } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 import { AgentMessage, KBEntry, KBDoc } from '../services/db';
@@ -8,12 +8,16 @@ export interface Tab {
   id: string;
   name: string;
   content: string;
-  type: 'file' | 'artifact' | 'constitution' | 'mail' | 'kb-log' | 'kb-doc' | 'kb-table' | 'kb-constitution';
+  type: 'file' | 'artifact' | 'constitution' | 'mail' | 'kb-log' | 'kb-doc' | 'kb-table' | 'kb-constitution' | 'yuan-chat';
   constitutionId?: string;
   message?: AgentMessage;
   kbEntry?: KBEntry;
   kbDoc?: KBDoc;
   scrollToSection?: string;
+  chatId?: string;         // yuan-chat session ID
+  chatStyle?: string;      // explorer | analyst | worker
+  systemPrompt?: string;   // for spawned yuan chats
+  documentContent?: string; // for split view
 }
 
 interface PreviewTabsProps {
@@ -53,6 +57,7 @@ export default function PreviewTabs({ tabs, activeTabId, onTabSelect, onTabClose
           {tab.type === 'file' ? <FileText className="w-3.5 h-3.5" /> :
            tab.type === 'artifact' ? <Paperclip className="w-3.5 h-3.5" /> :
            tab.type === 'mail' ? <Mail className="w-3.5 h-3.5 text-blue-400" /> :
+           tab.type === 'yuan-chat' ? <MessageSquare className="w-3.5 h-3.5 text-green-400" /> :
            tab.type === 'kb-doc' ? <BookOpen className="w-3.5 h-3.5 text-purple-400" /> :
            tab.type === 'kb-table' ? <Database className="w-3.5 h-3.5 text-blue-400" /> :
            tab.type === 'kb-log' ? <Activity className="w-3.5 h-3.5 text-cyan-400" /> :

@@ -164,6 +164,8 @@ interface BoardVMContextValue {
   yuanReady: boolean;
   /** Current Yuan agent status string */
   yuanStatus: string;
+  /** Current thinking status of Yuan agent */
+  yuanThinking: string;
   /** Send a message to Yuan and get a response */
   yuanSend: (msg: string) => Promise<string>;
   /** Initialize the Yuan agent (called automatically on mount) */
@@ -413,11 +415,11 @@ export function BoardVMProvider({
         status: () => (window as any).boardVM?.yuan?._status || 'not configured',
       },
       bashExec: async (args: { command: string; cwd?: string; timeout?: number }): Promise<{
-        stdout: string; exitCode: number; error?: string; durationMs: number;
+        stdout: string; stderr: string; exitCode: number; error?: string; durationMs: number;
       }> => {
         const bvm = (window as any).boardVM;
         const fs = bvm?.fsBridge;
-        if (!fs) return { stdout: '', exitCode: 1, error: 'fsBridge not available', durationMs: 0 };
+        if (!fs) return { stdout: '', stderr: '', exitCode: 1, error: 'fsBridge not available', durationMs: 0 };
 
         const id = crypto.randomUUID().slice(0, 8);
         const cwd = args.cwd || '/home/project';
@@ -429,7 +431,7 @@ export function BoardVMProvider({
         const payload = btoa(`${id}:${cwd}:${args.command}`);
         const seq = new TextEncoder().encode(`\x1b]89;${payload}\x07`);
         const sendRaw = (globalThis as any).__boardSendRaw;
-        if (!sendRaw) return { stdout: '', exitCode: 1, error: 'Serial console not ready', durationMs: Date.now() - start };
+        if (!sendRaw) return { stdout: '', stderr: '', exitCode: 1, error: 'Serial console not ready', durationMs: Date.now() - start };
         sendRaw(seq);
 
         const deadline = start + timeout;
@@ -452,19 +454,29 @@ export function BoardVMProvider({
           sendRaw(killSeq);
           try { await fs.rm(resultDir); } catch {}
           return { stdout: '', exitCode: -1, error: `timeout after ${timeout}ms`, durationMs: Date.now() - start };
+
         }
 
         let stdout = '';
+        let stderr = '';
         try { stdout = await fs.readFile(`${resultDir}/stdout`); } catch {}
+        try { stderr = await fs.readFile(`${resultDir}/stderr`); } catch {}
 
         const MAX_OUTPUT = 65536;
         if (stdout.length > MAX_OUTPUT) {
           stdout = stdout.slice(0, MAX_OUTPUT) + `\n... truncated (${stdout.length} bytes total)`;
         }
+        if (stderr.length > MAX_OUTPUT) {
+          stderr = stderr.slice(0, MAX_OUTPUT) + `\n... truncated (${stderr.length} bytes total)`;
+        }
 
         try { await fs.rm(resultDir); } catch {}
 
-        return { stdout, exitCode, durationMs: Date.now() - start };
+        if (exitCode !== 0) {
+          console.log(`[bashExec] exit=${exitCode} stdout=${stdout.length}b stderr=${stderr.length}b`);
+        }
+
+        return { stdout, stderr, exitCode, durationMs: Date.now() - start };
       },
     };
 

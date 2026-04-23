@@ -8,6 +8,7 @@ interface RepoConfig {
 
 export class BashExecutorHandler {
   private static _configs: Map<string, RepoConfig> = new Map();
+  private static _prefetching: Set<string> = new Set();
 
   /** Get the per-project repo root path in v86 */
   static repoRootPath(projectId: string): string {
@@ -40,6 +41,11 @@ export class BashExecutorHandler {
   }
 
   private static prefetchRepo(projectId: string) {
+    if (BashExecutorHandler._prefetching.has(projectId)) {
+      console.log(`[bash-executor] Prefetch already in progress for project ${projectId}, skipping`);
+      return;
+    }
+    BashExecutorHandler._prefetching.add(projectId);
     const cfg = BashExecutorHandler._configs.get(projectId);
     if (!cfg?.repoUrl) {
       console.log(`[bash-executor] No repoUrl configured for project ${projectId}, skipping prefetch`);
@@ -86,19 +92,30 @@ export class BashExecutorHandler {
             ? cfg.repoUrl.replace('https://', `https://${cfg.githubToken}@`)
             : cfg.repoUrl;
           console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → ${repoRoot}`);
+          // Ensure parent dir exists and clean any stale clone
+          await boardVM.bashExec({
+            command: `mkdir -p /tmp/repo-root && rm -rf ${repoRoot}`,
+            cwd: '/tmp',
+            timeout: 30000,
+          });
           const r = await boardVM.bashExec({
-            command: `mkdir -p /tmp/repo-root && rm -rf ${repoRoot} && git clone --branch ${cfg.repoBranch} ${authUrl} ${repoRoot}`,
+            command: `git clone --branch ${cfg.repoBranch} ${authUrl} ${repoRoot}`,
             cwd: '/tmp',
             timeout: 120000,
           });
           if (r.exitCode !== 0) {
-            console.warn('[bash-executor] git clone failed:', r.stdout || r.error);
+            console.warn('[bash-executor] git clone failed (exitCode=' + r.exitCode + ')');
+            if (r.stderr) console.warn('[bash-executor]   stderr:', r.stderr);
+            if (r.stdout) console.warn('[bash-executor]   stdout:', r.stdout);
+            if (r.error) console.warn('[bash-executor]   error:', r.error);
             return;
           }
         }
         console.log(`[bash-executor] Prefetch complete for project ${projectId}`);
       } catch (err: any) {
         console.warn('[bash-executor] Prefetch failed:', err.message);
+      } finally {
+        BashExecutorHandler._prefetching.delete(projectId);
       }
     })();
   }

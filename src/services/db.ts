@@ -23,6 +23,7 @@ export interface Artifact {
   status?: ArtifactStatus;
   metadata?: any;
   createdAt?: number;
+  projectId?: string;
 }
 
 export interface ArtifactLink {
@@ -48,6 +49,7 @@ export interface AgentMessage {
   id?: number;
   sender: string;
   taskId?: string;
+  projectId?: string;
   type: 'info' | 'proposal' | 'alert' | 'chat';
   category?: 'SIGNAL' | 'NOISE';
   content: string;
@@ -135,6 +137,21 @@ export interface Project {
   updatedAt: number;
 }
 
+export interface YuanChatSession {
+  id: string;            // uuid, primary key
+  tabLabel: string;      // e.g. "Scope", "Auth"
+  objective: string;     // the prompt from askUserFor
+  successCriteria?: string;
+  chatStyle: 'explorer' | 'analyst' | 'worker';
+  status: 'active' | 'resolved' | 'abandoned';
+  sourceMode: string;    // the original AskMode that spawned or escalated to this chat
+  taskId?: string;
+  projectId?: string;
+  artifactId?: number;   // artifact produced when resolved
+  createdAt: number;
+  resolvedAt?: number;
+}
+
 export class MyDatabase extends Dexie {
   gitCache!: Table<GitCache>;
   taskArtifacts!: Table<Artifact>;
@@ -148,6 +165,7 @@ export class MyDatabase extends Dexie {
   kbDocs!: Table<KBDoc>;
   pushQueue!: Table<PushQueueItem>;
   yuanHistory!: Table<YuanHistory>;
+  yuanChatSessions!: Table<YuanChatSession>;
   projects!: Table<Project>;
 
   constructor() {
@@ -365,7 +383,8 @@ export class MyDatabase extends Dexie {
       kbDocs: '++id, timestamp, title, type, active, source, projectId',
       pushQueue: '++id, branch, status, timestamp, projectId',
       yuanHistory: '++id, role, timestamp',
-      projects: 'id, name, createdAt'
+      projects: 'id, name, createdAt',
+      yuanChatSessions: 'id, status, taskId, projectId, createdAt'
     }).upgrade(async tx => {
       // Migrate project → projectId on kbLog
       await tx.table('kbLog').toCollection().modify(entry => {

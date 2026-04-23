@@ -99,6 +99,47 @@ export interface HostConfig {
   projectId?: string;
 }
 
+// --- askUserFor types ---
+
+export type AskMode = 'choice' | 'text' | 'document' | 'artifact' | 'file' | 'chat';
+
+export type YuanChatStyle = 'explorer' | 'analyst' | 'worker';
+
+export interface AskOptions {
+  // choice mode
+  choices?: string[];
+  // document mode
+  documentType?: string;
+  template?: string;
+  // chat mode
+  chatStyle?: YuanChatStyle;
+  successCriteria?: string;
+  // general
+  timeout?: number; // ms, default 300000 (5 min)
+}
+
+export interface AskResult {
+  mode: AskMode;
+  value: string;
+  artifactId?: number;
+  chatId?: string;
+}
+
+export interface EditCommand {
+  op: 'replace' | 'insert' | 'delete' | 'append';
+  // replace: search for exact text, replace with new text
+  search?: string;
+  replace?: string;
+  // replace/delete with range
+  from?: string;
+  until?: string;
+  count?: number; // number of lines (inclusive) from match
+  // insert: insert after matching line
+  after?: string;
+  // insert/append: content to add
+  content?: string;
+}
+
 export interface OrchestratorConfig {
   repoUrl: string;
   repoBranch: string;

@@ -123,7 +123,7 @@ describe('BashExecutorHandler', () => {
   });
 
   describe('clone', () => {
-    it('should copy /tmp/repo-root to /home/project', async () => {
+    it('should copy per-project repo-root to per-task dir', async () => {
       mockFsBridge.exists.mockResolvedValue(true);
       mockBashExec
         .mockResolvedValueOnce({ stdout: '', exitCode: 0, durationMs: 500 }) // cp -r
@@ -133,7 +133,7 @@ describe('BashExecutorHandler', () => {
 
       expect(mockBashExec).toHaveBeenCalledTimes(2);
       expect(mockBashExec).toHaveBeenNthCalledWith(1, {
-        command: 'mkdir -p /tmp/test && rm -rf /tmp/test/repo && cp -r /tmp/repo-root /tmp/test/repo',
+        command: 'mkdir -p /tmp/test && rm -rf /tmp/test/repo && cp -r /tmp/repo-root/_default /tmp/test/repo',
         cwd: '/home',
         timeout: 60000,
       });
@@ -151,7 +151,7 @@ describe('BashExecutorHandler', () => {
 
       expect(result).toEqual({
         path: '',
-        error: 'Repo not yet cloned (startup prefetch still running or failed)',
+        error: 'Repo not yet cloned for project _default (startup prefetch still running or failed)',
       });
     });
 

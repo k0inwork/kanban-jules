@@ -45,7 +45,6 @@ export default function ArtifactBrowser({ tasks, onArtifactSelect, projectId }: 
     }
   };
 
-  if (loading) return <div className="text-xs text-neutral-500 font-mono p-4">Loading artifacts...</div>;
   if (artifacts.length === 0) return <div className="text-xs text-neutral-500 font-mono p-4">No artifacts found.</div>;
 
   return (

@@ -5,6 +5,7 @@ export type YuanEvent =
   | { kind: 'agent:tool_result', tool: string, success: boolean, output?: string }
   | { kind: 'agent:completed', summary: string }
   | { kind: 'agent:error', message: string }
+  | { kind: 'agent:waiting_for_user', taskId?: string }
   | { kind: 'agent-message', from: string, messageType: string, payload: any, taskId?: string }
   | { kind: 'agent-message-response', content?: string };
 
@@ -12,7 +13,7 @@ export type SystemEvent =
   | { type: 'project:review', data: any }
   | { type: 'module:log', data: { taskId: string, moduleId: string, message: string } }
   | { type: 'task:manual-trigger', data: { taskId: string } }
-  | { type: 'user:reply', data: { taskId: string, content: string, messageId?: number } }
+  | { type: 'user:reply', data: { taskId: string, content: string, messageId?: number, mailId?: number } }
   | { type: 'module:request', data: { requestId: string, taskId: string, toolName: string, args: any[], abortSignal?: AbortSignal } }
   | { type: 'module:response', data: { requestId: string, result: any, error?: string } }
   | { type: 'executor:completed', data: { taskId: string, executor: string, sessionName?: string, startedAt?: number } }
@@ -22,7 +23,12 @@ export type SystemEvent =
   | { type: 'trace:tool-call', data: any }
   | { type: 'task:statusChanged', data: { taskId: string, from: string, to: string, task: any, projectId?: string } }
   | { type: 'test:completed', data: { taskId: string, results: any, projectId?: string } }
-  | { type: 'branch:created', data: { taskId: string, branch: string, commitSha?: string, projectId?: string } };
+  | { type: 'branch:created', data: { taskId: string, branch: string, commitSha?: string, projectId?: string } }
+  | { type: 'yuan-chat:spawn', data: { chatId: string; tabLabel: string; systemPrompt: string; chatStyle: string; objective: string; documentContent?: string } }
+  | { type: 'yuan-chat:resolved', data: { chatId: string; summary: string; fullConversation: string } }
+  | { type: 'yuan-chat:abandoned', data: { chatId: string } }
+  | { type: 'ask-user:escalate', data: { mailId: number; taskId: string } }
+  | { type: 'ask-user:response', data: { mailId: number; taskId: string; value: string; artifactId?: number } };
 
 export type EventCallback<T = any> = (data: T) => void;
 

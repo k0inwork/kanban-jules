@@ -39,11 +39,11 @@ import PreviewPane from './components/PreviewPane';
 import { Artifact, db, AgentMessage, Project } from './services/db';
 import ProjectDropdown from './components/ProjectDropdown';
 import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
-import { GitFs, GitFile } from './services/GitFs';
+import { BashExecutorHandler } from './modules/bash-executor/BashExecutorHandler';
 import { ArtifactTool, artifactToolDeclarations } from './modules/knowledge-artifacts/ArtifactTool';
 import { RepositoryTool, repositoryToolDeclarations } from './modules/knowledge-repo-browser/RepositoryTool';
-import { BashExecutorHandler } from './modules/bash-executor/BashExecutorHandler';
 import { cn } from './lib/utils';
+import { YuanNegotiator } from './services/negotiators/YuanNegotiator';
 
 import { parseTasksFromMessage } from './core/prompt';
 
@@ -131,6 +131,19 @@ export default function App() {
     };
     initDb();
   }, []);
+
+  // Sync project repoUrl/repoBranch from DB on mount — localStorage can go stale
+  useEffect(() => {
+    if (!currentProjectId) return;
+    db.projects.get(currentProjectId).then(project => {
+      if (project && project.repoUrl) {
+        setRepoUrl(project.repoUrl);
+        setRepoBranch(project.repoBranch || 'main');
+        localStorage.setItem('repoUrl', project.repoUrl);
+        localStorage.setItem('repoBranch', project.repoBranch || 'main');
+      }
+    });
+  }, []); // run once on mount
 
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => (localStorage.getItem('autonomyMode') as AutonomyMode) || 'assisted');
   const [globalLogs, setGlobalLogs] = useState<string[]>([]);
@@ -331,6 +344,33 @@ export default function App() {
     return () => host.stop();
   }, [apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, githubToken, repoUrl, repoBranch, moduleConfigs, julesEndpoint, julesSourceName, julesSourceId, currentProjectId]);
 
+  // Listen for spawned Yuan chat sessions — create dynamic tabs
+  useEffect(() => {
+    const handleSpawn = (data: { chatId: string; tabLabel: string; systemPrompt: string; chatStyle: string; objective: string; documentContent?: string }) => {
+      const tabId = `yuan-${data.chatId}`;
+      if (tabs.find(t => t.id === tabId)) {
+        setActiveTabId(tabId);
+        setIsViewingBoard(false);
+        return;
+      }
+      const newTab: Tab = {
+        id: tabId,
+        name: data.tabLabel,
+        content: data.objective,
+        type: 'yuan-chat',
+        chatId: data.chatId,
+        chatStyle: data.chatStyle,
+        systemPrompt: data.systemPrompt,
+        documentContent: data.documentContent,
+      };
+      setTabs(prev => [...prev, newTab]);
+      setActiveTabId(tabId);
+      setIsViewingBoard(false);
+    };
+    eventBus.on('yuan-chat:spawn', handleSpawn);
+    return () => eventBus.off('yuan-chat:spawn', handleSpawn);
+  }, [tabs]);
+
   // Auto-accept proposals in Full Autonomy mode
   const latestProposal = useLiveQuery(() =>
     currentProjectId
@@ -409,29 +449,46 @@ export default function App() {
   const handleDeleteTask = async (taskId: string) => {
     // Remove associated messages
     await db.messages.where('taskId').equals(taskId).delete();
-    
+
     // 1. Find artifacts owned by this task
     const ownedArtifacts = await db.taskArtifacts.where('taskId').equals(taskId).toArray();
     const ownedArtifactIds = ownedArtifacts.map(a => a.id!).filter(Boolean);
-    
+
     // 2. Delete links to these owned artifacts from ANY task
     if (ownedArtifactIds.length > 0) {
       await db.taskArtifactLinks.where('artifactId').anyOf(ownedArtifactIds).delete();
     }
-    
+
     // 3. Delete the owned artifacts themselves
     await db.taskArtifacts.where('taskId').equals(taskId).delete();
-    
+
     // 4. Delete links from THIS task to ANY artifact
     await db.taskArtifactLinks.where('taskId').equals(taskId).delete();
-    
+
     // Un-link associated Jules sessions instead of deleting them
     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();
     for (const session of sessions) {
       await db.julesSessions.update(session.id, { taskId: undefined });
     }
-    
+
     await db.tasks.delete(taskId);
+
+    // Close tabs related to this task (mail, yuan-chat)
+    setTabs(prev => {
+      const remaining = prev.filter(t => {
+        // Close mail tabs for this task
+        if (t.type === 'mail' && t.message?.taskId === taskId) return false;
+        // Close yuan-chat tabs for this task
+        if (t.type === 'yuan-chat') return false;
+        return true;
+      });
+      // If active tab was closed, switch to board
+      if (activeTabId && !remaining.find(t => t.id === activeTabId)) {
+        setActiveTabId('board');
+        setIsViewingBoard(true);
+      }
+      return remaining;
+    });
   };
 
   const confirmDeleteTask = (taskId: string) => {
@@ -518,9 +575,8 @@ export default function App() {
     }
   };
 
-  const handleFileSelect = async (file: GitFile) => {
-    const token = githubToken || import.meta.env.VITE_GITHUB_TOKEN;
-    if (!token || !repoUrl) return;
+  const handleFileSelect = async (file: { name: string; path: string; type: string }) => {
+    if (!currentProjectId) return;
 
     const tabId = `file-${file.path}`;
     if (tabs.find(t => t.id === tabId)) {
@@ -529,8 +585,10 @@ export default function App() {
     }
 
     try {
-      const gitFs = new GitFs(repoUrl, repoBranch, token);
-      const content = await gitFs.getFile(file.path);
+      const root = BashExecutorHandler.repoRootPath(currentProjectId);
+      const bridge = (globalThis as any).boardVM?.fsBridge;
+      if (!bridge) return;
+      const content = await bridge.readFile(`${root}/${file.path}`);
       const newTab: Tab = {
         id: tabId,
         name: file.name,
@@ -1020,10 +1078,8 @@ export default function App() {
               <>
                 <CollapsiblePane title="Repository" defaultExpanded={false}>
                   <div className="p-4">
-                    <RepositoryBrowser 
-                      repoUrl={repoUrl} 
-                      branch={repoBranch} 
-                      token={githubToken || import.meta.env.VITE_GITHUB_TOKEN} 
+                    <RepositoryBrowser
+                      projectId={currentProjectId}
                       onFileSelect={handleFileSelect}
                     />
                   </div>

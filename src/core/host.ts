@@ -28,6 +28,8 @@ import { actionDispatcher } from './action-dispatcher';
 import { action as kbRecorderAction } from '../modules/action-kb-recorder/action';
 import { action as branchTrackerAction } from '../modules/action-branch-tracker/action';
 import { action as testRunnerAction } from '../modules/action-test-runner/action';
+import { AskUserForHandler } from '../modules/channel-ask-user/AskUserForHandler';
+
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -265,6 +267,10 @@ export class ModuleHost {
 
     // Agent bus — sandbox agents call agent.sendMessage to emit inter-agent messages
     registry.registerHandler('core-agent-bus.sendMessage', AgentBus.handleRequest);
+
+    // AskUserFor — unified user interaction (choice, text, document, artifact, file, chat)
+    const askUserForHandler = new AskUserForHandler();
+    registry.registerModuleHandlers('channel-ask-user', askUserForHandler.handleRequest.bind(askUserForHandler));
 
     // Trace interceptor — every tool call emits a trace event
     registry.setInterceptor((toolName, args, ctx, result, durationMs) => {
