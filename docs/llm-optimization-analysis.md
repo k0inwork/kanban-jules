@@ -433,7 +433,148 @@ PAW programs should be compiled opportunistically, not on-demand:
 
 ---
 
-## 10. Risk Assessment
+## 10. LLM Management Panel
+
+A dedicated settings tab giving the user full visibility and control over every LLM tier.
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  LLM Engine Settings                                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─ PROVIDERS ───────────────────────────────────────────┐ │
+│  │  Primary API    [Gemini ▾]   Key: ****...****  [Test] │ │
+│  │  Cheap API      [Groq  ▾]   Key: ****...****  [Test] │ │
+│  │  PAW Compile    [OpenAI ▾]   Key: ****...****  [Test] │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                             │
+│  ┌─ LOCAL MODELS ────────────────────────────────────────┐ │
+│  │                                                       │ │
+│  │  PAW Runtime (WASM)                                   │ │
+│  │  ├ Base Model (GPT-2 124M)     ● Loaded    134 MB    │ │
+│  │  └ Programs:                                          │ │
+│  │    ├ signal-noise      ✅ Ready      12 MB   50ms     │ │
+│  │    ├ format-check      ✅ Ready      11 MB   60ms     │ │
+│  │    ├ verify-progress   ⏳ Compiling  --      45/100s  │ │
+│  │    └ verify-output     ○ Not compiled                  │ │
+│  │                                                       │ │
+│  │  WebLLM (WebGPU)                                      │ │
+│  │  ├ Device Support      ● Available (WebGPU detected)  │ │
+│  │  ├ VRAM Budget         2.1 GB used / 4.0 GB avail     │ │
+│  │  │                                                    │ │
+│  │  │  Model                    Status    Size   Speed   │ │
+│  │  │  SmolLM2-360M-q4          ● Ready   194 MB  95t/s  │ │
+│  │  │  Qwen2.5-1.5B-q4          ● Ready   828 MB  48t/s  │ │
+│  │  │  Llama-3.2-3B-q4          ○ Cached  1.7 GB   —     │ │
+│  │  │  Gemma-2-2B-q4            — Not downloaded         │ │
+│  │  │                                                    │ │
+│  │  │  [Download Model ▾]  [Delete Selected]              │ │
+│  │                                                       │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                             │
+│  ┌─ TIER ROUTING ────────────────────────────────────────┐ │
+│  │  Call Site            Primary      Fallback     Hits   │ │
+│  │  ─────────────────    ─────────    ─────────   ──────  │ │
+│  │  Signal/Noise         PAW          WebLLM       342    │ │
+│  │  Format Validation    Rules        PAW          89     │ │
+│  │  Progress Verify      PAW          WebLLM       156    │ │
+│  │  Final Verify         PAW          WebLLM       44     │ │
+│  │  Task Extraction      WebLLM       Groq API     67     │ │
+│  │  Architect Protocol   Groq API     Primary API  23     │ │
+│  │  Session Analysis     WebLLM       Groq API     31     │ │
+│  │  Programmer Codegen   Primary API  —            112    │ │
+│  │  Analysis Tool        Groq API     Primary API  18     │ │
+│  │  Project Review       GPT-4o-mini  Primary API  12    │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                             │
+│  ┌─ USAGE STATS (last 7 days) ───────────────────────────┐ │
+│  │  Total calls:  894                                    │ │
+│  │  Tier 0 (Rules):      89   (10%)  $0.00               │ │
+│  │  Tier 1 (PAW):       542   (61%)  $0.00               │ │
+│  │  Tier 2 (WebLLM):     98   (11%)  $0.00               │ │
+│  │  Tier 3 (Cheap API):  41   ( 5%)  $0.01               │ │
+│  │  Tier 4 (Full API):  124   (14%)  $1.86               │ │
+│  │  ─────────────────────────────────────────             │ │
+│  │  Total cost:                          $1.87            │ │
+│  │  Estimated without optimization:     $13.50           │ │
+│  │  Savings:                             $11.63 (86%)     │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                             │
+│  ┌─ ACTIONS ─────────────────────────────────────────────┐ │
+│  │  [Recompile All PAW]  [Clear Model Cache]             │ │
+│  │  [Download WebLLM Model]  [Run Diagnostics]           │ │
+│  │  [Export Programs]  [Import Programs]                  │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Status Indicators
+
+| Icon | State | Meaning |
+|---|---|---|
+| ● Green | Ready | Model loaded, responding to calls |
+| ⏳ Yellow | Loading | Download in progress or compiling |
+| ○ Gray | Not available | Not compiled/downloaded, using fallback |
+| ✅ White | Compiled | PAW program ready in IndexedDB |
+| 🔴 Red | Error | Load failed, check console |
+
+### Provider Configuration
+
+Each provider has:
+- **Dropdown**: Gemini / OpenAI / Groq / Together AI / OpenRouter / Custom URL
+- **API Key field**: Masked input with test button
+- **Test button**: Sends a trivial prompt, measures TTFT, shows success/fail
+- **Model selector**: Appears after provider is chosen (e.g., Groq → Llama-3.1-8B, Gemma-2-9B)
+
+Three separate provider slots:
+1. **Primary API** — used for Tier 4 (code gen, current behavior)
+2. **Cheap API** — used for Tier 3 (planning, analysis)
+3. **PAW Compile API** — used only for compilation (needs a strong model like GPT-4)
+
+### PAW Program Cards
+
+Each compiled PAW program shows:
+- Program name and spec (click to expand/edit)
+- Status (compiled / compiling / missing)
+- Adapter size and average inference latency
+- Hit count (how many times used this session)
+- [Recompile] button — re-runs compilation with current spec
+- [Delete] button — removes from IndexedDB, reverts to fallback
+
+### WebLLM Section
+
+- Auto-detects WebGPU support on mount
+- **Multiple models** can be downloaded and cached simultaneously
+- Each model shows: name, size, cache status, VRAM usage, measured tok/s
+- Model selector for each call site (e.g., use 360M for classification, 1.5B for extraction, 3B for analysis)
+- [Download] / [Delete] per model, progress bar when loading
+- VRAM budget indicator: total available vs sum of loaded models
+- Default set: `{ classification: "SmolLM2-360M", extraction: "Qwen2.5-1.5B", analysis: "Qwen2.5-1.5B" }`
+- Swap models at runtime via `engine.reload()` — ~3-5s from cache
+
+### Diagnostics
+
+[Run Diagnostics] button executes a self-test:
+1. Test each provider with a trivial prompt
+2. Load and run each PAW program on a known input
+3. Load WebLLM and classify a test message
+4. Measure and display latency for each tier
+5. Show any errors with suggestions
+
+### Data Sources
+
+The panel reads from:
+- `localStorage` / settings: provider configs, API keys
+- IndexedDB `PawProgram` table: compiled programs and metadata
+- Cache API: WebLLM model cache status (`hasModelInCache()`)
+- In-memory counters: hit counts per tier (reset on page reload, or persist to IndexedDB for stats)
+
+---
+
+## 11. Risk Assessment
 
 | Risk | Severity | Mitigation |
 |---|---|---|
@@ -445,7 +586,7 @@ PAW programs should be compiled opportunistically, not on-demand:
 
 ---
 
-## 11. Technical Notes
+## 12. Technical Notes
 
 - **WebLLM JSON Schema mode**: Uses `@mlc-ai/web-xgrammar` for grammar-constrained decoding. Guarantees valid JSON matching a schema — better than PAW's prompt-only approach.
 - **Model caching**: WebLLM uses Cache API by default. Qwen2.5-1.5B (~828 MB) downloads once, loads in ~3s from cache on subsequent visits.
