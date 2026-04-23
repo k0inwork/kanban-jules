@@ -19,7 +19,10 @@ export type SystemEvent =
   | { type: 'projector:injection', data: { taskId: string, stepId: string, summary: string, sections: string[] } }
   | { type: 'yuan:event', data: YuanEvent }
   | { type: 'agent:message', data: any }
-  | { type: 'trace:tool-call', data: any };
+  | { type: 'trace:tool-call', data: any }
+  | { type: 'task:statusChanged', data: { taskId: string, from: string, to: string, task: any, projectId?: string } }
+  | { type: 'test:completed', data: { taskId: string, results: any, projectId?: string } }
+  | { type: 'branch:created', data: { taskId: string, branch: string, commitSha?: string, projectId?: string } };
 
 export type EventCallback<T = any> = (data: T) => void;
 

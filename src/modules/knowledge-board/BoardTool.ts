@@ -2,6 +2,7 @@ import { db } from '../../services/db';
 import { RequestContext } from '../../core/types';
 import { Task } from '../../types';
 import { sanitizeTaskUpdates } from '../../core/task-guards';
+import { eventBus } from '../../core/event-bus';
 
 function generateId(): string {
   return Math.random().toString(16).slice(2, 10) + Date.now().toString(36);
@@ -98,6 +99,19 @@ export const BoardTool = {
         }
 
         await db.tasks.update(task.id, safe);
+
+        // Emit status change event if workflowStatus changed
+        if (safe.workflowStatus && safe.workflowStatus !== task.workflowStatus) {
+          const updated = { ...task, ...safe };
+          eventBus.emit('task:statusChanged', {
+            taskId: task.id,
+            from: task.workflowStatus,
+            to: safe.workflowStatus,
+            task: updated,
+            projectId: task.projectId,
+          });
+        }
+
         return `Updated task ${task.id}: ${Object.keys(safe).join(', ')}`;
       }
 

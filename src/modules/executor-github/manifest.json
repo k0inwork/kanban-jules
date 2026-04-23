@@ -98,6 +98,18 @@
       }
     },
     {
+      "name": "executor-github.getTree",
+      "description": "Lists files in a repository branch using the Git tree API. Signature: getTree({ repoUrl?: string, branch?: string, path?: string }). Returns an array of file paths.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repoUrl": { "type": "string", "description": "Optional. Repository URL (owner/repo). Defaults to context repo." },
+          "branch": { "type": "string", "description": "Optional. Branch to list. Defaults to context branch." },
+          "path": { "type": "string", "description": "Optional. Filter to paths starting with this prefix." }
+        }
+      }
+    },
+    {
       "name": "executor-github.fetchArtifacts",
       "description": "Downloads artifacts from a completed GitHub Actions workflow run and saves them to the Fleet artifact store. Signature: fetchArtifacts({ runId: number, repoUrl?: string, branch?: string }).",
       "parameters": {
@@ -128,6 +140,7 @@
     "github.fetchLogs": "executor-github.fetchLogs",
     "github.getRunStatus": "executor-github.getRunStatus",
     "github.fetchArtifacts": "executor-github.fetchArtifacts",
+    "github.getTree": "executor-github.getTree",
     "negotiator.askUser": "channel-user-negotiator.askUser",
     "kb.recordEntry": "knowledge-kb.recordEntry",
     "kb.queryLog": "knowledge-kb.queryLog",

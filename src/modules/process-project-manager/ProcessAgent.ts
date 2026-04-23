@@ -324,7 +324,19 @@ Set "done": true when you have no more actions to take.`;
       }
     }
 
-    console.log(`[ProcessAgent] Review complete. Tokens: ~${totalTokensUsed}, Iterations: ${this.iterationLog.length}, Time: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    const summary = `[ProcessAgent] Review complete. Tokens: ~${totalTokensUsed}, Iterations: ${this.iterationLog.length}, Time: ${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+    console.log(summary);
+    this.iterationLog.push(summary);
+
+    // Persist review log to moduleKnowledge for UI display
+    const logKey = `process-agent:review-log`;
+    const existing = (await db.moduleKnowledge.get(logKey))?.content || '';
+    const entry = `\n━━━ ${new Date().toISOString()} ━━━\n${this.iterationLog.join('\n')}\n`;
+    await db.moduleKnowledge.put({
+      id: logKey,
+      content: existing + entry,
+      updatedAt: Date.now(),
+    });
   }
 
   // ─── Static Handler ───

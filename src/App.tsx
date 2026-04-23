@@ -872,8 +872,6 @@ export default function App() {
           <button
             onClick={(e) => {
               handleReviewProject(e);
-              setSidebarMode('mailbox');
-              setIsRepoBrowserOpen(true);
             }}
             disabled={isReviewing}
             className={cn(

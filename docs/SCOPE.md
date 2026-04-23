@@ -220,7 +220,7 @@ Browser SPA (React 19 + Vite 6)
 ## Priority Gaps (by Pillar)
 
 ### Document Generation
-1. Structured document templates (spec, report, decision-log, readme)
+1. ~~Structured document templates~~ — **done**: `Templates.ts` seeds 4 templates (design-spec, api-analysis, implementation-plan, test-report); LLM extracts artifact names from constitution on save (`extractArtifactNames`); `KBBrowser` template dropdown populated from `project.artifactNames`; file upload for custom templates via modal
 2. Document generation pipeline (gather context → draft → review → approve)
 3. Export formats (markdown, PDF future)
 

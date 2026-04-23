@@ -206,7 +206,7 @@ export function TerminalPanel({ bundleUrl, wasmUrl, wanixUrl, onReady, onOutput 
       const bvm = (window as any).boardVM;
       if (bvm) {
         bvm.mode = 'terminal';
-        bvm.memoryMB = 1024;
+        bvm.memoryMB = 400;
         Object.defineProperty(bvm, 'termCols', { get: () => termSizeRef.cols, configurable: true });
         Object.defineProperty(bvm, 'termRows', { get: () => termSizeRef.rows, configurable: true });
       }

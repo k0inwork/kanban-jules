@@ -225,7 +225,7 @@ export function BoardVMProvider({
 
     (window as any).boardVM = {
       mode: 'terminal',
-      memoryMB: 1024,
+      memoryMB: 400,
       gitfs: {
         getFile: (_path: string) => Promise.resolve(undefined),
         listFiles: (_path: string) => Promise.resolve([]),

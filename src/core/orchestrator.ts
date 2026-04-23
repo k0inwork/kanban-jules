@@ -540,6 +540,18 @@ export class Orchestrator {
         agentId: 'local-agent'
       });
 
+      // Emit status change event for action modules
+      if (nextWorkflowStatus !== currentTask.workflowStatus) {
+        const updated = { ...currentTask, workflowStatus: nextWorkflowStatus, agentState: nextAgentState };
+        eventBus.emit('task:statusChanged', {
+          taskId: task.id,
+          from: currentTask.workflowStatus,
+          to: nextWorkflowStatus,
+          task: updated,
+          projectId: currentTask.projectId,
+        });
+      }
+
       // KB hook: record outcome + save architect decisions + trigger decision harvest then microDream
       if (status === 'DONE' && this.config) {
         // Merge task branch and enqueue push
