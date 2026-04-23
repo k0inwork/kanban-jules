@@ -340,43 +340,76 @@ App Load
   └─► All LLM calls use API until local resources are ready
 ```
 
-### Per-Call Fallback Logic
+### Per-Call Level System
+
+Each `llmCall` site declares its **level** — how local it can go. If the required model is missing, it escalates to the next available level.
+
+**Levels**:
+- `static` — PAW compiled program (smallest, fastest, runs everywhere via WASM)
+- `dynamic` — WebLLM local model (larger, needs WebGPU, but flexible)
+- `global` — Remote API (always works, costs money)
 
 ```typescript
-async function smartLlmCall(callSite: string, prompt: string, jsonMode?: boolean) {
-  // Tier 0: Rules (instant, no model)
-  if (canHandleWithRules(callSite, prompt)) {
-    return applyRules(callSite, prompt);
+type LlmLevel = 'static' | 'dynamic' | 'global';
+
+// Each call site declares its preferred level
+const CALL_LEVELS: Record<string, LlmLevel> = {
+  'signal-noise':      'static',   // PAW program exists
+  'format-validate':   'static',   // PAW program exists
+  'verify-progress':   'static',   // PAW program exists
+  'verify-output':     'static',   // PAW program exists
+  'task-extract':      'dynamic',  // needs extraction capability
+  'session-analyze':   'dynamic',  // needs JSON analysis
+  'architect-plan':    'global',   // needs planning quality
+  'programmer-codegen':'global',   // needs code generation
+  'analyze-tool':      'global',   // needs reasoning
+  'project-review':    'global',   // needs full context
+};
+
+async function llmCall leveled(
+  callSite: string,
+  prompt: string,
+  jsonMode?: boolean
+): Promise<string> {
+  const level = CALL_LEVELS[callSite] ?? 'global';
+
+  // Try preferred level first, escalate if model missing
+  if (level === 'static') {
+    const pawResult = await tryPaw(callSite, prompt);
+    if (pawResult) return pawResult;
+    // PAW not compiled → try dynamic
   }
 
-  // Tier 1: PAW (if compiled, runs everywhere)
-  const pawProgram = await getPawProgram(callSite);
-  if (pawProgram) {
-    try {
-      const result = await runPaw(pawProgram, prompt);
-      if (result.confidence > 0.85) return result.value;
-      // Low confidence → fall through to next tier
-    } catch { /* PAW failed, fall through */ }
+  if (level === 'static' || level === 'dynamic') {
+    const webllmResult = await tryWebLLM(prompt, jsonMode);
+    if (webllmResult) return webllmResult;
+    // WebLLM not ready → fall to global
   }
 
-  // Tier 2: WebLLM (if downloaded, needs WebGPU)
-  if (hasWebGPU() && await isWebLLMReady()) {
-    try {
-      return await runWebLLM(prompt, jsonMode);
-    } catch { /* WebLLM failed, fall through */ }
-  }
-
-  // Tier 3: Cheap API (always available)
-  if (cheapApiConfigured()) {
-    return await callCheapApi(prompt, jsonMode);
-  }
-
-  // Tier 4: Full API (current behavior, never breaks)
+  // Global: always available
   return await llmCall(currentConfig, prompt, jsonMode);
 }
 ```
 
-**Key principle**: The system always works. Local models are optimizations, not requirements. Every call has a guaranteed fallback to the current API.
+**Escalation path**:
+```
+static  →  dynamic  →  global
+(PAW)      (WebLLM)    (API)
+
+Call wants "static":
+  PAW ready?    → use PAW (done)
+  PAW missing?  → WebLLM ready? → use WebLLM (done)
+                   WebLLM missing? → use API (done)
+
+Call wants "dynamic":
+  WebLLM ready?  → use WebLLM (done)
+  WebLLM missing? → use API (done)
+
+Call wants "global":
+  → use API (always)
+```
+
+**Key principle**: Every call site declares its level. Missing models escalate upward — never fail. On cold start, everything escalates to `global` (current API behavior). As models compile/download, calls automatically shift local.
 
 ### Triggering Compilation
 
@@ -474,19 +507,21 @@ A dedicated settings tab giving the user full visibility and control over every 
 │  │                                                       │ │
 │  └───────────────────────────────────────────────────────┘ │
 │                                                             │
-│  ┌─ TIER ROUTING ────────────────────────────────────────┐ │
-│  │  Call Site            Primary      Fallback     Hits   │ │
-│  │  ─────────────────    ─────────    ─────────   ──────  │ │
-│  │  Signal/Noise         PAW          WebLLM       342    │ │
-│  │  Format Validation    Rules        PAW          89     │ │
-│  │  Progress Verify      PAW          WebLLM       156    │ │
-│  │  Final Verify         PAW          WebLLM       44     │ │
-│  │  Task Extraction      WebLLM       Groq API     67     │ │
-│  │  Architect Protocol   Groq API     Primary API  23     │ │
-│  │  Session Analysis     WebLLM       Groq API     31     │ │
-│  │  Programmer Codegen   Primary API  —            112    │ │
-│  │  Analysis Tool        Groq API     Primary API  18     │ │
-│  │  Project Review       GPT-4o-mini  Primary API  12    │ │
+│  ┌─ CALL ROUTING ────────────────────────────────────────┐ │
+│  │  Call Site           Level      Resolved     Hits      │ │
+│  │  ─────────────────   ──────     ────────    ──────     │ │
+│  │  Signal/Noise        static     PAW ✓        342       │ │
+│  │  Format Validate     static     PAW ✓        89        │ │
+│  │  Progress Verify     static     PAW ✓        156       │ │
+│  │  Final Verify        static     API ↑        44        │ │
+│  │  Task Extraction     dynamic    WebLLM ✓     67        │ │
+│  │  Session Analysis    dynamic    WebLLM ✓     31        │ │
+│  │  Architect Protocol  global     API ✓        23        │ │
+│  │  Programmer Codegen  global     API ✓        112       │ │
+│  │  Analysis Tool       global     API ✓        18        │ │
+│  │  Project Review      global     API ✓        12        │ │
+│  │                                                      │ │
+│  │  ✓ = preferred level hit   ↑ = escalated up          │ │
 │  └───────────────────────────────────────────────────────┘ │
 │                                                             │
 │  ┌─ USAGE STATS (last 7 days) ───────────────────────────┐ │
