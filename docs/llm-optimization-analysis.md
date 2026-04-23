@@ -295,7 +295,113 @@ function validateReply(reply: string, format: string): boolean {
 
 ---
 
-## 8. Implementation Path
+## 8. Cold Start & Progressive Readiness
+
+On first visit, nothing is local — no PAW programs compiled, no WebLLM model downloaded. The system must degrade gracefully.
+
+### Readiness States
+
+```
+State A: COLD START (first visit)
+  - No PAW programs in IndexedDB
+  - No WebLLM model cached
+  - All calls → current API (no regression)
+
+State B: PAW READY (after background compile)
+  - 4 core PAW programs compiled and stored
+  - Tier A calls (#1-4) → PAW (free, instant)
+  - Everything else → API
+
+State C: WEBLLM READY (after background download)
+  - Qwen2.5-1.5B cached in browser
+  - Tier A → PAW, Tier B (#5,#7) → WebLLM
+  - Only planning/codegen → API
+
+State D: FULLY OPTIMIZED (both ready)
+  - All tiers active, 77% cost reduction
+```
+
+### Background Warmup Strategy
+
+On app load, kick off non-blocking background tasks:
+
+```
+App Load
+  │
+  ├─► Check IndexedDB for PAW programs
+  │     Missing? → Queue background compile (one at a time, ~100s each)
+  │     Compile uses existing API key, runs in service worker or background tab
+  │
+  ├─► Check WebGPU availability
+  │     Available? → Start WebLLM model download (~828 MB)
+  │     Cache API stores it, ~2-5 min download on broadband
+  │     Show subtle progress indicator in UI
+  │
+  └─► All LLM calls use API until local resources are ready
+```
+
+### Per-Call Fallback Logic
+
+```typescript
+async function smartLlmCall(callSite: string, prompt: string, jsonMode?: boolean) {
+  // Tier 0: Rules (instant, no model)
+  if (canHandleWithRules(callSite, prompt)) {
+    return applyRules(callSite, prompt);
+  }
+
+  // Tier 1: PAW (if compiled, runs everywhere)
+  const pawProgram = await getPawProgram(callSite);
+  if (pawProgram) {
+    try {
+      const result = await runPaw(pawProgram, prompt);
+      if (result.confidence > 0.85) return result.value;
+      // Low confidence → fall through to next tier
+    } catch { /* PAW failed, fall through */ }
+  }
+
+  // Tier 2: WebLLM (if downloaded, needs WebGPU)
+  if (hasWebGPU() && await isWebLLMReady()) {
+    try {
+      return await runWebLLM(prompt, jsonMode);
+    } catch { /* WebLLM failed, fall through */ }
+  }
+
+  // Tier 3: Cheap API (always available)
+  if (cheapApiConfigured()) {
+    return await callCheapApi(prompt, jsonMode);
+  }
+
+  // Tier 4: Full API (current behavior, never breaks)
+  return await llmCall(currentConfig, prompt, jsonMode);
+}
+```
+
+**Key principle**: The system always works. Local models are optimizations, not requirements. Every call has a guaranteed fallback to the current API.
+
+### Triggering Compilation
+
+PAW programs should be compiled opportunistically, not on-demand:
+
+| Trigger | Action |
+|---|---|
+| First app load | Queue compile of `signal-noise` (highest frequency call) |
+| User configures API key | Queue remaining programs |
+`verify-progress`, `format-check`, `verify-output` |
+| User opens PAW settings | Show compile status, allow manual recompile |
+| Spec changes (dynamic programs) | Recompile only affected program |
+
+### WebLLM Download Strategy
+
+| Trigger | Action |
+|---|---|
+| App load + WebGPU detected | Start background download of Qwen2.5-1.5B |
+| Download complete | Set `webLLMReady = true`, all Tier 2 calls go local |
+| Download fails / OOM | Try SmolLM2-360M (194 MB fallback) |
+| Both fail | Disable WebLLM tier, all calls go PAW → API |
+
+---
+
+## 9. Implementation Path
 
 ### Phase 1: PAW Core Programs (Tier 1)
 
@@ -327,7 +433,7 @@ function validateReply(reply: string, format: string): boolean {
 
 ---
 
-## 9. Risk Assessment
+## 10. Risk Assessment
 
 | Risk | Severity | Mitigation |
 |---|---|---|
@@ -339,7 +445,7 @@ function validateReply(reply: string, format: string): boolean {
 
 ---
 
-## 10. Technical Notes
+## 11. Technical Notes
 
 - **WebLLM JSON Schema mode**: Uses `@mlc-ai/web-xgrammar` for grammar-constrained decoding. Guarantees valid JSON matching a schema — better than PAW's prompt-only approach.
 - **Model caching**: WebLLM uses Cache API by default. Qwen2.5-1.5B (~828 MB) downloads once, loads in ~3s from cache on subsequent visits.
