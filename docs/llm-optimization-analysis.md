@@ -621,7 +621,234 @@ The panel reads from:
 
 ---
 
-## 12. Technical Notes
+## 12. Implementation Plan
+
+### Architecture: What Changes
+
+The level system adds one new abstraction layer. Everything else (call sites) changes minimally.
+
+**Current flow**:
+```
+Call site → context.llmCall(prompt, jsonMode) → host.ts:134 → API
+```
+
+**New flow**:
+```
+Call site → context.llmCall(prompt, jsonMode, level?) → host.ts → level router → PAW / WebLLM / API
+```
+
+### New Files to Create
+
+| File | Purpose | Size |
+|---|---|---|
+| `src/core/llm-router.ts` | Level routing logic: static → dynamic → global | ~80 lines |
+| `src/core/paw-runtime.ts` | PAW IndexedDB lookup + WASM inference wrapper | ~60 lines |
+| `src/core/webllm-runtime.ts` | WebLLM engine init, model cache, inference | ~100 lines |
+| `src/core/llm-stats.ts` | Hit counters per tier, usage stats persistence | ~50 lines |
+| `src/components/LLMSettingsPanel.tsx` | Management panel UI component | ~400 lines |
+| `src/services/db.ts` (modify) | Add `PawProgram` table to Dexie schema | ~20 lines |
+
+### Files to Modify
+
+#### 1. `src/core/types.ts` (3 lines)
+
+Add `level` parameter to `RequestContext.llmCall`:
+
+```typescript
+// Before:
+llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
+
+// After:
+llmCall: (prompt: string, jsonMode?: boolean, level?: 'static' | 'dynamic' | 'global') => Promise<string>;
+```
+
+**Impact**: Backwards compatible — `level` is optional, defaults to `'global'`.
+
+#### 2. `src/core/host.ts` (~30 lines changed)
+
+The `llmCall` method at line 134 becomes a thin wrapper around the level router:
+
+```typescript
+// Before: host.ts:134-207 has all the API logic inline
+
+// After:
+async llmCall(prompt: string, jsonMode?: boolean, level?: LlmLevel): Promise<string> {
+  if (!this.config) throw new Error("Host not initialized");
+  return llmRouter.route(level ?? 'global', prompt, jsonMode, this.config);
+}
+```
+
+The existing API call logic moves into `llm-router.ts` as the `global` handler. The retry/timeout logic stays there too.
+
+#### 3. `src/modules/executor-jules/JulesPostman.ts` (~10 lines changed)
+
+Lines 95-128: Currently does inline Gemini/OpenAI fetch for classification. Change to use `this.config.llmCall` with `level: 'static'`:
+
+```typescript
+// Before: 30 lines of inline Gemini + OpenAI fetch
+
+// After:
+const result = await llmCall(
+  `Classify as SIGNAL or NOISE. Message: "${content}". Return only SIGNAL or NOISE.`,
+  false,
+  'static'  // → PAW signal-noise program, fallback to API
+);
+category = result.trim().toUpperCase() === 'SIGNAL' ? 'SIGNAL' : 'NOISE';
+```
+
+**Simplifies code**: Removes 30 lines of duplicated API logic. JulesPostman is the ONLY call site that bypasses `host.llmCall` — this fixes that architectural inconsistency.
+
+#### 4. `src/services/negotiators/UserNegotiator.ts` (3 lines changed)
+
+Line 126-134: Add level to `validateReply`:
+
+```typescript
+// Before:
+const result = await llmCall(prompt);
+
+// After:
+const result = await llmCall(prompt, false, 'static');
+```
+
+#### 5. `src/services/negotiators/JulesNegotiator.ts` (6 lines changed)
+
+Lines 148, 246, 305: Add level to each `safeLlmCall`:
+
+```typescript
+// Line 148 (progress verify) — static
+await safeLlmCall(verifyPrompt, false, 'static');
+
+// Line 246 (session analysis) — dynamic
+await safeLlmCall(analysisPrompt, true, 'dynamic');
+
+// Line 305 (final verify) — static
+await safeLlmCall(verifyPrompt, false, 'static');
+```
+
+Also update `safeLlmCall` signature to pass `level` through:
+
+```typescript
+const safeLlmCall = async (promptText: string, jsonMode?: boolean, level?: LlmLevel, retries = 5) => {
+  return await llmCall(promptText, jsonMode, level);
+};
+```
+
+#### 6. `src/core/prompt.ts` — `parseTasksFromMessage` (~5 lines changed)
+
+Currently does its own inline API calls (lines 33-63). Refactor to accept `llmCall` function:
+
+```typescript
+// Before: 7 params including apiProvider, geminiModel, etc.
+
+// After: accepts llmCall function
+export const parseTasksFromMessage = async (
+  messageContent: string,
+  llmCall: (prompt: string, jsonMode?: boolean, level?: LlmLevel) => Promise<string>
+): Promise<{ title: string; description: string }[]> => {
+  // ... same prompt ...
+  const data = JSON.parse(await llmCall(prompt, true, 'dynamic'));
+  return data.tasks || [];
+};
+```
+
+**Callers to update**: `App.tsx:117`, `MailboxView.tsx:75`, `PreviewPane.tsx:41` — pass `host.llmCall` instead of 7 separate config params.
+
+#### 7. `src/core/orchestrator.ts` (2 lines changed)
+
+Lines 80, 193: Add levels to the two calls:
+
+```typescript
+// Line 80 (analyze tool) — global (needs reasoning)
+summary = await this.config.llmCall(analysisPrompt, format === 'json', 'global');
+
+// Line 193 (programmer codegen) — global (needs code quality)
+const code = await this.config.llmCall(prompt, false, 'global');
+```
+
+#### 8. `src/modules/architect-codegen/Architect.ts` (1 line changed)
+
+Line 16: Add level:
+
+```typescript
+await context.llmCall(prompt, true, 'global');
+```
+
+#### 9. `src/modules/process-project-manager/ProcessAgent.ts` (1 line changed)
+
+Line 95: Add level:
+
+```typescript
+await context.llmCall(prompt, true, 'global');
+```
+
+### Test Changes
+
+| Test Area | What to Test | Effort |
+|---|---|---|
+| `llm-router.ts` | Level escalation: static→dynamic→global. Mock each runtime. Verify correct level hit. | ~20 unit tests |
+| `paw-runtime.ts` | IndexedDB read/write. WASM init. Inference with mock adapter. | ~10 unit tests |
+| `webllm-runtime.ts` | WebGPU detect. Model load/cached. Inference. JSON mode. | ~10 unit tests |
+| `llm-stats.ts` | Counter increment per tier. Stats aggregation. Persist/load. | ~5 unit tests |
+| Integration | End-to-end: PAW missing → WebLLM fallback → API. Cold start. Model appears mid-session. | ~5 integration tests |
+| Existing call sites | Each modified call site still returns correct results. Verify no regression. | ~8 regression tests |
+
+**Testing strategy**: The level router is the critical path. Mock PAW/WebLLM as "available/unavailable", verify escalation. Real PAW/WebLLM inference tested separately in `paw-test.html`.
+
+### Phased Rollout
+
+#### Phase 1: Infrastructure (level router + PAW runtime) — 3 days
+
+1. Create `src/core/llm-router.ts` with level escalation
+2. Create `src/core/paw-runtime.ts` (IndexedDB + WASM wrapper)
+3. Modify `src/core/types.ts` — add `level` to `llmCall` signature
+4. Modify `src/core/host.ts` — route through `llm-router`
+5. Modify `JulesPostman.ts` — use `llmCall('static')` instead of inline API
+6. **Checkpoint**: All existing tests pass. JulesPostman uses PAW when available, API otherwise.
+
+#### Phase 2: Level all call sites — 2 days
+
+1. Add `level` parameter to `UserNegotiator.ts`, `JulesNegotiator.ts`, `orchestrator.ts`, `Architect.ts`, `ProcessAgent.ts`
+2. Refactor `parseTasksFromMessage` to accept `llmCall` function
+3. Update callers (`App.tsx`, `MailboxView.tsx`, `PreviewPane.tsx`)
+4. **Checkpoint**: Every call site declares its level. All default to global → no behavior change.
+
+#### Phase 3: WebLLM runtime — 5 days
+
+1. Add `@mlc-ai/web-llm` dependency
+2. Create `src/core/webllm-runtime.ts` (WebGPU detect, model load, JSON mode inference)
+3. Wire into `llm-router.ts` as the `dynamic` tier
+4. Background download on app load
+5. **Checkpoint**: `dynamic` calls route to WebLLM when available.
+
+#### Phase 4: Management panel + stats — 3 days
+
+1. Create `src/core/llm-stats.ts` (hit counters, usage tracking)
+2. Create `src/components/LLMSettingsPanel.tsx` (full UI)
+3. Add to settings navigation
+4. **Checkpoint**: Full visibility into all tiers, manual compile/download controls.
+
+#### Phase 5: Production hardening — 2 days
+
+1. Error boundaries for WebGPU OOM
+2. Progressive model download (360M first, 1.5B in background)
+3. IndexedDB GC for old PAW programs (30-day expiry)
+4. Device capability detection and auto-tier selection
+
+### Total Effort: ~15 days
+
+| Phase | Days | Risk | Deliverable |
+|---|---|---|---|
+| 1. Infrastructure | 3 | Low | Level router + PAW runtime |
+| 2. Level all sites | 2 | Low | Every site declares level |
+| 3. WebLLM | 5 | Medium | Local inference for dynamic calls |
+| 4. Management panel | 3 | Low | UI for all tiers |
+| 5. Hardening | 2 | Low | Production-ready |
+
+**Critical path**: Phase 1 (level router) must ship first. After that, phases 2-4 are independent and can be parallelized.
+
+---
+
+## 13. Technical Notes
 
 - **WebLLM JSON Schema mode**: Uses `@mlc-ai/web-xgrammar` for grammar-constrained decoding. Guarantees valid JSON matching a schema — better than PAW's prompt-only approach.
 - **Model caching**: WebLLM uses Cache API by default. Qwen2.5-1.5B (~828 MB) downloads once, loads in ~3s from cache on subsequent visits.
