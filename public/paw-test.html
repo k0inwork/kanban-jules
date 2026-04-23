@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PAW Test Bench</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'SF Mono', 'Menlo', monospace; background: #0d1117; color: #c9d1d9; padding: 24px; }
+    h1 { color: #58a6ff; margin-bottom: 8px; font-size: 20px; }
+    .subtitle { color: #8b949e; margin-bottom: 24px; font-size: 13px; }
+    .status { margin-bottom: 16px; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
+    .status.loading { background: #1f2937; color: #f0b429; }
+    .status.ready { background: #0d2818; color: #3fb950; }
+    .status.error { background: #2d1117; color: #f85149; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    th { text-align: left; padding: 8px 12px; background: #161b22; color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #21262d; }
+    td { padding: 8px 12px; border-bottom: 1px solid #21262d; font-size: 13px; vertical-align: top; }
+    tr:hover td { background: #161b22; }
+    .test-name { color: #58a6ff; white-space: nowrap; }
+    .test-input { color: #8b949e; max-width: 300px; word-break: break-word; }
+    .test-expected { color: #d2a8ff; white-space: nowrap; }
+    .test-result { font-weight: bold; }
+    .pass { color: #3fb950; }
+    .fail { color: #f85149; }
+    .pending { color: #484f58; }
+    .summary { margin-top: 16px; padding: 12px; background: #161b22; border-radius: 6px; font-size: 14px; }
+    .timer { color: #8b949e; font-size: 11px; }
+    .compile-btn { background: #238636; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 13px; margin-bottom: 16px; }
+    .compile-btn:hover { background: #2ea043; }
+    .compile-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .section { margin-bottom: 32px; }
+    .section-title { color: #f0b429; font-size: 14px; margin-bottom: 12px; padding-bottom: 4px; border-bottom: 1px solid #21262d; }
+  </style>
+</head>
+<body>
+  <h1>PAW Test Bench</h1>
+  <p class="subtitle">ProgramAsWeights browser SDK — headless extraction &amp; classification tests</p>
+
+  <div id="status" class="status loading">Initializing PAW runtime...</div>
+
+  <div class="section">
+    <div class="section-title">Pre-compiled Programs (public hub)</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Test</th>
+          <th>Input</th>
+          <th>Expected</th>
+          <th>Actual</th>
+          <th>Status</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="precompiled-results"></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Custom Compilation Tests</div>
+    <p class="subtitle">Requires PAW_API_KEY — set it below:</p>
+    <input id="apiKey" type="text" value="paw_sk_rl5Kw6Wa7Vl2pe3NLEuCijOdAtos6peeFuMc3qd8qfACYkejg8tZnVa5dNxlDTmy" style="background:#161b22;border:1px solid #21262d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:400px;font-family:inherit;font-size:12px;margin-bottom:16px;">
+
+    <div style="background:#161b22;border:1px solid #21262d;border-radius:6px;padding:16px;margin-bottom:16px;">
+      <div style="margin-bottom:12px;">
+        <label style="color:#8b949e;font-size:12px;display:block;margin-bottom:4px;">Program Name (slug)</label>
+        <input id="myName" type="text" placeholder="e.g. my-sentiment" style="background:#0d1117;border:1px solid #21262d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:300px;font-family:inherit;font-size:13px;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="color:#8b949e;font-size:12px;display:block;margin-bottom:4px;">Spec (what the program should do)</label>
+        <textarea id="mySpec" rows="3" placeholder="e.g. Classify the sentiment as positive, negative, or neutral." style="background:#0d1117;border:1px solid #21262d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:100%;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="color:#8b949e;font-size:12px;display:block;margin-bottom:4px;">Test Cases <span style="color:#484f58;">(one per line: input | expected)</span></label>
+        <textarea id="myCases" rows="5" placeholder="This is amazing! | positive&#10;The app crashed | negative&#10;Updated deps | neutral" style="background:#0d1117;border:1px solid #21262d;color:#c9d1d9;padding:6px 10px;border-radius:4px;width:100%;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
+      </div>
+      <button id="myCompileBtn" class="compile-btn" style="margin-top:8px;">Compile &amp; Run My Program</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Test</th>
+          <th>Spec</th>
+          <th>Input</th>
+          <th>Expected</th>
+          <th>Actual</th>
+          <th>Status</th>
+          <th>Compile</th>
+          <th>Run</th>
+        </tr>
+      </thead>
+      <tbody id="custom-results"></tbody>
+    </table>
+  </div>
+
+  <div id="summary" class="summary"></div>
+
+  <script type="module">
+    import paw from './paw-sdk/index.js';
+
+    const statusEl = document.getElementById('status');
+    const precompiledBody = document.getElementById('precompiled-results');
+    const customBody = document.getElementById('custom-results');
+    const summaryEl = document.getElementById('summary');
+    const compileBtn = document.getElementById('compileBtn');
+    const apiKeyInput = document.getElementById('apiKey');
+
+    // --- Test Definitions ---
+
+    const precompiledTests = [
+      {
+        name: 'email-triage-browser',
+        label: 'Urgency Classification',
+        cases: [
+          { input: 'Urgent: the server is down!', expected: 'immediate' },
+          { input: 'Newsletter: spring picnic next Saturday', expected: 'wait' },
+          { input: 'Hey, quick question about the invoice', expected: 'wait' },
+          { input: 'CRITICAL: production database corrupted', expected: 'immediate' },
+          { input: 'Monthly team sync notes attached', expected: 'wait' },
+        ]
+      },
+      // Add more pre-compiled program slugs here as they become available
+    ];
+
+    const customTests = [
+      {
+        name: 'task-title-extraction',
+        spec: 'Extract a short task title (max 8 words) from a user message. Return only the title, no quotes, no punctuation at the end.',
+        cases: [
+          { input: 'The login page is broken, users cant sign in and getting 500 errors', expected: /login/i },
+          { input: 'We need to add a dark mode toggle to the settings page', expected: /dark mode/i },
+          { input: 'Fix the memory leak in the websocket handler thats causing OOM crashes', expected: /memory leak|websocket/i },
+        ]
+      },
+      {
+        name: 'sentiment-classification',
+        spec: 'Classify the sentiment of the text as exactly one word: positive, negative, or neutral.',
+        cases: [
+          { input: 'This new feature is amazing, love it!', expected: 'positive' },
+          { input: 'The app crashed again, this is terrible', expected: 'negative' },
+          { input: 'Updated the dependencies to latest versions', expected: 'neutral' },
+          { input: 'Great progress on the sprint goals this week', expected: 'positive' },
+        ]
+      },
+      {
+        name: 'log-triage',
+        spec: 'Extract only the error message from a log line. Return just the error text, no timestamp or level.',
+        cases: [
+          { input: '[2024-01-15 10:23:45] ERROR: Connection timeout to database after 30s', expected: /connection timeout/i },
+          { input: '[INFO] Request completed in 234ms', expected: '' },
+          { input: '[ERROR] Failed to parse JSON: unexpected token at position 42', expected: /failed to parse|unexpected token/i },
+        ]
+      },
+      {
+        name: 'intent-routing',
+        spec: 'Classify the user intent as exactly one word: create, read, update, delete, or search.',
+        cases: [
+          { input: 'I want to make a new task for fixing the bug', expected: 'create' },
+          { input: 'Show me all the tasks in the backlog', expected: 'read' },
+          { input: 'Change the priority of task 42 to high', expected: 'update' },
+          { input: 'Remove all completed tasks from the board', expected: 'delete' },
+          { input: 'Find tasks related to the authentication module', expected: 'search' },
+        ]
+      },
+    ];
+
+    // --- Runner ---
+
+    let passCount = 0;
+    let failCount = 0;
+    let pendingCount = 0;
+
+    function checkResult(actual, expected) {
+      if (expected instanceof RegExp) return expected.test(actual);
+      return actual.trim().toLowerCase() === expected.trim().toLowerCase();
+    }
+
+    function addRow(tbody, cols) {
+      const tr = document.createElement('tr');
+      cols.forEach(c => {
+        const td = document.createElement('td');
+        if (typeof c === 'object' && c.html) {
+          td.innerHTML = c.html;
+        } else {
+          td.textContent = c;
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
+
+    async function runPrecompiled() {
+      for (const program of precompiledTests) {
+        let fn;
+        try {
+          fn = await paw.function(program.name, {
+            onProgress: ({ loaded, total, stage }) => {
+              statusEl.textContent = `Loading ${program.name}: ${stage} ${Math.round(loaded/total*100)}%`;
+            }
+          });
+        } catch (e) {
+          statusEl.textContent = `Failed to load ${program.name}: ${e.message}`;
+          statusEl.className = 'status error';
+          program.cases.forEach(c => {
+            addRow(precompiledBody, [
+              { html: `<span class="test-name">${program.name}</span>` },
+              { html: `<span class="test-input">${c.input}</span>` },
+              { html: `<span class="test-expected">${c.expected}</span>` },
+              '-',
+              { html: '<span class="fail">LOAD FAIL</span>' },
+              '-'
+            ]);
+            failCount++;
+          });
+          continue;
+        }
+
+        for (const tc of program.cases) {
+          const t0 = performance.now();
+          try {
+            const result = await fn(tc.input);
+            const ms = Math.round(performance.now() - t0);
+            const pass = checkResult(result, tc.expected);
+            if (pass) passCount++; else failCount++;
+            addRow(precompiledBody, [
+              { html: `<span class="test-name">${program.name}</span>` },
+              { html: `<span class="test-input">${tc.input}</span>` },
+              { html: `<span class="test-expected">${tc.expected}</span>` },
+              { html: `<span class="test-result">${result}</span>` },
+              { html: `<span class="${pass ? 'pass' : 'fail'}">${pass ? 'PASS' : 'FAIL'}</span>` },
+              { html: `<span class="timer">${ms}ms</span>` },
+            ]);
+          } catch (e) {
+            failCount++;
+            addRow(precompiledBody, [
+              { html: `<span class="test-name">${program.name}</span>` },
+              { html: `<span class="test-input">${tc.input}</span>` },
+              { html: `<span class="test-expected">${tc.expected}</span>` },
+              { html: `<span class="fail">ERROR: ${e.message}</span>` },
+              { html: '<span class="fail">ERROR</span>' },
+              '-'
+            ]);
+          }
+        }
+        fn.free();
+      }
+    }
+
+    async function runCustom(apiKey, singleProgram) {
+      // PAW compile via API
+      const programs = singleProgram ? [singleProgram] : customTests;
+      for (const program of programs) {
+        statusEl.textContent = `Compiling: ${program.name}...`;
+        statusEl.className = 'status loading';
+
+        let slug;
+        let compileMs = '-';
+        const compileStart = performance.now();
+        try {
+          const res = await fetch('https://programasweights.com/api/v1/compile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': apiKey
+            },
+            body: JSON.stringify({
+              spec: program.spec,
+              slug: program.name,
+              compiler: 'paw-4b-gpt2' // browser-compatible
+            })
+          });
+          if (!res.ok) throw new Error(`Compile API: ${res.status} ${await res.text()}`);
+          const data = await res.json();
+          slug = data.slug || data.program_id || program.name;
+          compileMs = Math.round(performance.now() - compileStart);
+        } catch (e) {
+          compileMs = Math.round(performance.now() - compileStart);
+          program.cases.forEach(c => {
+            addRow(customBody, [
+              { html: `<span class="test-name">${program.name}</span>` },
+              { html: `<span class="test-input">${program.spec.substring(0, 60)}...</span>` },
+              { html: `<span class="test-input">${c.input}</span>` },
+              { html: `<span class="test-expected">${c.expected}</span>` },
+              { html: `<span class="fail">COMPILE FAIL: ${e.message}</span>` },
+              { html: '<span class="fail">ERROR</span>' },
+              { html: `<span class="timer">${compileMs}ms</span>` },
+              '-'
+            ]);
+            failCount++;
+          });
+          continue;
+        }
+
+        // Wait for browser assets to be ready
+        statusEl.textContent = `Waiting for browser assets: ${slug}... (compile took ${compileMs}ms)`;
+        const assetWaitStart = performance.now();
+        await new Promise(r => setTimeout(r, 90000)); // 90s wait for HuggingFace upload
+        const assetWaitMs = Math.round(performance.now() - assetWaitStart);
+        const totalCompileMs = Math.round(performance.now() - compileStart);
+
+        let fn;
+        try {
+          fn = await paw.function(slug);
+        } catch (e) {
+          program.cases.forEach(c => {
+            addRow(customBody, [
+              { html: `<span class="test-name">${program.name}</span>` },
+              { html: `<span class="test-input">${program.spec.substring(0, 60)}...</span>` },
+              { html: `<span class="test-input">${c.input}</span>` },
+              { html: `<span class="test-expected">${c.expected}</span>` },
+              { html: `<span class="fail">LOAD FAIL: ${e.message}</span>` },
+              { html: '<span class="fail">ERROR</span>' },
+              { html: `<span class="timer">${totalCompileMs}ms</span>` },
+              '-'
+            ]);
+            failCount++;
+          });
+          continue;
+        }
+
+        statusEl.textContent = `Running tests: ${program.name}`;
+        for (const tc of program.cases) {
+          const t0 = performance.now();
+          try {
+            const result = await fn(tc.input);
+            const ms = Math.round(performance.now() - t0);
+            const pass = checkResult(result, tc.expected);
+            if (pass) passCount++; else failCount++;
+            addRow(customBody, [
+              { html: `<span class="test-name">${program.name}</span>` },
+              { html: `<span class="test-input">${program.spec.substring(0, 60)}...</span>` },
+              { html: `<span class="test-input">${tc.input}</span>` },
+              { html: `<span class="test-expected">${tc.expected}</span>` },
+              { html: `<span class="test-result">${result}</span>` },
+              { html: `<span class="${pass ? 'pass' : 'fail'}">${pass ? 'PASS' : 'FAIL'}</span>` },
+              { html: `<span class="timer">${totalCompileMs}ms</span>` },
+              { html: `<span class="timer">${ms}ms</span>` },
+            ]);
+          } catch (e) {
+            failCount++;
+            addRow(customBody, [
+              { html: `<span class="test-name">${program.name}</span>` },
+              { html: `<span class="test-input">${program.spec.substring(0, 60)}...</span>` },
+              { html: `<span class="test-input">${tc.input}</span>` },
+              { html: `<span class="test-expected">${tc.expected}</span>` },
+              { html: `<span class="fail">ERROR: ${e.message}</span>` },
+              { html: '<span class="fail">ERROR</span>' },
+              { html: `<span class="timer">${totalCompileMs}ms</span>` },
+              '-'
+            ]);
+          }
+        }
+        fn.free();
+      }
+    }
+
+    // --- Main ---
+
+    try {
+      statusEl.textContent = 'PAW SDK loaded. Running pre-compiled tests...';
+      statusEl.className = 'status loading';
+
+      await runPrecompiled();
+
+      statusEl.textContent = `Pre-compiled tests done. ${passCount} passed, ${failCount} failed.`;
+      statusEl.className = passCount > 0 ? 'status ready' : 'status error';
+      if (compileBtn) compileBtn.disabled = false;
+    } catch (e) {
+      statusEl.textContent = `Init error: ${e.message}`;
+      statusEl.className = 'status error';
+    }
+
+    if (compileBtn) {
+      compileBtn.addEventListener('click', async () => {
+        const apiKey = apiKeyInput.value.trim();
+        if (!apiKey) {
+          alert('Enter a PAW API key first');
+          return;
+        }
+        compileBtn.disabled = true;
+        await runCustom(apiKey);
+        compileBtn.disabled = false;
+        updateSummary();
+      });
+    }
+
+    // --- Custom form handler ---
+    const myCompileBtn = document.getElementById('myCompileBtn');
+    myCompileBtn.addEventListener('click', async () => {
+      const apiKey = apiKeyInput.value.trim();
+      if (!apiKey) { alert('Enter a PAW API key first'); return; }
+
+      const name = document.getElementById('myName').value.trim();
+      const spec = document.getElementById('mySpec').value.trim();
+      const casesRaw = document.getElementById('myCases').value.trim();
+
+      if (!name || !spec || !casesRaw) { alert('Fill in all fields'); return; }
+
+      const cases = casesRaw.split('\n').filter(l => l.trim()).map(line => {
+        const sep = line.lastIndexOf('|');
+        if (sep === -1) return { input: line.trim(), expected: '' };
+        return { input: line.substring(0, sep).trim(), expected: line.substring(sep + 1).trim() };
+      });
+
+      myCompileBtn.disabled = true;
+      myCompileBtn.textContent = 'Compiling...';
+
+      await runCustom(apiKey, { name, spec, cases });
+
+      myCompileBtn.disabled = false;
+      myCompileBtn.textContent = 'Compile & Run My Program';
+      updateSummary();
+    });
+
+    function updateSummary() {
+      const total = passCount + failCount;
+      summaryEl.innerHTML = `<strong>Results:</strong> <span class="pass">${passCount} passed</span>, <span class="fail">${failCount} failed</span> out of ${total} tests`;
+    }
+
+    updateSummary();
+  </script>
+</body>
+</html>

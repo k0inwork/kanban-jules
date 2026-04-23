@@ -17,6 +17,7 @@
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@isomorphic-git/lightning-fs": "^4.6.2",
+    "@programasweights/web": "^0.3.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^5.0.4",
