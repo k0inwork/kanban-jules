@@ -13,11 +13,13 @@ export type LlmLevel = 'static' | 'dynamic' | 'global';
  * if the preferred runtime is unavailable.
  */
 export const CALL_LEVELS: Record<string, LlmLevel> = {
-  // static — simple classification / validation (PAW territory)
+  // static — simple classification (PAW territory)
   'signal-noise': 'static',
-  'format-validate': 'static',
   'verify-progress': 'static',
   'verify-output': 'static',
+
+  // dynamic — validation against dynamic criteria (WebLLM territory)
+  'format-validate': 'dynamic',
 
   // dynamic — extraction / analysis (WebLLM territory)
   'task-extract': 'dynamic',

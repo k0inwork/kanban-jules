@@ -6,7 +6,7 @@ export class UserNegotiator {
     taskId: string,
     question: string,
     format?: string,
-    llmCall?: (prompt: string) => Promise<string>,
+    llmCall?: (prompt: string, jsonMode?: boolean, level?: 'static' | 'dynamic' | 'global') => Promise<string>,
     agentId: string = 'local-agent'
   ): Promise<string> {
 
@@ -123,14 +123,14 @@ export class UserNegotiator {
     return 'sent';
   }
 
-  private static async validateReply(reply: string, format: string, llmCall: (prompt: string) => Promise<string>): Promise<boolean> {
+  private static async validateReply(reply: string, format: string, llmCall: (prompt: string, jsonMode?: boolean, level?: 'static' | 'dynamic' | 'global') => Promise<string>): Promise<boolean> {
     const prompt = `Does the following user reply match the expected format?
     Reply: "${reply}"
     Format: "${format}"
 
     Return only "true" or "false".`;
 
-    const result = await llmCall(prompt);
+    const result = await llmCall(prompt, false, 'dynamic');
     return result.trim().toLowerCase() === 'true';
   }
 }
