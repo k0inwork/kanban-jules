@@ -62,7 +62,7 @@ export interface RequestContext {
   taskDir?: string;      // task-scoped Lightning-FS directory (set when task has a branch)
   branchName?: string;   // task branch name (e.g. 'task/550e8400')
   projectId?: string;    // FK to projects table
-  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
+  llmCall: (prompt: string, jsonMode?: boolean, level?: 'static' | 'dynamic' | 'global') => Promise<string>;
   moduleConfig: any;
   abortSignal?: AbortSignal;
 }
@@ -130,7 +130,7 @@ export interface OrchestratorConfig {
   repoBranch: string;
   githubToken?: string;
   moduleConfigs: Record<string, any>;
-  llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>;
+  llmCall: (prompt: string, jsonMode?: boolean, level?: 'static' | 'dynamic' | 'global') => Promise<string>;
   apiProvider?: string;
   geminiModel?: string;
   openaiModel?: string;
