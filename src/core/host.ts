@@ -27,6 +27,7 @@ import { AgentBus } from './agent-bus';
 import { AskUserForHandler } from '../modules/channel-ask-user/AskUserForHandler';
 import { llmRouter } from './llm-router';
 import { LlmLevel } from './llm-levels';
+import { webllmRuntime } from './webllm-runtime';
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -221,6 +222,9 @@ export class ModuleHost {
 
     // Wire LLM router: register API caller as the global tier
     llmRouter.setApiCaller(this.apiCall.bind(this));
+
+    // Register WebLLM as dynamic tier (opt-in, starts unavailable)
+    llmRouter.registerRuntime(webllmRuntime);
 
     // Initialize modules
     for (const module of modules) {

@@ -1,5 +1,6 @@
 import { LlmLevel, ESCALATION_ORDER } from './llm-levels';
 import { eventBus } from './event-bus';
+import { shadowLog } from './paw-shadow';
 
 export interface LlmRuntime {
   readonly level: LlmLevel;
@@ -53,6 +54,12 @@ export class LlmRouter {
           const result = await runtime.infer(prompt, jsonMode);
           this.stats[level]++;
           if (i > startIndex) this.stats.escalated++;
+
+          // Shadow mode: run API in background to compare against local result
+          if (this.apiCaller) {
+            shadowLog(level, `${level}-call`, prompt, result, this.apiCaller);
+          }
+
           return result;
         } catch (e: any) {
           // Runtime failed — escalate

@@ -152,7 +152,7 @@ export class JulesNegotiator {
               Return only "true" or "false".`;
               
               try {
-                const verifyResult = await safeLlmCall(verifyPrompt, false, 'static');
+                const verifyResult = await safeLlmCall(verifyPrompt, false, 'dynamic');
                 if (verifyResult.trim().toLowerCase() === 'true') {
                   appendJnaLog(`Progress update meets success criteria. Treating as final result.`);
                   julesResponse = progressMsg;
@@ -313,7 +313,7 @@ Return a JSON object with this exact structure:
       
       Return only "true" or "false".`;
       
-      const verifyResult = await safeLlmCall(verifyPrompt, false, 'static');
+      const verifyResult = await safeLlmCall(verifyPrompt, false, 'dynamic');
       const isSuccess = verifyResult.trim().toLowerCase() === 'true';
 
       if (isSuccess) {
