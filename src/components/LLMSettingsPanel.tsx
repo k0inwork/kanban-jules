@@ -3,14 +3,15 @@ import { Download, Cpu, Globe, Wifi, WifiOff, Loader2, CheckCircle2, XCircle, Tr
 import { cn } from '../lib/utils';
 import { webllmRuntime, AVAILABLE_MODELS, WebLLMStatus } from '../core/webllm-runtime';
 import { llmRouter } from '../core/llm-router';
-import { getShadowStats } from '../core/paw-shadow';
+import { getVariantStats } from '../core/paw-shadow';
+import { PAW_PROGRAMS } from '../core/paw-programs';
 
 export default function LLMSettingsPanel() {
   const [webllmStatus, setWebllmStatus] = useState<WebLLMStatus>(webllmRuntime.status);
   const [webllmProgress, setWebllmProgress] = useState(webllmRuntime.progress);
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
   const [stats, setStats] = useState(llmRouter.getStats());
-  const [shadowStats, setShadowStats] = useState<Record<string, { total: number; agreementRate: number }>>({});
+  const [variantStats, setVariantStats] = useState<Record<string, Record<string, { total: number; agreementRate: number }>>>({});
   const [webgpuAvailable] = useState(
     typeof navigator !== 'undefined' && 'gpu' in navigator
   );
@@ -27,22 +28,21 @@ export default function LLMSettingsPanel() {
   useEffect(() => {
     const interval = setInterval(() => {
       setStats(llmRouter.getStats());
-      loadShadowStats();
+      loadVariantStats();
     }, 5000);
-    loadShadowStats();
+    loadVariantStats();
     return () => clearInterval(interval);
   }, []);
 
-  const loadShadowStats = async () => {
-    const programs = ['signal-noise', 'dynamic-call'];
-    const results: Record<string, { total: number; agreementRate: number }> = {};
-    for (const p of programs) {
+  const loadVariantStats = async () => {
+    const results: Record<string, Record<string, { total: number; agreementRate: number }>> = {};
+    for (const programId of Object.keys(PAW_PROGRAMS)) {
       try {
-        const s = await getShadowStats(p);
-        if (s.total > 0) results[p] = { total: s.total, agreementRate: s.agreementRate };
+        const vs = await getVariantStats(programId);
+        if (Object.keys(vs).length > 0) results[programId] = vs;
       } catch {}
     }
-    setShadowStats(results);
+    setVariantStats(results);
   };
 
   const handleLoadModel = async () => {
@@ -188,46 +188,71 @@ export default function LLMSettingsPanel() {
         )}
       </div>
 
-      {/* Shadow Mode Stats */}
-      <div className="space-y-3 border-t border-neutral-800 pt-4">
-        <h3 className="text-sm font-medium text-neutral-300">Shadow Mode (PAW vs API)</h3>
-        <p className="text-[10px] text-neutral-500">
-          When a local tier is active, the API is also called in the background to compare accuracy.
-        </p>
-        {Object.keys(shadowStats).length === 0 ? (
-          <p className="text-[10px] text-neutral-600">No shadow data yet. Will appear once local runtimes are active.</p>
-        ) : (
-          <div className="space-y-2">
-            {Object.entries(shadowStats).map(([programId, s]) => (
-              <div key={programId} className="flex items-center justify-between p-2 bg-neutral-950 border border-neutral-800 rounded">
-                <span className="text-[10px] font-mono text-neutral-300">{programId}</span>
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] text-neutral-500">{s.total} samples</span>
-                  <span className={cn(
-                    "text-[10px] font-medium",
-                    s.agreementRate >= 0.95 ? "text-emerald-400" :
-                    s.agreementRate >= 0.8 ? "text-yellow-400" :
-                    "text-red-400"
-                  )}>
-                    {(s.agreementRate * 100).toFixed(0)}% agree
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* PAW Programs */}
+      {/* PAW Programs + Variant Stats */}
       <div className="space-y-3 border-t border-neutral-800 pt-4">
         <h3 className="text-sm font-medium text-neutral-300 flex items-center gap-2">
           <Cpu className="w-4 h-4" />
           PAW Programs (Static Tier)
         </h3>
-        <div className="p-3 bg-neutral-950 border border-neutral-800 rounded-lg">
-          <div className="text-[10px] font-mono text-neutral-400 mb-1">signal-noise</div>
-          <div className="text-[10px] text-neutral-500">Classifies Jules agent messages as SIGNAL or NOISE. Not yet compiled.</div>
-        </div>
+
+        {Object.values(PAW_PROGRAMS).map(program => {
+          const vStats = variantStats[program.id] || {};
+          const hasStats = Object.keys(vStats).length > 0;
+
+          return (
+            <div key={program.id} className="p-3 bg-neutral-950 border border-neutral-800 rounded-lg space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-mono text-neutral-300">{program.id}</div>
+                <div className="text-[9px] text-blue-400 font-mono">active: {program.activeVariantId}</div>
+              </div>
+
+              <div className="text-[10px] text-neutral-500">
+                Input: {program.inputFormat} | Output: {program.outputFormat}
+              </div>
+
+              {/* Variant list */}
+              <div className="space-y-1.5">
+                {program.variants.map(v => {
+                  const s = vStats[v.id];
+                  return (
+                    <div key={v.id} className={cn(
+                      "flex items-center justify-between p-1.5 rounded border",
+                      v.id === program.activeVariantId
+                        ? "border-blue-500/30 bg-blue-500/5"
+                        : "border-neutral-800 bg-neutral-900"
+                    )}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-mono text-neutral-400">{v.id}</span>
+                        <span className="text-[9px] text-neutral-600">{v.description}</span>
+                      </div>
+                      {s ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] text-neutral-500">{s.total} samples</span>
+                          <span className={cn(
+                            "text-[9px] font-medium",
+                            s.agreementRate >= 0.95 ? "text-emerald-400" :
+                            s.agreementRate >= 0.8 ? "text-yellow-400" :
+                            "text-red-400"
+                          )}>
+                            {(s.agreementRate * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] text-neutral-700">no data</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!hasStats && (
+                <p className="text-[9px] text-neutral-600">
+                  No shadow data yet. Stats appear once local runtimes are active.
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ export interface ShadowLogEntry {
   timestamp: number;
   level: LlmLevel;
   programId: string;
+  variantId: string;
   prompt: string;
   localResult: string;
   apiResult: string;
@@ -22,14 +23,22 @@ async function ensureDb(): Promise<IDBDatabase> {
   if (existing) return existing;
 
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('paw_shadow', 1);
+    const req = indexedDB.open('paw_shadow', 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         const store = db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
         store.createIndex('programId', 'programId');
+        store.createIndex('variantId', 'variantId');
         store.createIndex('agree', 'agree');
         store.createIndex('timestamp', 'timestamp');
+      }
+      // v2: add variantId index if upgrading from v1
+      if (db.objectStoreNames.contains(STORE)) {
+        const store = req.transaction!.objectStore(STORE);
+        if (!store.indexNames.contains('variantId')) {
+          store.createIndex('variantId', 'variantId');
+        }
       }
     };
     req.onsuccess = () => {
@@ -42,12 +51,13 @@ async function ensureDb(): Promise<IDBDatabase> {
 }
 
 /**
- * Shadow mode: after a local (PAW/WebLLM) call completes, also run the API
- * call in the background and log whether they agree. Non-blocking, fire-and-forget.
+ * Shadow mode: after a local call completes, also run the API
+ * call in the background and log whether they agree. Non-blocking.
  */
 export async function shadowLog(
   level: LlmLevel,
   programId: string,
+  variantId: string,
   prompt: string,
   localResult: string,
   apiCaller: (prompt: string, jsonMode?: boolean) => Promise<string>
@@ -60,7 +70,8 @@ export async function shadowLog(
       timestamp: Date.now(),
       level,
       programId,
-      prompt: prompt.substring(0, 2000), // cap size
+      variantId,
+      prompt: prompt.substring(0, 2000),
       localResult: localResult.substring(0, 500),
       apiResult: apiResult.substring(0, 500),
       agree,
@@ -74,10 +85,10 @@ export async function shadowLog(
   }
 }
 
-/** Query shadow log for a program — returns disagreements first */
+/** Query shadow log — filterable by program and/or variant */
 export async function getShadowLog(
   programId?: string,
-  opts?: { onlyDisagreements?: boolean; limit?: number }
+  opts?: { variantId?: string; onlyDisagreements?: boolean; limit?: number }
 ): Promise<ShadowLogEntry[]> {
   const db = await ensureDb();
   const tx = db.transaction(STORE, 'readonly');
@@ -85,7 +96,7 @@ export async function getShadowLog(
 
   return new Promise((resolve, reject) => {
     const results: ShadowLogEntry[] = [];
-    const req = store.openCursor(null, 'prev'); // newest first
+    const req = store.openCursor(null, 'prev');
 
     req.onsuccess = () => {
       const cursor = req.result;
@@ -96,9 +107,10 @@ export async function getShadowLog(
 
       const entry = cursor.value as ShadowLogEntry;
       const matchesProgram = !programId || entry.programId === programId;
+      const matchesVariant = !opts?.variantId || entry.variantId === opts.variantId;
       const matchesAgreement = !opts?.onlyDisagreements || !entry.agree;
 
-      if (matchesProgram && matchesAgreement) {
+      if (matchesProgram && matchesVariant && matchesAgreement) {
         results.push(entry);
       }
 
@@ -114,14 +126,17 @@ export async function getShadowLog(
   });
 }
 
-/** Get agreement stats for a program */
-export async function getShadowStats(programId: string): Promise<{
+/** Get agreement stats for a program, optionally filtered by variant */
+export async function getShadowStats(
+  programId: string,
+  variantId?: string
+): Promise<{
   total: number;
   agreements: number;
   disagreements: number;
   agreementRate: number;
 }> {
-  const entries = await getShadowLog(programId);
+  const entries = await getShadowLog(programId, { variantId });
   const agreements = entries.filter(e => e.agree).length;
   return {
     total: entries.length,
@@ -129,4 +144,28 @@ export async function getShadowStats(programId: string): Promise<{
     disagreements: entries.length - agreements,
     agreementRate: entries.length > 0 ? agreements / entries.length : 0,
   };
+}
+
+/** Get per-variant breakdown for a program */
+export async function getVariantStats(
+  programId: string
+): Promise<Record<string, { total: number; agreementRate: number }>> {
+  const entries = await getShadowLog(programId);
+  const byVariant: Record<string, { agreements: number; total: number }> = {};
+
+  for (const entry of entries) {
+    const vid = entry.variantId || 'unknown';
+    if (!byVariant[vid]) byVariant[vid] = { agreements: 0, total: 0 };
+    byVariant[vid].total++;
+    if (entry.agree) byVariant[vid].agreements++;
+  }
+
+  const result: Record<string, { total: number; agreementRate: number }> = {};
+  for (const [vid, s] of Object.entries(byVariant)) {
+    result[vid] = {
+      total: s.total,
+      agreementRate: s.total > 0 ? s.agreements / s.total : 0,
+    };
+  }
+  return result;
 }

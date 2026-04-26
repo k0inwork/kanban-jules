@@ -1,6 +1,7 @@
 import { LlmLevel, ESCALATION_ORDER } from './llm-levels';
 import { eventBus } from './event-bus';
 import { shadowLog } from './paw-shadow';
+import { PAW_PROGRAMS, getActiveVariant } from './paw-programs';
 
 export interface LlmRuntime {
   readonly level: LlmLevel;
@@ -29,11 +30,14 @@ export class LlmRouter {
    * Route a prompt through the level system.
    * If the preferred level's runtime is unavailable, escalate upward.
    * 'global' always falls back to the API caller.
+   *
+   * programId: optional identifier for shadow mode tracking (e.g. 'signal-noise')
    */
   async route(
     preferredLevel: LlmLevel,
     prompt: string,
-    jsonMode?: boolean
+    jsonMode?: boolean,
+    programId?: string
   ): Promise<string> {
     const startIndex = ESCALATION_ORDER.indexOf(preferredLevel);
 
@@ -57,7 +61,12 @@ export class LlmRouter {
 
           // Shadow mode: run API in background to compare against local result
           if (this.apiCaller) {
-            shadowLog(level, `${level}-call`, prompt, result, this.apiCaller);
+            const shadowProgramId = programId || `${level}-call`;
+            let variantId = 'default';
+            if (programId && PAW_PROGRAMS[programId]) {
+              variantId = getActiveVariant(PAW_PROGRAMS[programId]).id;
+            }
+            shadowLog(level, shadowProgramId, variantId, prompt, result, this.apiCaller);
           }
 
           return result;

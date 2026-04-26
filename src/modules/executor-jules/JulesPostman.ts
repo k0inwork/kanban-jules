@@ -4,6 +4,7 @@ import { JulesSessionManager } from './JulesSessionManager';
 import { eventBus } from '../../core/event-bus';
 import { HostConfig } from '../../core/types';
 import { llmRouter } from '../../core/llm-router';
+import { PAW_PROGRAMS, buildPawPrompt } from '../../core/paw-programs';
 
 export class JulesPostman {
   private static instance: JulesPostman | null = null;
@@ -90,16 +91,12 @@ export class JulesPostman {
 
             // Classify agent message via level router (static → PAW, fallback → API)
             try {
+              const prompt = buildPawPrompt(PAW_PROGRAMS['signal-noise'], content);
               const classification = await llmRouter.route(
                 'static',
-                `Classify this message from a remote coding agent as SIGNAL or NOISE.
-                SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-
-                Message: "${content}"
-
-                Return only "SIGNAL" or "NOISE".`,
-                false
+                prompt,
+                false,
+                'signal-noise'
               );
               category = classification.trim().toUpperCase() === 'SIGNAL' ? 'SIGNAL' : 'NOISE';
             } catch {

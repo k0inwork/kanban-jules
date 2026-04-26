@@ -1,6 +1,121 @@
 # PAW Integration Specification
 
-> ProgramAsWeights (PAW) compiles natural-language specs into LoRA adapters on GPT-2 124M, running locally in the browser via WASM. After a one-time ~100s compile, inference is free and takes ~50-200ms. This spec maps where PAW can replace repetitive LLM calls in the Agent Kanban system.
+> **PAW (ProgramAsWeights)** — the "program" IS the prompt. A PAW program is a carefully crafted prompt that produces accurate output even on small local models (GPT-2 124M / Qwen 1.5B). No LoRA compilation. No training data. Just prompt engineering, validated via shadow mode.
+
+## Design: Prompt Variants + Shadow Comparison
+
+PAW has two modes: **dev** (find the best prompt) and **prod** (use the winning prompt).
+
+### Dev Mode — Prompt A/B Testing
+
+```
+1. Start: write initial prompt variant (v1) in paw-programs.ts
+2. Shadow run: local model + API run in parallel on every call
+3. Disagreements logged to IndexedDB (paw_shadow_log)
+4. Auto-improve: feed disagreements to API:
+   "Here's the prompt. Here are cases where the small model
+    disagreed with you. Generate an improved prompt variant."
+5. Test: run new variant (v2) alongside v1
+6. Repeat until agreement rate ≥ 95%
+```
+
+The LLM generates improved variants by analyzing where the small model fails. Each disagreement is a training signal — not for weights, but for prompt text.
+
+### Prod Mode — Frozen Winner
+
+```
+1. Best variant is baked into paw-programs.ts
+2. Single prompt, no comparison overhead
+3. Shadow mode still runs silently for monitoring
+4. If agreement drops below threshold → alert → back to dev mode
+```
+
+### Data Model
+
+```typescript
+// paw-programs.ts stores multiple variants per program
+interface PawProgram {
+  id: string;
+  variants: PawVariant[];
+  activeVariant: string;  // variant ID used in prod
+}
+
+interface PawVariant {
+  id: string;           // e.g. 'signal-noise-v1', 'signal-noise-v2'
+  prompt: string;       // the actual prompt text
+  description: string;  // what changed vs previous variant
+  examples: { input: string; output: string }[];
+}
+```
+
+### Shadow Log (per-variant tracking)
+
+```typescript
+interface ShadowLogEntry {
+  variantId: string;    // which variant produced this
+  prompt: string;
+  localResult: string;
+  apiResult: string;
+  agree: boolean;
+  timestamp: number;
+}
+```
+
+Stats are tracked per variant:
+- `signal-noise-v1`: 89% agreement (142 samples)
+- `signal-noise-v2`: 94% agreement (87 samples)
+- `signal-noise-v3`: 97% agreement (56 samples) ← winner
+
+### Improvement Loop (LLM-Generated Variants)
+
+When a variant has <95% agreement, the system can auto-generate a new one:
+
+```
+System: You are a prompt engineer. Your job is to write prompts that
+        make small language models (GPT-2 class) produce accurate output.
+
+Context:
+  Current prompt: "Classify this message as SIGNAL or NOISE..."
+  Disagreement cases (local model said X, API said Y):
+    - "Running tests now..." → local: SIGNAL, API: NOISE
+    - "I have finished..." → local: NOISE, API: SIGNAL
+
+Task: Write an improved version of this prompt that would fix these
+      disagreement cases. Keep the same output format.
+```
+
+The API returns a new prompt variant, which gets added to the program's variant list and tested via shadow mode.
+
+---
+
+## Architecture (Revised)
+
+```
+PAW Program Registry
+├── static/        (prompt-only, runs on any small model)
+│   └── signal-noise          # Jules message classification
+│
+├── dynamic/       (handled by WebLLM, not PAW)
+│   ├── verify-progress
+│   ├── verify-output
+│   ├── format-validate
+│   ├── task-extract
+│   └── session-analyze
+│
+└── global/        (always API — code gen, planning)
+    ├── architect-plan
+    ├── programmer-codegen
+    ├── analyze-tool
+    └── project-review
+```
+
+Only `signal-noise` is a true PAW program — fixed 2-class taxonomy, simple text input, high call volume. Everything else escalates to WebLLM (dynamic) or API (global).
+
+---
+
+## Historical Reference (LoRA Adapter Design)
+
+> The sections below describe the original LoRA-adapter compilation approach. This is kept for reference but is **not the current design**. The current approach uses prompt variants instead of weight compilation.
 
 ## Architecture
 
