@@ -1,0 +1,65 @@
+{
+  "scenario": "code-search",
+  "description": "Code search/analysis — read-only",
+  "repo": "k0inwork/kanban-jules",
+  "branch": "main",
+  "prompt": "Find all files that import from the db service (src/services/db). List each file path and what it imports.",
+  "successCriteria": "List of files with their db imports",
+  "startedAt": "2026-04-26T20:32:47.112Z",
+  "session": {
+    "name": "sessions/8752606250504447074",
+    "title": "[capture] code-search",
+    "sourceContext": {
+      "source": "sources/github/k0inwork/kanban-jules",
+      "githubRepoContext": {
+        "startingBranch": "main"
+      }
+    },
+    "prompt": "Find all files that import from the db service (src/services/db). List each file path and what it imports.",
+    "url": "https://jules.google.com/session/8752606250504447074",
+    "requirePlanApproval": true,
+    "id": "8752606250504447074"
+  },
+  "stateTransitions": [
+    {
+      "state": "IN_PROGRESS",
+      "time": "2026-04-26T20:33:02.692Z"
+    }
+  ],
+  "allActivities": [],
+  "pollingLog": [
+    {
+      "time": "2026-04-26T20:33:12.086Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T20:33:21.515Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T20:33:31.044Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T20:33:40.756Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T20:49:25.591Z",
+      "error": "request to https://jules.googleapis.com/v1alpha/sessions/8752606250504447074 failed, reason: Proxy connection timed out"
+    }
+  ],
+  "result": null,
+  "error": null,
+  "completedAt": "2026-04-26T21:02:30.214Z",
+  "durationMs": 1783102,
+  "totalActivities": 0
+}

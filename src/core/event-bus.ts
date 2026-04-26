@@ -21,6 +21,9 @@ export type SystemEvent =
   | { type: 'yuan:event', data: YuanEvent }
   | { type: 'agent:message', data: any }
   | { type: 'trace:tool-call', data: any }
+  | { type: 'task:statusChanged', data: { taskId: string, from: string, to: string, task: any, projectId?: string } }
+  | { type: 'test:completed', data: { taskId: string, results: any, projectId?: string } }
+  | { type: 'branch:created', data: { taskId: string, branch: string, commitSha?: string, projectId?: string } }
   | { type: 'yuan-chat:spawn', data: { chatId: string; tabLabel: string; systemPrompt: string; chatStyle: string; objective: string; documentContent?: string } }
   | { type: 'yuan-chat:resolved', data: { chatId: string; summary: string; fullConversation: string } }
   | { type: 'yuan-chat:abandoned', data: { chatId: string } }

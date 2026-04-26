@@ -6,7 +6,7 @@ import type { Task } from '../types';
  */
 export const TASK_UPDATABLE_FIELDS: (keyof Task)[] = [
   'title', 'description', 'workflowStatus', 'agentState',
-  'agentContext', 'project', 'protocol', 'analysis',
+  'agentContext', 'projectId', 'protocol', 'analysis',
   'forwardExecutorMessages', 'pendingExecutorPrompt', 'pendingExecutorId',
 ];
 

@@ -1,0 +1,18 @@
+{
+  "scenario": "code-search",
+  "description": "Code search/analysis — read-only",
+  "repo": "k0inwork/kanban-jules",
+  "branch": "main",
+  "prompt": "Find all files that import from the db service (src/services/db). List each file path and what it imports.",
+  "successCriteria": "List of files with their db imports",
+  "startedAt": "2026-04-26T20:11:35.078Z",
+  "session": null,
+  "stateTransitions": [],
+  "allActivities": [],
+  "pollingLog": [],
+  "result": null,
+  "error": "fetch failed",
+  "completedAt": "2026-04-26T20:11:35.080Z",
+  "durationMs": 2,
+  "totalActivities": 0
+}

@@ -37,6 +37,11 @@ import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutor
 import boardManifest from '../modules/knowledge-board/manifest.json';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 
+import actionKbRecorderManifest from '../modules/action-kb-recorder/manifest.json';
+
+import actionBranchTrackerManifest from '../modules/action-branch-tracker/manifest.json';
+import actionTestRunnerManifest from '../modules/action-test-runner/manifest.json';
+
 import agentBusManifest from '../modules/core-agent-bus/manifest.json';
 import { AgentBus } from './agent-bus';
 
@@ -62,6 +67,9 @@ export class ModuleRegistry {
     { ...bashExecutorManifest, enabled: true, init: BashExecutorHandler.init, destroy: () => {} },
     { ...claudeExecutorManifest, enabled: true, init: ClaudeExecutorHandler.init, destroy: () => {} },
     { ...boardManifest, enabled: true, init: BoardTool.init, destroy: () => {} },
+    { ...actionKbRecorderManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...actionBranchTrackerManifest, enabled: true, init: () => {}, destroy: () => {} },
+    { ...actionTestRunnerManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...agentBusManifest, enabled: true, init: () => {}, destroy: () => {} },
     { ...askUserManifest, enabled: true, init: () => {}, destroy: () => {} },
   ] as ModuleManifest[];
@@ -122,6 +130,10 @@ export class ModuleRegistry {
 
   getEnabled(): ModuleManifest[] {
     return this.modules.filter(m => m.enabled !== false);
+  }
+
+  getModulesByType(type: ModuleManifest['type']): ModuleManifest[] {
+    return this.modules.filter(m => m.type === type);
   }
 
   get(id: string): ModuleManifest | undefined {

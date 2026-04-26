@@ -2,16 +2,23 @@ import { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { CONSTITUTION_TEMPLATES } from '../constants/constitutions';
 import { ARCHITECT_CONSTITUTION, PROGRAMMER_CONSTITUTION, OVERSEER_CONSTITUTION } from '../core/constitution';
-import { Save, RefreshCw, BookOpen, BrainCircuit, Code2, Eye } from 'lucide-react';
+import { Save, RefreshCw, BookOpen, BrainCircuit, Code2, Eye, Activity } from 'lucide-react';
 import { registry } from '../core/registry';
 import { cn } from '../lib/utils';
+import { extractArtifactNames } from '../core/prompt';
 
 interface ConstitutionEditorProps {
   projectId: string | null;
+  apiProvider: string;
+  geminiModel: string;
+  openaiUrl: string;
+  openaiKey: string;
+  openaiModel: string;
+  geminiApiKey: string;
   onSave?: () => void;
 }
 
-export default function ConstitutionEditor({ projectId, onSave }: ConstitutionEditorProps) {
+export default function ConstitutionEditor({ projectId, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey, onSave }: ConstitutionEditorProps) {
   const [activeTab, setActiveTab] = useState<string>('constitution');
   const [constitution, setConstitution] = useState('');
   const [moduleKnowledge, setModuleKnowledge] = useState<Record<string, string>>({});
@@ -54,8 +61,12 @@ export default function ConstitutionEditor({ projectId, onSave }: ConstitutionEd
     try {
       if (activeTab === 'constitution') {
         if (projectId) {
+          const artifactNames = await extractArtifactNames(
+            constitution, apiProvider, geminiModel, openaiUrl, openaiKey, openaiModel, geminiApiKey
+          );
           await db.projects.update(projectId, {
             constitution,
+            artifactNames,
             updatedAt: Date.now()
           });
         }
@@ -176,6 +187,17 @@ export default function ConstitutionEditor({ projectId, onSave }: ConstitutionEd
             {m.name}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setActiveTab('process-agent:review-log')}
+          className={cn(
+            "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5",
+            activeTab === 'process-agent:review-log' ? "border-amber-500 text-amber-400" : "border-transparent text-neutral-400 hover:text-neutral-200"
+          )}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          Reviews
+        </button>
       </div>
 
       <div className="flex-1 p-6 overflow-hidden flex flex-col">
@@ -205,6 +227,27 @@ export default function ConstitutionEditor({ projectId, onSave }: ConstitutionEd
               className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg p-4 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none custom-scrollbar"
               placeholder={`Enter ${activeTab.split(':')[1]} rules here...`}
             />
+          </>
+        ) : activeTab === 'process-agent:review-log' ? (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-2">
+                <Activity className="w-4 h-4 text-amber-400" />
+                <p className="text-sm text-neutral-400">ProcessAgent review logs (read-only)</p>
+              </div>
+              <button
+                onClick={async () => {
+                  await db.moduleKnowledge.delete('process-agent:review-log');
+                  setModuleKnowledge(prev => { const next = { ...prev }; delete next['process-agent:review-log']; return next; });
+                }}
+                className="text-xs text-neutral-500 hover:text-red-400 transition-colors"
+              >
+                Clear logs
+              </button>
+            </div>
+            <pre className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg p-4 font-mono text-xs text-neutral-400 overflow-auto custom-scrollbar whitespace-pre-wrap">
+              {moduleKnowledge['process-agent:review-log'] || 'No review logs yet. Run a project review to see output here.'}
+            </pre>
           </>
         ) : (
           <>

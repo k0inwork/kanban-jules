@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Task, WorkflowStatus, AgentState } from '../types';
+import { SELF_PROJECT_ID } from '../services/db';
 import { cn } from '../lib/utils';
 import { Bot, Clock, AlertCircle, CheckCircle2, Play, Trash2, Zap, User, Loader2, BrainCircuit, Terminal } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -195,7 +196,7 @@ export default function TaskCard({ task, onDragStart, onClick, onStartTask, onDe
         )}
       >
         <h4 className="font-medium text-neutral-100 mb-2 truncate pr-12">
-          {task.project === 'self' && (
+          {task.projectId === SELF_PROJECT_ID && (
             <span className="text-[10px] font-mono bg-fuchsia-500/20 text-fuchsia-400 px-1.5 py-0.5 rounded mr-1.5 align-middle">self</span>
           )}
           {task.title}

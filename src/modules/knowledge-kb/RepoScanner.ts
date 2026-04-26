@@ -13,6 +13,9 @@ const SCAN_PATTERNS: FilePattern[] = [
   { glob: '*.md', docType: 'spec', tags: ['documentation'] },
 ];
 
+// Prefix for persisted KB documents from Fleet
+const KB_DOCS_PREFIX = '.kb/docs/';
+
 const TECH_MARKERS: Record<string, string[]> = {
   'react': ['jsx', 'react', 'component'],
   'typescript': ['typescript', 'ts', 'tsx'],
@@ -27,7 +30,7 @@ const TECH_MARKERS: Record<string, string[]> = {
  * Populates kb_docs and kb_log with initial knowledge entries.
  * Called once when a project is first loaded (mvp §7 Step 9).
  */
-export async function scanRepo(files: { path: string; content?: string }[]): Promise<{ docs: number; entries: number }> {
+export async function scanRepo(files: { path: string; content?: string }[], projectId?: string): Promise<{ docs: number; entries: number }> {
   let docsCreated = 0;
   let entriesCreated = 0;
 
@@ -64,7 +67,7 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
       if (matchesGlob && file.content) {
         const existing = await db.kbDocs
           .where('title').equals(file.path)
-          .and(d => d.project === 'target' && d.active)
+          .and(d => d.projectId === projectId && d.active)
           .first();
 
         if (!existing) {
@@ -80,11 +83,44 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
             source: 'repo-scan',
             active: true,
             version: 1,
-            project: 'target',
+            projectId,
           });
           docsCreated++;
         }
       }
+    }
+  }
+
+  // Scan .kb/docs/ for persisted KB documents
+  for (const file of files) {
+    if (!file.path.startsWith(KB_DOCS_PREFIX) || !file.content) continue;
+
+    const basename = file.path.slice(KB_DOCS_PREFIX.length);
+    const isTemplate = basename.startsWith('template_');
+    const docType = isTemplate ? 'template' : 'kb-doc';
+    const tags = isTemplate ? ['template', 'knowledge-base'] : ['knowledge-base'];
+
+    const existing = await db.kbDocs
+      .where('title').equals(file.path)
+      .and(d => d.projectId === projectId && d.active)
+      .first();
+
+    if (!existing) {
+      const summary = file.content.substring(0, 300).replace(/[#*`]/g, '').trim();
+      await db.kbDocs.add({
+        timestamp: Date.now(),
+        title: file.path,
+        type: docType,
+        content: file.content,
+        summary,
+        tags,
+        layer: ['L1'],
+        source: 'repo-scan',
+        active: true,
+        version: 1,
+        projectId,
+      });
+      docsCreated++;
     }
   }
 
@@ -117,7 +153,7 @@ export async function scanRepo(files: { path: string; content?: string }[]): Pro
         tags: ['tech-stack', 'repo-scan', ...detectedTech],
         source: 'repo-scan',
         active: true,
-        project: 'target',
+        projectId,
       });
       entriesCreated++;
     }

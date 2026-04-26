@@ -1,5 +1,7 @@
 import { db, KBEntry, KBDoc } from '../../services/db';
 import { RequestContext } from '../../core/types';
+import { GitFs } from '../../services/GitFs';
+import { seedTemplates } from './Templates';
 
 export class KBHandler {
   static async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<any> {
@@ -11,7 +13,7 @@ export class KBHandler {
       case 'knowledge-kb.updateEntries':
         return KBHandler.updateEntries(args[0]);
       case 'knowledge-kb.saveDocument':
-        return KBHandler.saveDocument(args[0]);
+        return KBHandler.saveDocument(args[0], context);
       case 'knowledge-kb.queryDocs':
         return KBHandler.queryDocs(args[0]);
       case 'knowledge-kb.updateDocument':
@@ -30,26 +32,28 @@ export class KBHandler {
         return KBHandler.getProjectConfig(args[0]);
       case 'knowledge-kb.setProjectConfig':
         return KBHandler.setProjectConfig(args[0]);
+      case 'knowledge-kb.seedTemplates':
+        return seedTemplates(args[0]?.projectId);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
   }
 
   // Convenience writers (self-healing §3.3)
-  static async recordExecution(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 1, layer: ['L1'], tags: [...tags, 'execution'], source: 'execution', project });
+  static async recordExecution(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 1, layer: ['L1'], tags: [...tags, 'execution'], source: 'execution', projectId });
   }
 
-  static async recordObservation(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 2, layer: ['L0'], tags, source: 'observation', project });
+  static async recordObservation(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'observation', abstraction: 2, layer: ['L0'], tags, source: 'observation', projectId });
   }
 
-  static async recordDecision(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'decision', abstraction: 4, layer: ['L0', 'L1'], tags, source: 'decision', project });
+  static async recordDecision(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'decision', abstraction: 4, layer: ['L0', 'L1'], tags, source: 'decision', projectId });
   }
 
-  static async recordError(text: string, tags: string[], project?: string): Promise<number> {
-    return KBHandler.recordEntry({ text, category: 'error', abstraction: 2, layer: ['L0', 'L1'], tags, source: 'execution', project });
+  static async recordError(text: string, tags: string[], projectId?: string): Promise<number> {
+    return KBHandler.recordEntry({ text, category: 'error', abstraction: 2, layer: ['L0', 'L1'], tags, source: 'execution', projectId });
   }
 
   /**
@@ -67,7 +71,7 @@ export class KBHandler {
     tags: string[];
     source: string;
     supersedes: number[];
-    project?: string;
+    projectId?: string;
   }): Promise<{ id: number; deactivated: number }> {
     const { supersedes: targetIds, ...entryParams } = params;
 
@@ -114,7 +118,7 @@ export class KBHandler {
       source: entryParams.source,
       supersedes: [...inheritedChains],
       active: true,
-      project: entryParams.project || 'target',
+      projectId: entryParams.projectId,
     });
 
     // Deactivate all superseded entries (direct targets + chain)
@@ -163,7 +167,7 @@ export class KBHandler {
       source: params.source,
       supersedes: params.supersedes,
       active: true,
-      project: params.project || 'target'
+      projectId: params.projectId
     };
     return db.kbLog.add(entry);
   }
@@ -178,7 +182,7 @@ export class KBHandler {
       }
     }
     let results = await collection.toArray();
-    if (params.project) results = results.filter(e => e.project === params.project);
+    if (params.projectId) results = results.filter(e => e.projectId === params.projectId);
     if (params.category) results = results.filter(e => e.category === params.category);
     if (params.source) results = results.filter(e => e.source === params.source);
     if (params.layer) results = results.filter(e => e.layer.includes(params.layer));
@@ -197,39 +201,56 @@ export class KBHandler {
     }
   }
 
-  private static async saveDocument(params: any): Promise<number> {
+  private static async saveDocument(params: any, context?: RequestContext): Promise<number> {
     // Content is required — documents must have markdown content for chunking
     if (!params.content || typeof params.content !== 'string' || params.content.trim().length === 0) {
       throw new Error('Document content is required and must be non-empty markdown');
     }
     const existing = await db.kbDocs
       .where('title').equals(params.title)
-      .and(d => d.project === (params.project || 'target') && d.active)
+      .and(d => d.projectId === (params.projectId || context?.projectId) && d.active)
       .first();
 
+    let docId: number;
     if (existing) {
       await db.kbDocs.update(existing.id!, {
         ...params,
         version: (existing.version || 1) + 1,
         active: true,
-        project: params.project || 'target'
+        projectId: params.projectId || context?.projectId
       });
-      return existing.id!;
+      docId = existing.id!;
+    } else {
+      docId = await db.kbDocs.add({
+        timestamp: Date.now(),
+        title: params.title,
+        type: params.type,
+        content: params.content,
+        summary: params.summary,
+        tags: params.tags || [],
+        layer: params.layer,
+        source: params.source,
+        active: true,
+        version: 1,
+        projectId: params.projectId || context?.projectId
+      });
     }
 
-    return db.kbDocs.add({
-      timestamp: Date.now(),
-      title: params.title,
-      type: params.type,
-      content: params.content,
-      summary: params.summary,
-      tags: params.tags || [],
-      layer: params.layer,
-      source: params.source,
-      active: true,
-      version: 1,
-      project: params.project || 'target'
-    });
+    // Dual-write: persist to .kb/docs/ in git repo (skip repo-scan to avoid echo)
+    if (context && params.source !== 'repo-scan') {
+      const token = context.githubToken || (typeof import.meta !== 'undefined' ? import.meta.env.VITE_GITHUB_TOKEN : '') || '';
+      if (context.repoUrl && context.repoBranch && token) {
+        try {
+          const gitFs = new GitFs(context.repoUrl, context.repoBranch, token);
+          const path = `.kb/docs/${params.title}`;
+          await gitFs.writeFile(path, params.content, `Fleet: KB doc ${params.title}`);
+        } catch (e) {
+          console.error(`[KBHandler] Failed to write KB doc to repo:`, e);
+        }
+      }
+    }
+
+    return docId;
   }
 
   private static async updateDocument(params: any): Promise<void> {
@@ -310,7 +331,7 @@ export class KBHandler {
 
   private static async queryDocs(params: any): Promise<KBDoc[]> {
     let results = await db.kbDocs.filter(d => d.active).toArray();
-    if (params.project) results = results.filter(d => d.project === params.project);
+    if (params.projectId) results = results.filter(d => d.projectId === params.projectId);
     if (params.type) results = results.filter(d => d.type === params.type);
     if (params.source) results = results.filter(d => d.source === params.source);
     if (params.layer) results = results.filter(d => d.layer.includes(params.layer));

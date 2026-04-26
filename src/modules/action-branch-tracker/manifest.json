@@ -1,0 +1,29 @@
+{
+  "id": "action-branch-tracker",
+  "name": "Branch Tracker Action",
+  "version": "1.0.0",
+  "type": "action",
+  "description": "Extracts branch name, PR URL, commit SHA from completed tasks and stores on task record",
+  "subscriptions": [
+    {
+      "event": "task:statusChanged",
+      "manifestFilter": { "to": "DONE" },
+      "priority": 10
+    }
+  ],
+  "tools": [
+    {
+      "name": "knowledge-kb.recordEntry",
+      "description": "Record a knowledge base entry",
+      "parameters": { "type": "object", "properties": { "text": { "type": "string" }, "category": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } }, "source": { "type": "string" }, "projectId": { "type": "string" } } }
+    },
+    {
+      "name": "knowledge-board.updateTask",
+      "description": "Update task fields",
+      "parameters": { "type": "object", "properties": { "task": { "type": "string" }, "updates": { "type": "object" } } }
+    }
+  ],
+  "sandboxBindings": {},
+  "permissions": [],
+  "enabled": true
+}

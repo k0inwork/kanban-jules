@@ -66,7 +66,6 @@ export class ProcessAgent {
         description: 'Search knowledge base docs. Args: { search?, tags?, type?, category?, limit? }',
         execute: async (args: { search?: string; tags?: string[]; type?: string; category?: string; limit?: number }) => {
           const results = await KBHandler.handleRequest('knowledge-kb.queryDocs', [{
-            project: 'target',
             search: args.search,
             tags: args.tags,
             type: args.type,
@@ -79,7 +78,6 @@ export class ProcessAgent {
         description: 'Search knowledge base log entries. Args: { search?, category?, tags?, limit? }',
         execute: async (args: { category?: string; tags?: string[]; limit?: number }) => {
           const results = await KBHandler.handleRequest('knowledge-kb.queryLog', [{
-            project: 'target',
             category: args.category,
             tags: args.tags,
             active: true,
@@ -216,7 +214,7 @@ export class ProcessAgent {
 
     // Get project knowledge (constitution + overseer rules)
     const projectedKnowledge = await ProjectorHandler.project({
-      layer: 'L1', project: 'target', taskDescription: 'project review board analysis'
+      layer: 'L1', projectId: context.projectId, taskDescription: 'project review board analysis'
     });
 
     const startTime = Date.now();
@@ -277,6 +275,8 @@ RULES:
 - Be specific about WHY you're proposing something.
 - When reviewing artifacts, check substance not just existence.
 - Artifact lifecycle: draft → in_review → approved. Use "revised" if changes are needed, then back to draft.
+- All artifact names MUST end with .md. All artifact content MUST be valid Markdown (headings, lists, code blocks, tables). Required for KB indexing and RAG search.
+- Before creating artifacts, agents should use queryKB({ type: 'template' }) to find matching templates and follow their structure.
 
 Respond in JSON:
 {
@@ -324,7 +324,19 @@ Set "done": true when you have no more actions to take.`;
       }
     }
 
-    console.log(`[ProcessAgent] Review complete. Tokens: ~${totalTokensUsed}, Iterations: ${this.iterationLog.length}, Time: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    const summary = `[ProcessAgent] Review complete. Tokens: ~${totalTokensUsed}, Iterations: ${this.iterationLog.length}, Time: ${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+    console.log(summary);
+    this.iterationLog.push(summary);
+
+    // Persist review log to moduleKnowledge for UI display
+    const logKey = `process-agent:review-log`;
+    const existing = (await db.moduleKnowledge.get(logKey))?.content || '';
+    const entry = `\n━━━ ${new Date().toISOString()} ━━━\n${this.iterationLog.join('\n')}\n`;
+    await db.moduleKnowledge.put({
+      id: logKey,
+      content: existing + entry,
+      updatedAt: Date.now(),
+    });
   }
 
   // ─── Static Handler ───

@@ -5,6 +5,16 @@ import { Task } from '../../types';
 import { db } from '../db';
 import { eventBus } from '../../core/event-bus';
 
+async function postCapture(type: string, data: any) {
+  try {
+    await fetch('/api/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, data }),
+    });
+  } catch {}
+}
+
 export class JulesNegotiator {
   static async negotiate(
     julesApiKey: string,
@@ -53,6 +63,22 @@ export class JulesNegotiator {
     const session = await JulesSessionManager.findOrCreateSession(julesApiKey, task, repoUrl, branch, sourceName);
     console.log(`[JulesNegotiator] Session result: ${session ? session.name : 'null'}`);
     if (!session) throw new Error("Failed to create Jules session.");
+
+    // Capture accumulator for server-side logging
+    const capture = {
+      taskId: task.id,
+      prompt,
+      successCriteria,
+      repoUrl,
+      branch,
+      sessionName: session.name,
+      startedAt: new Date().toISOString(),
+      stateTransitions: [] as { state: string; time: string }[],
+      activities: [] as any[],
+      result: null as string | null,
+      error: null as string | null,
+      completedAt: null as string | null,
+    };
 
     const appendJnaLog = (msg: string) => {
       eventBus.emit('module:log', { taskId: task.id, moduleId: 'executor-jules', message: msg });
@@ -121,7 +147,13 @@ export class JulesNegotiator {
         
         // Also check session state directly
         const currentSession = await julesApi.getSession(julesApiKey, session.name);
-        
+
+        // Track state transitions
+        const lastState = capture.stateTransitions.at(-1)?.state;
+        if (currentSession.state && currentSession.state !== lastState) {
+          capture.stateTransitions.push({ state: currentSession.state, time: new Date().toISOString() });
+        }
+
         // Find ALL new activities
         const newActivities = activities.filter(a => 
           new Date(a.createTime!).getTime() > latestActivityTimestamp
@@ -135,6 +167,7 @@ export class JulesNegotiator {
           let foundFinalResult = false;
           for (const a of newActivities) {
             latestActivityTimestamp = Math.max(latestActivityTimestamp, new Date(a.createTime!).getTime());
+            capture.activities.push(a);
             
             if (a.progressUpdated) {
               const title = a.progressUpdated.title || a.description || 'Working...';
@@ -318,6 +351,9 @@ Return a JSON object with this exact structure:
 
       if (isSuccess) {
         appendJnaLog(`Verification SUCCESS.`);
+        capture.result = julesResponse;
+        capture.completedAt = new Date().toISOString();
+        postCapture('jules-negotiation', capture);
         return julesResponse;
       } else {
         attempts++;
@@ -334,6 +370,9 @@ Return a JSON object with this exact structure:
     }
     
     appendJnaLog(`Jules negotiation failed unexpectedly.`);
+    capture.error = "Negotiation failed";
+    capture.completedAt = new Date().toISOString();
+    postCapture('jules-negotiation', capture);
     throw new Error("Jules negotiation failed.");
   }
 }

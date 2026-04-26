@@ -1,0 +1,784 @@
+{
+  "scenario": "ambiguous",
+  "description": "Ambiguous task — may need clarification",
+  "repo": "k0inwork/kanban-jules",
+  "branch": "main",
+  "prompt": "Improve the projector performance.",
+  "successCriteria": "Measurable improvement suggestion with code changes",
+  "startedAt": "2026-04-26T21:42:45.957Z",
+  "session": {
+    "name": "sessions/10589510632112247918",
+    "title": "[capture] ambiguous",
+    "sourceContext": {
+      "source": "sources/github/k0inwork/kanban-jules",
+      "githubRepoContext": {
+        "startingBranch": "main"
+      }
+    },
+    "prompt": "Improve the projector performance.",
+    "url": "https://jules.google.com/session/10589510632112247918",
+    "requirePlanApproval": true,
+    "id": "10589510632112247918"
+  },
+  "stateTransitions": [
+    {
+      "state": "IN_PROGRESS",
+      "time": "2026-04-26T21:43:01.877Z"
+    },
+    {
+      "state": "AWAITING_PLAN_APPROVAL",
+      "time": "2026-04-26T21:49:34.936Z"
+    },
+    {
+      "state": "IN_PROGRESS",
+      "time": "2026-04-26T21:49:52.337Z"
+    },
+    {
+      "state": "FAILED",
+      "time": "2026-04-26T21:57:55.209Z"
+    }
+  ],
+  "allActivities": [
+    {
+      "name": "sessions/10589510632112247918/activities/a50e91d18bd441c4bba5a2c096883855",
+      "createTime": "2026-04-26T21:49:25.918934Z",
+      "originator": "agent",
+      "planGenerated": {
+        "plan": {
+          "id": "671d5af536e6411293789ce2ba95f918",
+          "steps": [
+            {
+              "id": "31600eb9493048feaa6ea6149383b59a",
+              "title": "Update `src/App.tsx` to use `Promise.all` for parallel execution.",
+              "description": "- Refactor loops in `handleAcceptProposal`, `recoverStuckTasks`, `handleDeleteTask`, and `handleCreateTask` to use `Promise.all` instead of sequential `await` calls."
+            },
+            {
+              "id": "c40c93583ad948218df4c56af6508a69",
+              "title": "Update `src/modules/process-project-manager/ProcessAgent.ts`.",
+              "description": "- Refactor the proposal loop to run async message additions in parallel.",
+              "index": 1
+            },
+            {
+              "id": "0146f7c6568142ef9c60ab178af7e717",
+              "title": "Update `src/modules/knowledge-local-analyzer/LocalAnalyzer.ts`.",
+              "description": "- Use `Promise.all` to fetch file contents and scan for patterns concurrently.",
+              "index": 2
+            },
+            {
+              "id": "f0bf61bc60034d269d61d58fd9440e5b",
+              "title": "Update `src/modules/executor-github/GithubHandler.ts`.",
+              "description": "- Update `fetchLogs` to fetch logs for jobs concurrently using `Promise.all`.\n- Update `downloadArtifacts` to process and download artifacts concurrently.",
+              "index": 3
+            },
+            {
+              "id": "1a192e1303ee4271810ebb8fd87298e8",
+              "title": "Complete pre commit steps",
+              "description": "- Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.",
+              "index": 4
+            },
+            {
+              "id": "30ab19aa249448a2aff6c6803e079927",
+              "title": "Submit the change.",
+              "description": "- Submit the change with a descriptive commit message.",
+              "index": 5
+            }
+          ]
+        }
+      },
+      "id": "a50e91d18bd441c4bba5a2c096883855"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/task-10589510632112247918-activity-step-9529805733538784630",
+      "createTime": "2026-04-26T21:49:39.229457989Z",
+      "originator": "user",
+      "planApproved": {
+        "planId": "671d5af536e6411293789ce2ba95f918"
+      },
+      "id": "task-10589510632112247918-activity-step-9529805733538784630"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/62c2f283609e43bda6b6fd402104f47f",
+      "createTime": "2026-04-26T21:49:45.030166Z",
+      "originator": "user",
+      "planApproved": {
+        "planId": "671d5af536e6411293789ce2ba95f918"
+      },
+      "id": "62c2f283609e43bda6b6fd402104f47f"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/9606fecb04fb490dbf43f2a47acbf12f",
+      "createTime": "2026-04-26T21:49:52.721823Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "9606fecb04fb490dbf43f2a47acbf12f"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/f7c9127c864140c88a79504e6ba15875",
+      "createTime": "2026-04-26T21:50:17.367326Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "f7c9127c864140c88a79504e6ba15875"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/a9f21770ff8f4872b9db9a66f1048593",
+      "createTime": "2026-04-26T21:50:31.705545Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "a9f21770ff8f4872b9db9a66f1048593"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/c078e3cb957d4e19a012bce8a46d873c",
+      "createTime": "2026-04-26T21:51:18.858300Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "c078e3cb957d4e19a012bce8a46d873c"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/a38bc853bc0143bcbbbe6385376017b3",
+      "createTime": "2026-04-26T21:51:28.172328Z",
+      "originator": "agent",
+      "progressUpdated": {
+        "title": "Updated `src/App.tsx` to use `Promise.all` for parallel execution in loops wh...",
+        "description": "Updated `src/App.tsx` to use `Promise.all` for parallel execution in loops where independent operations can be run concurrently. Tested for valid syntax using `tsc`."
+      },
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "a38bc853bc0143bcbbbe6385376017b3"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/9466e5213d3e42ce9a33a863777b6a60",
+      "createTime": "2026-04-26T21:51:39.289414Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "9466e5213d3e42ce9a33a863777b6a60"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/e022dcb50dbc41d5b447f09c225d2bd8",
+      "createTime": "2026-04-26T21:52:01.996327Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "e022dcb50dbc41d5b447f09c225d2bd8"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/4d52412a32494eba8901df772d8bfb09",
+      "createTime": "2026-04-26T21:52:05.395407Z",
+      "originator": "agent",
+      "progressUpdated": {
+        "title": "Updated `ProcessAgent.ts` to use `Promise.all` for concurrently adding propos...",
+        "description": "Updated `ProcessAgent.ts` to use `Promise.all` for concurrently adding proposals to the database."
+      },
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "4d52412a32494eba8901df772d8bfb09"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/d6147adc63494a36affc36279f954131",
+      "createTime": "2026-04-26T21:52:15.303442Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "d6147adc63494a36affc36279f954131"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/01e9fd7b6add472b9f9299d329000e0b",
+      "createTime": "2026-04-26T21:52:46.185392Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "01e9fd7b6add472b9f9299d329000e0b"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/4de58cf4f09f44c984a5c885c0885139",
+      "createTime": "2026-04-26T21:52:55.950597Z",
+      "originator": "agent",
+      "progressUpdated": {
+        "title": "Updated `LocalAnalyzer.ts` to use `Promise.all` for concurrently fetching fil...",
+        "description": "Updated `LocalAnalyzer.ts` to use `Promise.all` for concurrently fetching file contents and creating artifacts."
+      },
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "4de58cf4f09f44c984a5c885c0885139"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/4d0ad0d8ac614211af9450e5aa348c49",
+      "createTime": "2026-04-26T21:53:07.544612Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "4d0ad0d8ac614211af9450e5aa348c49"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/6469464cf02e41b9a604f50e1079bb1a",
+      "createTime": "2026-04-26T21:53:16.958896Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "6469464cf02e41b9a604f50e1079bb1a"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/4a46c7f98d1b4fe186d68dc4b025292a",
+      "createTime": "2026-04-26T21:53:22.381050Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "4a46c7f98d1b4fe186d68dc4b025292a"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/7efc97319c224eb49c241210a7850890",
+      "createTime": "2026-04-26T21:53:40.834865Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/executor-github/GithubHandler.ts b/src/modules/executor-github/GithubHandler.ts\nindex f95efc0..720a126 100644\n--- a/src/modules/executor-github/GithubHandler.ts\n+++ b/src/modules/executor-github/GithubHandler.ts\n@@ -334,12 +334,9 @@ export class GithubHandler {\n     const jobsData = await jobsRes.json();\n     const jobs = jobsData.jobs || [];\n \n-    let allLogs = '';\n-\n     // 2. Fetch logs for each job\n-    for (const job of jobs) {\n-      allLogs += `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n-      \n+    const jobLogs = await Promise.all(jobs.map(async (job: any) => {\n+      let logOutput = `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n       try {\n         const logRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`, {\n           headers: {\n@@ -350,16 +347,17 @@ export class GithubHandler {\n \n         if (logRes.ok) {\n           const logText = await logRes.text();\n-          allLogs += logText + '\\n';\n+          logOutput += logText + '\\n';\n         } else {\n-          allLogs += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n+          logOutput += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n         }\n       } catch (e: any) {\n-        allLogs += `[Error fetching logs for this job: ${e.message}]\\n`;\n+        logOutput += `[Error fetching logs for this job: ${e.message}]\\n`;\n       }\n-    }\n+      return logOutput;\n+    }));\n \n-    return allLogs;\n+    return jobLogs.join('');\n   }\n \n   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "7efc97319c224eb49c241210a7850890"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/1c0149bf89c448869138b3aa1891f063",
+      "createTime": "2026-04-26T21:53:53.672696Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/executor-github/GithubHandler.ts b/src/modules/executor-github/GithubHandler.ts\nindex f95efc0..720a126 100644\n--- a/src/modules/executor-github/GithubHandler.ts\n+++ b/src/modules/executor-github/GithubHandler.ts\n@@ -334,12 +334,9 @@ export class GithubHandler {\n     const jobsData = await jobsRes.json();\n     const jobs = jobsData.jobs || [];\n \n-    let allLogs = '';\n-\n     // 2. Fetch logs for each job\n-    for (const job of jobs) {\n-      allLogs += `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n-      \n+    const jobLogs = await Promise.all(jobs.map(async (job: any) => {\n+      let logOutput = `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n       try {\n         const logRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`, {\n           headers: {\n@@ -350,16 +347,17 @@ export class GithubHandler {\n \n         if (logRes.ok) {\n           const logText = await logRes.text();\n-          allLogs += logText + '\\n';\n+          logOutput += logText + '\\n';\n         } else {\n-          allLogs += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n+          logOutput += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n         }\n       } catch (e: any) {\n-        allLogs += `[Error fetching logs for this job: ${e.message}]\\n`;\n+        logOutput += `[Error fetching logs for this job: ${e.message}]\\n`;\n       }\n-    }\n+      return logOutput;\n+    }));\n \n-    return allLogs;\n+    return jobLogs.join('');\n   }\n \n   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "1c0149bf89c448869138b3aa1891f063"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/daba907b6e4f40c18b53aae49c8085b3",
+      "createTime": "2026-04-26T21:54:24.553649Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/executor-github/GithubHandler.ts b/src/modules/executor-github/GithubHandler.ts\nindex f95efc0..658944f 100644\n--- a/src/modules/executor-github/GithubHandler.ts\n+++ b/src/modules/executor-github/GithubHandler.ts\n@@ -334,12 +334,9 @@ export class GithubHandler {\n     const jobsData = await jobsRes.json();\n     const jobs = jobsData.jobs || [];\n \n-    let allLogs = '';\n-\n     // 2. Fetch logs for each job\n-    for (const job of jobs) {\n-      allLogs += `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n-      \n+    const jobLogs = await Promise.all(jobs.map(async (job: any) => {\n+      let logOutput = `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n       try {\n         const logRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`, {\n           headers: {\n@@ -350,16 +347,17 @@ export class GithubHandler {\n \n         if (logRes.ok) {\n           const logText = await logRes.text();\n-          allLogs += logText + '\\n';\n+          logOutput += logText + '\\n';\n         } else {\n-          allLogs += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n+          logOutput += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n         }\n       } catch (e: any) {\n-        allLogs += `[Error fetching logs for this job: ${e.message}]\\n`;\n+        logOutput += `[Error fetching logs for this job: ${e.message}]\\n`;\n       }\n-    }\n+      return logOutput;\n+    }));\n \n-    return allLogs;\n+    return jobLogs.join('');\n   }\n \n   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {\n@@ -462,9 +460,8 @@ export class GithubHandler {\n \n     const data = await res.json();\n     const artifacts = data.artifacts || [];\n-    const savedArtifacts = [];\n \n-    for (const artifact of artifacts) {\n+    const savedArtifactsData = await Promise.all(artifacts.map(async (artifact: any) => {\n       // Download the artifact (it's a zip file)\n       const downloadRes = await this.fetchWithRetry(artifact.archive_download_url, {\n         headers: {\n@@ -480,7 +477,7 @@ export class GithubHandler {\n           reader.readAsDataURL(blob);\n         });\n \n-        const newArtifact = await db.taskArtifacts.add({\n+        const newArtifactId = await db.taskArtifacts.add({\n           taskId,\n           repoName: targetRepoUrl,\n           branchName: targetBranch,\n@@ -494,9 +491,12 @@ export class GithubHandler {\n           },\n           createdAt: Date.now()\n         });\n-        savedArtifacts.push(newArtifact);\n+        return newArtifactId;\n       }\n-    }\n+      return null;\n+    }));\n+\n+    const savedArtifacts = savedArtifactsData.filter(Boolean);\n \n     return { count: savedArtifacts.length, artifacts: savedArtifacts };\n   }\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "daba907b6e4f40c18b53aae49c8085b3"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/6fc95c044f3f43999e32ffab21eab1a0",
+      "createTime": "2026-04-26T21:54:31.535849Z",
+      "originator": "agent",
+      "progressUpdated": {
+        "title": "Updated `GithubHandler.ts` to fetch workflow logs and download artifacts conc...",
+        "description": "Updated `GithubHandler.ts` to fetch workflow logs and download artifacts concurrently using `Promise.all`."
+      },
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/executor-github/GithubHandler.ts b/src/modules/executor-github/GithubHandler.ts\nindex f95efc0..658944f 100644\n--- a/src/modules/executor-github/GithubHandler.ts\n+++ b/src/modules/executor-github/GithubHandler.ts\n@@ -334,12 +334,9 @@ export class GithubHandler {\n     const jobsData = await jobsRes.json();\n     const jobs = jobsData.jobs || [];\n \n-    let allLogs = '';\n-\n     // 2. Fetch logs for each job\n-    for (const job of jobs) {\n-      allLogs += `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n-      \n+    const jobLogs = await Promise.all(jobs.map(async (job: any) => {\n+      let logOutput = `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n       try {\n         const logRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`, {\n           headers: {\n@@ -350,16 +347,17 @@ export class GithubHandler {\n \n         if (logRes.ok) {\n           const logText = await logRes.text();\n-          allLogs += logText + '\\n';\n+          logOutput += logText + '\\n';\n         } else {\n-          allLogs += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n+          logOutput += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n         }\n       } catch (e: any) {\n-        allLogs += `[Error fetching logs for this job: ${e.message}]\\n`;\n+        logOutput += `[Error fetching logs for this job: ${e.message}]\\n`;\n       }\n-    }\n+      return logOutput;\n+    }));\n \n-    return allLogs;\n+    return jobLogs.join('');\n   }\n \n   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {\n@@ -462,9 +460,8 @@ export class GithubHandler {\n \n     const data = await res.json();\n     const artifacts = data.artifacts || [];\n-    const savedArtifacts = [];\n \n-    for (const artifact of artifacts) {\n+    const savedArtifactsData = await Promise.all(artifacts.map(async (artifact: any) => {\n       // Download the artifact (it's a zip file)\n       const downloadRes = await this.fetchWithRetry(artifact.archive_download_url, {\n         headers: {\n@@ -480,7 +477,7 @@ export class GithubHandler {\n           reader.readAsDataURL(blob);\n         });\n \n-        const newArtifact = await db.taskArtifacts.add({\n+        const newArtifactId = await db.taskArtifacts.add({\n           taskId,\n           repoName: targetRepoUrl,\n           branchName: targetBranch,\n@@ -494,9 +491,12 @@ export class GithubHandler {\n           },\n           createdAt: Date.now()\n         });\n-        savedArtifacts.push(newArtifact);\n+        return newArtifactId;\n       }\n-    }\n+      return null;\n+    }));\n+\n+    const savedArtifacts = savedArtifactsData.filter(Boolean);\n \n     return { count: savedArtifacts.length, artifacts: savedArtifacts };\n   }\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "6fc95c044f3f43999e32ffab21eab1a0"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/ae8c401436a54cc691444061d34bc25c",
+      "createTime": "2026-04-26T21:54:50.237192Z",
+      "originator": "agent",
+      "progressUpdated": {},
+      "artifacts": [
+        {
+          "changeSet": {
+            "source": "sources/github/k0inwork/kanban-jules",
+            "gitPatch": {
+              "unidiffPatch": "diff --git a/src/App.tsx b/src/App.tsx\nindex 52a7faf..d91096f 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -120,7 +120,7 @@ export default function App() {\n       );\n     }\n \n-    for (const taskData of tasksToCreate) {\n+    await Promise.all(tasksToCreate.map(async (taskData) => {\n       const newTask: Task = {\n         id: uuidv4(),\n         title: taskData.title,\n@@ -135,7 +135,7 @@ export default function App() {\n       if (options?.autoStart) {\n         processTask(newTask);\n       }\n-    }\n+    }));\n \n     if (message.id && !options?.skipDelete) {\n       await db.messages.delete(message.id);\n@@ -193,7 +193,7 @@ export default function App() {\n   useEffect(() => {\n     const recoverStuckTasks = async () => {\n       const stuckTasks = await db.tasks.filter(t => t.agentState === 'EXECUTING').toArray();\n-      for (const task of stuckTasks) {\n+      await Promise.all(stuckTasks.map(async (task) => {\n         console.log(`[Recovery] Resetting stuck task ${task.id} (${task.title}) from EXECUTING to IDLE`);\n         await TaskStateMachine.dispatch(task.id, { type: 'USER_REPLIED' }); // Resets to IN_PROGRESS / IDLE\n         eventBus.emit('module:log', { \n@@ -201,7 +201,7 @@ export default function App() {\n           moduleId: 'orchestrator', \n           message: `> [System] Recovered task from interrupted state. Resuming execution...` \n         });\n-      }\n+      }));\n     };\n     recoverStuckTasks();\n   }, []);\n@@ -268,9 +268,9 @@ export default function App() {\n     \n     // Un-link associated Jules sessions instead of deleting them\n     const sessions = await db.julesSessions.where('taskId').equals(taskId).toArray();\n-    for (const session of sessions) {\n-      await db.julesSessions.update(session.id, { taskId: undefined });\n-    }\n+    await Promise.all(sessions.map(session => \n+      db.julesSessions.update(session.id, { taskId: undefined })\n+    ));\n     \n     await db.tasks.delete(taskId);\n   };\n@@ -335,9 +335,9 @@ export default function App() {\n     \n     if (artifactIds.length > 0) {\n       const taskFs = new TaskFs();\n-      for (const artifactId of artifactIds) {\n-        await taskFs.attachArtifact(newTask.id, artifactId);\n-      }\n+      await Promise.all(artifactIds.map(artifactId => \n+        taskFs.attachArtifact(newTask.id, artifactId)\n+      ));\n     }\n     \n     await db.tasks.add(newTask);\ndiff --git a/src/modules/executor-github/GithubHandler.ts b/src/modules/executor-github/GithubHandler.ts\nindex f95efc0..658944f 100644\n--- a/src/modules/executor-github/GithubHandler.ts\n+++ b/src/modules/executor-github/GithubHandler.ts\n@@ -334,12 +334,9 @@ export class GithubHandler {\n     const jobsData = await jobsRes.json();\n     const jobs = jobsData.jobs || [];\n \n-    let allLogs = '';\n-\n     // 2. Fetch logs for each job\n-    for (const job of jobs) {\n-      allLogs += `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n-      \n+    const jobLogs = await Promise.all(jobs.map(async (job: any) => {\n+      let logOutput = `\\n--- Logs for Job: ${job.name} (Status: ${job.status}, Conclusion: ${job.conclusion}) ---\\n`;\n       try {\n         const logRes = await this.fetchWithRetry(`https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`, {\n           headers: {\n@@ -350,16 +347,17 @@ export class GithubHandler {\n \n         if (logRes.ok) {\n           const logText = await logRes.text();\n-          allLogs += logText + '\\n';\n+          logOutput += logText + '\\n';\n         } else {\n-          allLogs += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n+          logOutput += `[Failed to fetch logs for this job: HTTP ${logRes.status}]\\n`;\n         }\n       } catch (e: any) {\n-        allLogs += `[Error fetching logs for this job: ${e.message}]\\n`;\n+        logOutput += `[Error fetching logs for this job: ${e.message}]\\n`;\n       }\n-    }\n+      return logOutput;\n+    }));\n \n-    return allLogs;\n+    return jobLogs.join('');\n   }\n \n   private async getRunStatus(args: any[], context: RequestContext): Promise<any> {\n@@ -462,9 +460,8 @@ export class GithubHandler {\n \n     const data = await res.json();\n     const artifacts = data.artifacts || [];\n-    const savedArtifacts = [];\n \n-    for (const artifact of artifacts) {\n+    const savedArtifactsData = await Promise.all(artifacts.map(async (artifact: any) => {\n       // Download the artifact (it's a zip file)\n       const downloadRes = await this.fetchWithRetry(artifact.archive_download_url, {\n         headers: {\n@@ -480,7 +477,7 @@ export class GithubHandler {\n           reader.readAsDataURL(blob);\n         });\n \n-        const newArtifact = await db.taskArtifacts.add({\n+        const newArtifactId = await db.taskArtifacts.add({\n           taskId,\n           repoName: targetRepoUrl,\n           branchName: targetBranch,\n@@ -494,9 +491,12 @@ export class GithubHandler {\n           },\n           createdAt: Date.now()\n         });\n-        savedArtifacts.push(newArtifact);\n+        return newArtifactId;\n       }\n-    }\n+      return null;\n+    }));\n+\n+    const savedArtifacts = savedArtifactsData.filter(Boolean);\n \n     return { count: savedArtifacts.length, artifacts: savedArtifacts };\n   }\ndiff --git a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\nindex 70f7845..6d2c39f 100644\n--- a/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n+++ b/src/modules/knowledge-local-analyzer/LocalAnalyzer.ts\n@@ -28,7 +28,7 @@ export class LocalAnalyzer {\n     \n     const repoName = repoUrl.split('/').pop() || repoUrl;\n \n-    for (const file of files) {\n+    await Promise.all(files.map(async (file) => {\n       const content = await gitFs.getFile(file.path);\n       const found = patterns.some(p => content.toLowerCase().includes(p.toLowerCase()));\n       \n@@ -37,7 +37,7 @@ export class LocalAnalyzer {\n         await taskFs.saveArtifact(taskId, repoName, repoBranch, artifactName, content);\n         findings.push(artifactName);\n       }\n-    }\n+    }));\n     \n     if (findings.length === 0) {\n       const artifactName = `${taskTitle}: No patterns found`;\ndiff --git a/src/modules/process-project-manager/ProcessAgent.ts b/src/modules/process-project-manager/ProcessAgent.ts\nindex b783598..0677ce8 100644\n--- a/src/modules/process-project-manager/ProcessAgent.ts\n+++ b/src/modules/process-project-manager/ProcessAgent.ts\n@@ -98,10 +98,10 @@ export class ProcessAgent {\n       \n       if (result.proposals && result.proposals.length > 0) {\n         console.log(`[ProcessAgent] Found ${result.proposals.length} proposals.`);\n-        for (const prop of result.proposals) {\n+        await Promise.all(result.proposals.map(async (prop: any) => {\n           if (!prop.content && (!prop.proposedTask || !prop.proposedTask.title)) {\n             console.warn('[ProcessAgent] Skipping empty proposal:', prop);\n-            continue;\n+            return;\n           }\n           await db.messages.add({\n             sender: 'process-agent',\n@@ -111,7 +111,7 @@ export class ProcessAgent {\n             status: 'unread',\n             timestamp: Date.now()\n           });\n-        }\n+        }));\n       } else {\n         console.log('[ProcessAgent] No proposals found.');\n       }\n",
+              "baseCommitId": "13443b64a984ccadd00fbf012cc93cfe7e55c1be"
+            }
+          }
+        }
+      ],
+      "id": "ae8c401436a54cc691444061d34bc25c"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/cf83ba2372a2480f804de6f738d7ab95",
+      "createTime": "2026-04-26T21:54:55.768889Z",
+      "originator": "agent",
+      "agentMessaged": {
+        "agentMessage": "I have refactored several loops across the codebase (in `App.tsx`, `ProcessAgent.ts`, `LocalAnalyzer.ts`, and `GithubHandler.ts`) to use `Promise.all` instead of sequential `await` calls. This change allows independent asynchronous operations to run concurrently, significantly improving the application's overall performance.\n\nI ran `npm run test` and noticed existing test failures in `src/core/sandbox.test.ts` and `src/test-registry.test.ts` related to missing `Worker` and `indexedDB` configurations. The task's memory mentions configuring `vitest` with `jsdom`, `fake-indexeddb`, and a mocked global `Worker` in `vitest.setup.ts`. \n\nShould I fix these test setup issues and ensure all tests pass, or are my changes ready to be submitted as they are since they do not introduce new failures?"
+      },
+      "id": "cf83ba2372a2480f804de6f738d7ab95"
+    },
+    {
+      "name": "sessions/10589510632112247918/activities/6f604e252569496695190fda69dc64c2",
+      "createTime": "2026-04-26T21:55:01.007774Z",
+      "originator": "agent",
+      "sessionFailed": {
+        "reason": "Jules was unable to complete the task."
+      },
+      "id": "6f604e252569496695190fda69dc64c2"
+    }
+  ],
+  "pollingLog": [
+    {
+      "time": "2026-04-26T21:43:11.309Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:43:20.863Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:43:30.556Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:43:40.080Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:43:49.512Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:43:59.404Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:44:08.955Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:44:18.587Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:44:28.108Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:44:38.086Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:44:47.774Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:44:57.214Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:45:06.553Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:45:15.931Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:45:25.408Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:45:34.909Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:45:44.212Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:45:53.854Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:46:03.242Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:46:12.647Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:46:22.026Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:46:31.544Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:46:40.919Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:46:50.292Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:46:59.631Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:47:08.960Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:47:18.245Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:47:28.052Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:47:37.744Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:47:47.148Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:47:56.516Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:48:05.922Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:48:15.605Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:48:25.410Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:48:36.062Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:48:46.743Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:48:56.673Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:49:06.558Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:49:16.588Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:49:27.395Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:49:44.923Z",
+      "state": "AWAITING_PLAN_APPROVAL",
+      "totalActivities": 1,
+      "newThisPoll": 1
+    },
+    {
+      "time": "2026-04-26T21:49:54.731Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 3,
+      "newThisPoll": 2
+    },
+    {
+      "time": "2026-04-26T21:50:04.766Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 4,
+      "newThisPoll": 1
+    },
+    {
+      "time": "2026-04-26T21:50:14.664Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 4,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:50:24.604Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 5,
+      "newThisPoll": 1
+    },
+    {
+      "time": "2026-04-26T21:50:34.499Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 5,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:50:43.880Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 6,
+      "newThisPoll": 1
+    },
+    {
+      "time": "2026-04-26T21:57:37.750Z",
+      "error": "request to https://jules.googleapis.com/v1alpha/sessions/10589510632112247918 failed, reason: Client network socket disconnected before secure TLS connection was established"
+    },
+    {
+      "time": "2026-04-26T21:57:57.470Z",
+      "state": "FAILED",
+      "totalActivities": 24,
+      "newThisPoll": 18
+    }
+  ],
+  "result": {
+    "finalState": "FAILED",
+    "outputs": [],
+    "title": "[capture] ambiguous",
+    "url": "https://jules.google.com/session/10589510632112247918"
+  },
+  "error": "Session FAILED",
+  "completedAt": "2026-04-26T21:57:59.858Z",
+  "durationMs": 913901,
+  "totalActivities": 24
+}

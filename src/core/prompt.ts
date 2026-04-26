@@ -97,8 +97,21 @@ export function composeProgrammerPrompt(modules: ModuleManifest[], task: Task, s
     "- conversationSearch(query): Search Yuan's past conversation history by keywords. Use SHORT keyword queries (e.g. 'auth middleware'), not full sentences. Returns matching chunks with context."
   ].join('\n');
 
+  const artifactRules = `
+ARTIFACT FORMAT RULE:
+1. All artifact names MUST end with .md (e.g. "design-spec.md", "api-analysis.md", "implementation-plan.md").
+2. All artifact content MUST be valid Markdown — use headings (#), lists (- or 1.), code blocks (\`\`\`), tables, bold/italic as appropriate.
+3. This is required for indexing in the knowledge base and RAG search. Artifacts without .md extension or with non-Markdown content will NOT be indexed.
+
+ARTIFACT TEMPLATE RULE:
+Before creating an artifact, use \`kb.queryDocs({ type: 'template', search: '<artifact_purpose>' })\` to find a matching template.
+If a template exists, follow its structure. If no template matches, use your best judgment but keep the document well-structured.
+`;
+
   return `
 ${projectedKnowledge || ''}
+
+${artifactRules}
 
 TASK CONTEXT:
 Task Title: ${task.title}
@@ -173,3 +186,54 @@ Classification tags must be one of: architectural, api, dependency, pattern, loc
 If no non-obvious decisions were made, output: "decisions": []
   `;
 }
+
+export const extractArtifactNames = async (
+  constitution: string,
+  apiProvider: string,
+  geminiModel: string,
+  openaiUrl: string,
+  openaiKey: string,
+  openaiModel: string,
+  geminiApiKey: string
+): Promise<string[]> => {
+  const prompt = `Extract the artifact type names from this project constitution's "Project Stages & Artifacts" section.
+Return ONLY a JSON array of slug-style names (lowercase, hyphenated). Each name should be a concise artifact type, not a stage name.
+
+Examples of good names: "design-spec", "api-analysis", "test-report", "research-notes", "feasibility-study"
+Examples of bad names: "Discovery", "Stage 1", "planning"
+
+Constitution:
+${constitution}
+
+Output ONLY valid JSON: ["artifact-name-1", "artifact-name-2", ...]`;
+
+  try {
+    if (apiProvider === 'gemini') {
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey || process.env.GEMINI_API_KEY || '' });
+      const response = await ai.models.generateContent({
+        model: geminiModel,
+        contents: prompt,
+        config: { responseMimeType: 'application/json' }
+      });
+      return JSON.parse(response.text || '[]');
+    } else {
+      const response = await fetch(`${openaiUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: openaiModel,
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          temperature: 0.1
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return JSON.parse(data.choices[0].message.content || '[]');
+      }
+    }
+  } catch (e) {
+    console.error("Failed to extract artifact names:", e);
+  }
+  return [];
+};

@@ -89,8 +89,8 @@ function TreeNode({ node, depth, isYuan }: { node: AgentTreeNode; depth: number;
   );
 }
 
-export function AgentTreePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const state = useAgentTree();
+export function AgentTreePanel({ open, onClose, projectId }: { open: boolean; onClose: () => void; projectId?: string | null }) {
+  const state = useAgentTree(projectId);
 
   if (!open) return null;
 

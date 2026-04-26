@@ -15,12 +15,17 @@ interface ArtifactBrowserProps {
 export default function ArtifactBrowser({ tasks, onArtifactSelect, projectId }: ArtifactBrowserProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
 
-  const artifacts = useLiveQuery(
-    () => projectId
+  const artifacts = useLiveQuery(() =>
+    projectId
       ? db.taskArtifacts.where('projectId').equals(projectId).toArray()
-      : [],
-    [projectId]
-  ) || [];
+      : db.taskArtifacts.toArray()
+  , [projectId]) || [];
+  const artifactCount = useLiveQuery(() =>
+    projectId
+      ? db.taskArtifacts.where('projectId').equals(projectId).count()
+      : db.taskArtifacts.count()
+  , [projectId]);
+  const loading = artifacts.length === 0 && !artifactCount;
 
   const handleDeleteArtifact = async (id: number) => {
     const taskFs = new TaskFs();

@@ -1,4 +1,4 @@
-import { db, KBEntry } from '../../services/db';
+import { db, KBEntry, SELF_PROJECT_ID } from '../../services/db';
 import { externalSources } from './external-kb';
 import { RequestContext } from '../../core/types';
 import { eventBus } from '../../core/event-bus';
@@ -45,7 +45,7 @@ export async function microDream(taskId: string, context: RequestContext): Promi
     source: 'dream:micro',
     supersedes: entries.map(e => e.id!),
     active: true,
-    project: entries[0]?.project || 'target'
+    projectId: entries[0]?.projectId || context.projectId
   });
 
   // Deactivate raw entries
@@ -65,7 +65,7 @@ export async function microDream(taskId: string, context: RequestContext): Promi
     tags: [...allTags, 'executor-outcome'],
     source: 'dream:micro',
     active: true,
-    project: entries[0]?.project || 'target',
+    projectId: entries[0]?.projectId || context.projectId,
   });
 
   return `Micro-dream: consolidated ${entries.length} entries, verified ${verifiedCount} decisions for task ${taskId}.`;
@@ -161,11 +161,14 @@ export async function sessionDream(context: RequestContext): Promise<string> {
   // Phase 1: Gather — only raw observations + decisions, not consolidation output
   let entries = await db.kbLog.filter(e => e.active).toArray();
   entries = entries.filter(e =>
-    e.source === 'execution' || (e.source === 'dream:micro' && e.category !== 'insight')
+    (e.source === 'execution' || (e.source === 'dream:micro' && e.category !== 'insight'))
+    && (!context.projectId || e.projectId === context.projectId)
   );
 
-  const docs = await db.kbDocs.filter(d => d.active).toArray();
-  const tasks = await db.tasks.toArray();
+  const docs = (await db.kbDocs.filter(d => d.active).toArray())
+    .filter(d => !context.projectId || d.projectId === context.projectId);
+  const tasks = (await db.tasks.toArray())
+    .filter(t => !context.projectId || t.projectId === context.projectId);
 
   if (entries.length === 0) {
     return 'Session-dream: no active entries to consolidate.';
@@ -194,21 +197,21 @@ export async function sessionDream(context: RequestContext): Promise<string> {
     allNew.push({
       timestamp: Date.now(), text: p.text, category: 'insight',
       abstraction: 7, layer: ['L0'], tags: p.tags || [],
-      source: 'dream:session', active: true, project: 'target'
+      source: 'dream:session', active: true, projectId: context.projectId
     });
   }
   for (const f of (parsed.failures || [])) {
     allNew.push({
       timestamp: Date.now(), text: f.text, category: 'error',
       abstraction: 7, layer: ['L0'], tags: f.tags || [],
-      source: 'dream:session', active: true, project: 'target'
+      source: 'dream:session', active: true, projectId: context.projectId
     });
   }
   for (const s of (parsed.strategies || [])) {
     allNew.push({
       timestamp: Date.now(), text: s.text, category: 'decision',
       abstraction: 7, layer: ['L0', 'L1'], tags: [...(s.tags || []), 'strategy'],
-      source: 'dream:session', active: true, project: 'target'
+      source: 'dream:session', active: true, projectId: context.projectId
     });
   }
 
@@ -217,7 +220,7 @@ export async function sessionDream(context: RequestContext): Promise<string> {
     allNew.push({
       timestamp: Date.now(), text: `GAP: ${g.text}`, category: 'observation',
       abstraction: 3, layer: ['L0'], tags: ['gap', ...(g.tags || [])],
-      source: 'dream:session', active: true, project: 'target'
+      source: 'dream:session', active: true, projectId: context.projectId
     });
   }
 
@@ -479,7 +482,7 @@ async function writeResolutionEntry(
     source: 'conflict-resolution',
     supersedes: [d1.id!, d2.id!].filter(Boolean),
     active: true,
-    project: d1.project || 'target',
+    projectId: d1.projectId,
   });
 }
 
@@ -548,7 +551,7 @@ async function createEscalationMessage(
     tags: ['conflict', ...(d1.tags.filter(t => t !== 'verified' && t !== 'conflict-pending')), ...(d2.tags.filter(t => t !== 'verified' && t !== 'conflict-pending'))],
     source: 'dream:session',
     active: true,
-    project: 'target',
+    projectId: d1.projectId,
   });
 
   return db.messages.add({
@@ -632,7 +635,7 @@ function registerConflictResolutionHandler(
         source: 'dream:session',
         supersedes: [d1Id, d2Id],
         active: true,
-        project: d1.project || 'target',
+        projectId: d1.projectId,
       });
       await writeResolutionEntry(conflictType, 'user:merge', d1, d2, undefined);
     }
@@ -643,9 +646,12 @@ function registerConflictResolutionHandler(
 }
 
 export async function deepDream(context: RequestContext): Promise<string> {
-  const entries = await db.kbLog.filter(e => e.active).toArray();
-  const docs = await db.kbDocs.filter(d => d.active).toArray();
-  const tasks = await db.tasks.toArray();
+  const entries = (await db.kbLog.filter(e => e.active).toArray())
+    .filter(e => !context.projectId || e.projectId === context.projectId);
+  const docs = (await db.kbDocs.filter(d => d.active).toArray())
+    .filter(d => !context.projectId || d.projectId === context.projectId);
+  const tasks = (await db.tasks.toArray())
+    .filter(t => !context.projectId || t.projectId === context.projectId);
   const project = context.projectId ? await db.projects.get(context.projectId) : undefined;
   const constitution = project?.constitution || '(none)';
 
@@ -659,7 +665,7 @@ export async function deepDream(context: RequestContext): Promise<string> {
   await db.kbLog.add({
     timestamp: Date.now(), text: consolidation, category: 'insight',
     abstraction: 9, layer: ['L0'], tags: ['deep-dream', 'consolidation'],
-    source: 'dream:deep', active: true, project: 'target'
+    source: 'dream:deep', active: true, projectId: context.projectId
   });
 
   // Call 2: Gap resolution via external sources
@@ -683,7 +689,7 @@ export async function deepDream(context: RequestContext): Promise<string> {
               tags: ['gap-resolved', ...gap.tags.filter(t => t !== 'gap')],
               source: `external:${source.constructor.name}`,
               active: true,
-              project: gap.project || 'target',
+              projectId: gap.projectId || context.projectId,
             });
           }
         } catch {
@@ -702,7 +708,7 @@ export async function deepDream(context: RequestContext): Promise<string> {
     await db.kbLog.add({
       timestamp: Date.now(), text: amendmentResponse, category: 'decision',
       abstraction: 8, layer: ['L0'], tags: ['constitution-amendment'],
-      source: 'dream:deep', active: true, project: 'self'
+      source: 'dream:deep', active: true, projectId: SELF_PROJECT_ID
     });
     // Also write as AgentMessage for user approval (proposal §5.3 Phase 4)
     const msgId = await db.messages.add({
@@ -829,7 +835,6 @@ async function generateDecisionLog(): Promise<string> {
     tags: ['decision-log', 'auto-generated'],
     layer: 'L0',
     source: 'dream:deep',
-    project: 'target',
   }], {} as any);
 
   return `Decision log generated (${decisions.length} decisions).`;
@@ -853,9 +858,10 @@ async function generateDecisionLog(): Promise<string> {
  */
 export async function watchdogDream(context: RequestContext): Promise<string> {
   // 1. Get all IN_PROGRESS tasks
-  const runningTasks = await db.tasks
+  const runningTasks = (await db.tasks
     .filter(t => t.workflowStatus === 'IN_PROGRESS')
-    .toArray();
+    .toArray())
+    .filter(t => !context.projectId || t.projectId === context.projectId);
 
   if (runningTasks.length === 0) {
     return 'Watchdog: no running tasks, nothing to watch.';

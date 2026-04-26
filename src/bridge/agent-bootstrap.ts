@@ -599,6 +599,8 @@ function createAgentRunner(c: AlmostNodeContainer): void {
       prompt += '  - artifact.list({ taskId? }) — list artifacts (underscore-prefixed names are private to owning task)\\n';
       prompt += '  - artifact.read({ artifactId }) — read artifact by ID\\n';
       prompt += 'Non-underscore artifacts also get written to the Git repo (if token available).\\n';
+      prompt += 'ARTIFACT FORMAT: All artifact names MUST end with .md. All artifact content MUST be valid Markdown (headings, lists, code blocks, tables). Required for KB indexing and RAG search.\\n';
+      prompt += 'ARTIFACT TEMPLATES: Before creating an artifact, use kb.queryDocs({ type: "template", search: "<artifact_purpose>" }) to find a matching template. Follow its structure if found.\\n';
       prompt += '\\n';
 
       prompt += '--- TASK TOOLS REFERENCE ---\\n';

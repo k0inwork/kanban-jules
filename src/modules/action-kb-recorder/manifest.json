@@ -1,0 +1,29 @@
+{
+  "id": "action-kb-recorder",
+  "name": "KB Recorder Action",
+  "version": "1.0.0",
+  "type": "action",
+  "description": "Records task completion to KB, saves architect decisions, triggers commit harvest and microDream",
+  "subscriptions": [
+    {
+      "event": "task:statusChanged",
+      "manifestFilter": { "to": "DONE" },
+      "priority": 5
+    }
+  ],
+  "tools": [
+    {
+      "name": "knowledge-kb.recordEntry",
+      "description": "Record a knowledge base entry",
+      "parameters": { "type": "object", "properties": { "text": { "type": "string" }, "category": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } }, "source": { "type": "string" }, "projectId": { "type": "string" } } }
+    },
+    {
+      "name": "process-dream.microDream",
+      "description": "Trigger micro dream consolidation",
+      "parameters": { "type": "object", "properties": { "taskId": { "type": "string" } } }
+    }
+  ],
+  "sandboxBindings": {},
+  "permissions": [],
+  "enabled": true
+}

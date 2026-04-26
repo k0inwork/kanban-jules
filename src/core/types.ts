@@ -31,11 +31,22 @@ export interface ModulePresentation {
   config: any;
 }
 
+export interface ActionSubscription {
+  event: string;
+  manifestFilter?: Record<string, any>;  // JSON match against event payload (fast reject)
+  priority?: number;                      // lower = runs first, default 100
+}
+
+export interface ConstitutionPatch {
+  namespace: string;   // e.g. "action-test-runner"
+  rules: string[];
+}
+
 export interface ModuleManifest {
   id: string;
   name: string;
   version: string;
-  type: 'architect' | 'knowledge' | 'executor' | 'channel' | 'process';
+  type: 'architect' | 'knowledge' | 'executor' | 'channel' | 'process' | 'action';
   description: string;
   tools: ToolDefinition[];
   sandboxBindings: Record<string, string>;
@@ -52,6 +63,10 @@ export interface ModuleManifest {
   init?: (config: any) => void;
   destroy?: () => void;
   requestTimeoutMs?: number; // default timeout for all tools in this module (ms)
+
+  // Action-specific (only used when type === 'action')
+  subscriptions?: ActionSubscription[];
+  constitutionPatches?: Record<string, ConstitutionPatch>;  // key = target module ID
 }
 
 export interface RequestContext {

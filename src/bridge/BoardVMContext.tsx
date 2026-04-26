@@ -227,7 +227,7 @@ export function BoardVMProvider({
 
     (window as any).boardVM = {
       mode: 'terminal',
-      memoryMB: 1024,
+      memoryMB: 400,
       gitfs: {
         getFile: (_path: string) => Promise.resolve(undefined),
         listFiles: (_path: string) => Promise.resolve([]),
@@ -452,7 +452,9 @@ export function BoardVMProvider({
           const killPayload = btoa(`kill:${id}`);
           const killSeq = new TextEncoder().encode(`\x1b]89;${killPayload}\x07`);
           sendRaw(killSeq);
-          return { stdout: '', stderr: '', exitCode: -1, error: `timeout after ${timeout}ms`, durationMs: Date.now() - start };
+          try { await fs.rm(resultDir); } catch {}
+          return { stdout: '', exitCode: -1, error: `timeout after ${timeout}ms`, durationMs: Date.now() - start };
+
         }
 
         let stdout = '';

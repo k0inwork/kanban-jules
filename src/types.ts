@@ -45,7 +45,6 @@ export interface Task {
   moduleLogs?: Record<string, string>;
   analysis?: string;
   architectModel?: string;
-  project?: string; // 'self' | 'target' (default: 'target')
   projectId?: string; // FK to projects table
   branchName?: string; // 'task/{taskId}' — set when task qualifies for branching
   branchDir?: string; // '/owner/repo--{taskId}' — task-scoped Lightning-FS directory

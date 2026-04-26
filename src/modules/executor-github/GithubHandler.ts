@@ -23,6 +23,8 @@ export class GithubHandler {
         return this.getRunStatus(args, context);
       case 'executor-github.fetchArtifacts':
         return this.fetchArtifacts(args, context);
+      case 'executor-github.getTree':
+        return this.getTree(args, context);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
@@ -499,5 +501,46 @@ export class GithubHandler {
     }
 
     return { count: savedArtifacts.length, artifacts: savedArtifacts };
+  }
+
+  private async getTree(args: any[], context: RequestContext): Promise<string[]> {
+    const unpack = (arg: any) => (arg && typeof arg === 'object' && !Array.isArray(arg)) ? arg : null;
+    const obj = unpack(args[0]) || {};
+
+    const targetRepoUrl = obj.repoUrl || context.repoUrl;
+    const branch = obj.branch || context.repoBranch;
+    const path = obj.path || '';
+
+    const githubToken = context.githubToken || import.meta.env.VITE_GITHUB_TOKEN;
+    if (!githubToken) throw new Error('GitHub Token is required.');
+    if (!targetRepoUrl) throw new Error('Repository URL (owner/repo) is required.');
+
+    const [owner, repo] = targetRepoUrl.split('/');
+
+    // Use recursive tree to get all files
+    let url = `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`;
+    if (path) {
+      // If a specific path prefix is given, we still fetch full tree and filter
+    }
+
+    const res = await this.fetchWithRetry(url, {
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(`Failed to get tree for ${branch}: ${err.message}`);
+    }
+
+    const data = await res.json();
+    const files: string[] = (data.tree || [])
+      .filter((entry: any) => entry.type === 'blob')
+      .map((entry: any) => entry.path)
+      .filter((p: string) => !path || p.startsWith(path));
+
+    return files;
   }
 }

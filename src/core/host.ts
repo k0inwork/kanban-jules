@@ -24,10 +24,15 @@ import { BashExecutorHandler } from '../modules/bash-executor/BashExecutorHandle
 import { ClaudeExecutorHandler } from '../modules/executor-claude/ClaudeExecutorHandler';
 import { BoardTool } from '../modules/knowledge-board/BoardTool';
 import { AgentBus } from './agent-bus';
+import { actionDispatcher } from './action-dispatcher';
+import { action as kbRecorderAction } from '../modules/action-kb-recorder/action';
+import { action as branchTrackerAction } from '../modules/action-branch-tracker/action';
+import { action as testRunnerAction } from '../modules/action-test-runner/action';
 import { AskUserForHandler } from '../modules/channel-ask-user/AskUserForHandler';
 import { llmRouter } from './llm-router';
 import { LlmLevel } from './llm-levels';
 import { webllmRuntime } from './webllm-runtime';
+
 
 export class ModuleHost {
   private julesPostman: JulesPostman | null = null;
@@ -287,10 +292,17 @@ export class ModuleHost {
       eventBus.emit('trace:tool-call', { toolName, taskId: ctx.taskId, durationMs, timestamp: Date.now() });
     });
 
+    // Action dispatcher — event-driven action modules
+    actionDispatcher.registerActionHandler('action-kb-recorder', kbRecorderAction);
+    actionDispatcher.registerActionHandler('action-branch-tracker', branchTrackerAction);
+    actionDispatcher.registerActionHandler('action-test-runner', testRunnerAction);
+    actionDispatcher.init();
+
     // host.agentContextGet/Set handled per-task in orchestrator.moduleRequest
   }
 
   stop() {
+    actionDispatcher.destroy();
     destroyCommitHarvest();
     if (this.stopPushFlush) {
       this.stopPushFlush();

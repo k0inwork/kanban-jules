@@ -9,7 +9,7 @@ describe('sanitizeTaskUpdates', () => {
       workflowStatus: 'IN_PROGRESS',
       agentState: 'EXECUTING',
       agentContext: { key: 'val' },
-      project: 'target',
+      projectId: 'test-project-id',
       protocol: { steps: [] },
       analysis: 'text',
     };

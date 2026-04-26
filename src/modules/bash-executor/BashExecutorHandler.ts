@@ -81,42 +81,23 @@ export class BashExecutorHandler {
         const exists = await boardVM.fsBridge.exists(`${repoRoot}/.git`);
         if (exists) {
           console.log(`[bash-executor] ${repoRoot} already exists, pulling latest`);
-          const r = await boardVM.bashExec({
-            command: `cd ${repoRoot} && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
+          // cowfs doesn't support truncate — remove FETCH_HEAD so git creates it fresh
+          await boardVM.bashExec({
+            command: `rm -f ${repoRoot}/.git/FETCH_HEAD && cd ${repoRoot} && git fetch origin && git reset --hard origin/${cfg.repoBranch}`,
             cwd: '/tmp',
             timeout: 60000,
           });
-          if (r.exitCode !== 0) {
-            console.warn('[bash-executor] git fetch/reset failed (repo still usable):', r.stdout || r.error);
-          }
         } else {
-          console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → ${repoRoot}`);
           const authUrl = cfg.githubToken
             ? cfg.repoUrl.replace('https://', `https://${cfg.githubToken}@`)
             : cfg.repoUrl;
-          // Step 1: ensure parent dir exists
+          console.log(`[bash-executor] Prefetching ${cfg.repoUrl} → ${repoRoot}`);
+          // Ensure parent dir exists and clean any stale clone
           await boardVM.bashExec({
-            command: `mkdir -p /tmp/repo-root`,
-            cwd: '/tmp',
-            timeout: 10000,
-          });
-          // Step 2: remove old clone (separate command to ensure completion)
-          await boardVM.bashExec({
-            command: `rm -rf ${repoRoot}`,
+            command: `mkdir -p /tmp/repo-root && rm -rf ${repoRoot}`,
             cwd: '/tmp',
             timeout: 30000,
           });
-          // Step 3: verify dir is gone, retry if needed
-          const stillExists = await boardVM.fsBridge.exists(repoRoot);
-          if (stillExists) {
-            console.warn(`[bash-executor] rm -rf didn't clean ${repoRoot}, retrying...`);
-            await boardVM.bashExec({
-              command: `rm -rf ${repoRoot} && sleep 0.5`,
-              cwd: '/tmp',
-              timeout: 30000,
-            });
-          }
-          // Step 4: clone
           const r = await boardVM.bashExec({
             command: `git clone --branch ${cfg.repoBranch} ${authUrl} ${repoRoot}`,
             cwd: '/tmp',

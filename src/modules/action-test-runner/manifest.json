@@ -1,0 +1,56 @@
+{
+  "id": "action-test-runner",
+  "name": "Test Runner Action",
+  "version": "1.0.0",
+  "type": "action",
+  "description": "Runs full test suite when code tasks complete, regresses to IN_REVIEW on failure",
+  "subscriptions": [
+    {
+      "event": "task:statusChanged",
+      "manifestFilter": { "to": "DONE" },
+      "priority": 20
+    }
+  ],
+  "tools": [
+    {
+      "name": "executor-github.getTree",
+      "description": "List files in a repo branch via Git tree API",
+      "parameters": { "type": "object", "properties": { "repoUrl": { "type": "string" }, "branch": { "type": "string" }, "path": { "type": "string" } } }
+    },
+    {
+      "name": "executor-github.runAndWait",
+      "description": "Run a GitHub Actions workflow and wait for result",
+      "parameters": { "type": "object", "properties": { "workflowYaml": { "type": "string" }, "workflowName": { "type": "string" }, "branch": { "type": "string" } } }
+    },
+    {
+      "name": "knowledge-kb.recordEntry",
+      "description": "Record a knowledge base entry",
+      "parameters": { "type": "object", "properties": { "text": { "type": "string" }, "category": { "type": "string" }, "abstraction": { "type": "number" }, "layer": { "type": "array", "items": { "type": "string" } }, "tags": { "type": "array", "items": { "type": "string" } }, "source": { "type": "string" }, "projectId": { "type": "string" } } }
+    },
+    {
+      "name": "knowledge-board.updateTask",
+      "description": "Update task fields",
+      "parameters": { "type": "object", "properties": { "task": { "type": "string" }, "updates": { "type": "object" } } }
+    }
+  ],
+  "sandboxBindings": {},
+  "permissions": ["network"],
+  "enabled": true,
+  "constitutionPatches": {
+    "executor-jules": {
+      "namespace": "action-test-runner",
+      "rules": [
+        "Always write tests for your changes in the configured test directory.",
+        "Run the project's test command before reporting task complete.",
+        "Tests must be independent and runnable in isolation."
+      ]
+    },
+    "executor-claude": {
+      "namespace": "action-test-runner",
+      "rules": [
+        "Always write tests for your changes in the configured test directory.",
+        "Run the project's test command before reporting task complete."
+      ]
+    }
+  }
+}

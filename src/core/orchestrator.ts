@@ -189,7 +189,7 @@ export class Orchestrator {
       
       const modules = registry.getEnabled();
 
-      const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', project: 'target', taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}`, focus: step.focus });
+      const projectedKnowledge = await ProjectorHandler.project({ layer: 'L3', projectId: task.projectId, taskId, executor: step.executor, taskDescription: `${task.title} ${task.description} ${step.title} ${step.description}`, focus: step.focus });
 
       // Emit projector injection for AgentTree visibility
       const sections = projectedKnowledge.split(/^## /m).filter(s => s.trim()).map(s => '## ' + s.trim());
@@ -541,6 +541,18 @@ export class Orchestrator {
         agentId: 'local-agent'
       });
 
+      // Emit status change event for action modules
+      if (nextWorkflowStatus !== currentTask.workflowStatus) {
+        const updated = { ...currentTask, workflowStatus: nextWorkflowStatus, agentState: nextAgentState };
+        eventBus.emit('task:statusChanged', {
+          taskId: task.id,
+          from: currentTask.workflowStatus,
+          to: nextWorkflowStatus,
+          task: updated,
+          projectId: currentTask.projectId,
+        });
+      }
+
       // KB hook: record outcome + save architect decisions + trigger decision harvest then microDream
       if (status === 'DONE' && this.config) {
         // Merge task branch and enqueue push
@@ -565,7 +577,7 @@ export class Orchestrator {
           await KBHandler.recordExecution(
             `Task ${task.id} completed successfully: ${task.title}`,
             [task.id],
-            task.project
+            task.projectId
           );
 
           // Save architect's declared decisions to KB (only on success)
@@ -576,7 +588,7 @@ export class Orchestrator {
                 await KBHandler.recordDecision(
                   decision.text,
                   [...(decision.tags || []), task.id, 'architect-declared'],
-                  task.project
+                  task.projectId
                 );
               }
             }
