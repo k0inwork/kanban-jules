@@ -13,6 +13,7 @@ export interface ShadowLogEntry {
 }
 
 const STORE = 'paw_shadow_log';
+const MAX_ENTRIES_PER_PROGRAM = 1000;
 
 function getDb(): IDBDatabase | null {
   return (globalThis as any).__pawShadowDb || null;
@@ -80,8 +81,38 @@ export async function shadowLog(
     const db = await ensureDb();
     const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).add(entry);
+
+    // GC: prune old entries for this program to cap growth
+    pruneProgram(db, programId);
   } catch {
     // Shadow mode failures must never affect the caller
+  }
+}
+
+/** Keep only the most recent MAX_ENTRIES_PER_PROGRAM entries for a given program */
+function pruneProgram(db: IDBDatabase, programId: string): void {
+  try {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const index = store.index('programId');
+    const countReq = index.count(IDBKeyRange.only(programId));
+
+    countReq.onsuccess = () => {
+      if (countReq.result <= MAX_ENTRIES_PER_PROGRAM) return;
+
+      // Collect oldest entries to delete
+      const cursorReq = index.openCursor(IDBKeyRange.only(programId));
+      let toDelete = countReq.result - MAX_ENTRIES_PER_PROGRAM;
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor || toDelete <= 0) return;
+        cursor.delete();
+        toDelete--;
+        cursor.continue();
+      };
+    };
+  } catch {
+    // GC failures must never affect the caller
   }
 }
 

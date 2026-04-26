@@ -67,6 +67,7 @@ describe('JulesHandler', () => {
       'Fix the bug',
       'Bug is fixed',
       ctx.llmCall,
+      undefined,
     );
   });
 
@@ -85,6 +86,7 @@ describe('JulesHandler', () => {
       'Write tests',
       'Tests pass',
       ctx.llmCall,
+      undefined,
     );
   });
 
@@ -99,6 +101,7 @@ describe('JulesHandler', () => {
       'Do something',
       'Task completed successfully',
       ctx.llmCall,
+      undefined,
     );
   });
 });

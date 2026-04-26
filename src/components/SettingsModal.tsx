@@ -8,6 +8,36 @@ import { registry } from '../core/registry';
 import { HostConfig, ModuleManifest } from '../core/types';
 import LLMSettingsPanel from './LLMSettingsPanel';
 
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4">
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <p className="text-xs text-red-400">LLM panel crashed. Try reloading the page.</p>
+            <button
+              onClick={() => this.setState({ hasError: false })}
+              className="mt-2 px-3 py-1 text-[10px] bg-neutral-800 text-neutral-200 rounded hover:bg-neutral-700"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -390,7 +420,9 @@ export default function SettingsModal({
             </div>
           </form>
         ) : activeTab === 'llm' ? (
-          <LLMSettingsPanel />
+          <ErrorBoundary>
+            <LLMSettingsPanel />
+          </ErrorBoundary>
         ) : activeTab === 'danger' ? (
           <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
             <h3 className="text-sm font-medium text-red-400 flex items-center gap-2">

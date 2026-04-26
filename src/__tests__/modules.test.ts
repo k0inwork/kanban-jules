@@ -15,10 +15,8 @@ import { microDream } from '../modules/process-dream/dream-levels';
 import { eventBus } from '../core/event-bus';
 
 // Helper: build a KBEntry
-let nextId = 1;
 function makeEntry(overrides: Partial<KBEntry> & { text: string }): KBEntry {
   return {
-    id: nextId++,
     timestamp: Date.now(),
     category: 'error',
     abstraction: 2,
@@ -59,7 +57,6 @@ function trackingContext(responses: string[]): any {
 }
 
 beforeEach(async () => {
-  nextId = 1;
   // Clear all tables
   await db.kbLog.clear();
   await db.kbDocs.clear();
@@ -724,7 +721,7 @@ describe('DreamHandler', () => {
       'No amendments needed',
     ]);
     const result = await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
-    expect(result).toContain('Deep-dream');
+    expect(result.dream).toContain('Deep-dream');
 
     // Verify strategic insight was added
     const entries = await db.kbLog.toArray();
@@ -2083,14 +2080,14 @@ describe('Phase 1d: Micro Dream Verification', () => {
       }));
     }
     // Seed an unverified harvested decision
-    await db.kbLog.add(makeEntry({
+    const harvestedId = await db.kbLog.add(makeEntry({
       text: 'Using JWT for auth', category: 'decision', abstraction: 4,
       layer: ['L0', 'L1'], tags: ['api', 'task-v1'], source: 'dream:micro',
     }));
 
     // LLM returns: first call = verify (confirm), second call = consolidate summary
     const ctx = trackingContext([
-      JSON.stringify([{ id: nextId - 1, action: 'confirm', tags: ['api', 'auth'], confidence: 'high' }]),
+      JSON.stringify([{ id: harvestedId, action: 'confirm', tags: ['api', 'auth'], confidence: 'high' }]),
       'Consolidated: observations are fine',
     ]);
     await DreamHandler.handleRequest('process-dream.microDream', [{ taskId: 'task-v1' }], ctx);
@@ -2831,7 +2828,7 @@ describe('Phase 1h: Deep Decision Log', () => {
     ]);
 
     const result = await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
-    expect(result).toContain('No decisions for log');
+    expect(result.dream).toContain('No decisions for log');
 
     const docs = await db.kbDocs.filter(d => d.type === 'decision-log').toArray();
     expect(docs).toHaveLength(0);

@@ -43,7 +43,7 @@ describe('UserHandler', () => {
       ctx,
     );
     expect(result).toBe('user answer');
-    expect(UserNegotiator.negotiate).toHaveBeenCalledWith('t1', 'What should I do?', 'text', ctx.llmCall);
+    expect(UserNegotiator.negotiate).toHaveBeenCalledWith('t1', 'What should I do?', 'text', ctx.llmCall, 'orchestrator');
   });
 
   it('asks user with object-form args', async () => {
@@ -53,19 +53,19 @@ describe('UserHandler', () => {
       ctx,
     );
     expect(result).toBe('user answer');
-    expect(UserNegotiator.negotiate).toHaveBeenCalledWith('t1', 'Pick one', 'json', ctx.llmCall);
+    expect(UserNegotiator.negotiate).toHaveBeenCalledWith('t1', 'Pick one', 'json', ctx.llmCall, 'orchestrator');
   });
 
   it('asks user without format', async () => {
     await handler.handleRequest('channel-user-negotiator.askUser', ['Yes or no?'], ctx);
-    expect(UserNegotiator.negotiate).toHaveBeenCalledWith('t1', 'Yes or no?', undefined, ctx.llmCall);
+    expect(UserNegotiator.negotiate).toHaveBeenCalledWith('t1', 'Yes or no?', undefined, ctx.llmCall, 'orchestrator');
   });
 
   // ── sendUser ──
 
   it('sends message with positional arg', async () => {
     await handler.handleRequest('channel-user-negotiator.sendUser', ['Status update'], ctx);
-    expect(UserNegotiator.sendMessage).toHaveBeenCalledWith('t1', 'Status update');
+    expect(UserNegotiator.sendMessage).toHaveBeenCalledWith('t1', 'Status update', 'orchestrator');
   });
 
   it('sends message with object-form arg', async () => {
@@ -74,6 +74,6 @@ describe('UserHandler', () => {
       [{ message: 'Object form' }],
       ctx,
     );
-    expect(UserNegotiator.sendMessage).toHaveBeenCalledWith('t1', 'Object form');
+    expect(UserNegotiator.sendMessage).toHaveBeenCalledWith('t1', 'Object form', 'orchestrator');
   });
 });
