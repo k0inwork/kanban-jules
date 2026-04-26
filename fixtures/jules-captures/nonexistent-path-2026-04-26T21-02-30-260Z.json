@@ -1,0 +1,18 @@
+{
+  "scenario": "nonexistent-path",
+  "description": "Task referencing nonexistent files — error handling",
+  "repo": "k0inwork/kanban-jules",
+  "branch": "main",
+  "prompt": "Fix the bug in src/nonexistent/file.ts that causes the app to crash.",
+  "successCriteria": "Bug fix applied",
+  "startedAt": "2026-04-26T21:02:30.242Z",
+  "session": null,
+  "stateTransitions": [],
+  "allActivities": [],
+  "pollingLog": [],
+  "result": null,
+  "error": "request to https://jules.googleapis.com/v1alpha/sessions failed, reason: ",
+  "completedAt": "2026-04-26T21:02:30.260Z",
+  "durationMs": 18,
+  "totalActivities": 0
+}

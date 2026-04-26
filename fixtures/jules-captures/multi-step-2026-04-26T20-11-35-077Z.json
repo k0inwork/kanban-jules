@@ -1,0 +1,18 @@
+{
+  "scenario": "multi-step",
+  "description": "Multi-step task requiring plan + execution",
+  "repo": "k0inwork/kanban-jules",
+  "branch": "main",
+  "prompt": "Create a simple Node.js script at scripts/echo-args.js that prints all command line arguments, one per line. Then create a test file scripts/echo-args.test.js that verifies it works with 3 sample arguments.",
+  "successCriteria": "Both files created, test would pass",
+  "startedAt": "2026-04-26T20:11:34.219Z",
+  "session": null,
+  "stateTransitions": [],
+  "allActivities": [],
+  "pollingLog": [],
+  "result": null,
+  "error": "fetch failed",
+  "completedAt": "2026-04-26T20:11:35.077Z",
+  "durationMs": 858,
+  "totalActivities": 0
+}

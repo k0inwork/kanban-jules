@@ -1,0 +1,350 @@
+{
+  "scenario": "nonexistent-path",
+  "description": "Task referencing nonexistent files — error handling",
+  "repo": "k0inwork/kanban-jules",
+  "branch": "main",
+  "prompt": "Fix the bug in src/nonexistent/file.ts that causes the app to crash.",
+  "successCriteria": "Bug fix applied",
+  "startedAt": "2026-04-26T21:57:59.866Z",
+  "session": {
+    "name": "sessions/1921324218550444153",
+    "title": "[capture] nonexistent-path",
+    "sourceContext": {
+      "source": "sources/github/k0inwork/kanban-jules",
+      "githubRepoContext": {
+        "startingBranch": "main"
+      }
+    },
+    "prompt": "Fix the bug in src/nonexistent/file.ts that causes the app to crash.",
+    "url": "https://jules.google.com/session/1921324218550444153",
+    "requirePlanApproval": true,
+    "id": "1921324218550444153"
+  },
+  "stateTransitions": [
+    {
+      "state": "IN_PROGRESS",
+      "time": "2026-04-26T21:58:09.460Z"
+    },
+    {
+      "state": "COMPLETED",
+      "time": "2026-04-26T22:06:05.737Z"
+    }
+  ],
+  "allActivities": [
+    {
+      "name": "sessions/1921324218550444153/activities/dd0bf408679a4dc5adc1b93946e12374",
+      "createTime": "2026-04-26T21:59:21.742094Z",
+      "originator": "agent",
+      "agentMessaged": {
+        "agentMessage": "You requested fixing a bug in `src/nonexistent/file.ts`, however, this file and directory do not exist in the codebase. I have verified this by checking the project's folder structure. Could you please clarify which file contains the bug you'd like me to fix?"
+      },
+      "id": "dd0bf408679a4dc5adc1b93946e12374"
+    }
+  ],
+  "pollingLog": [
+    {
+      "time": "2026-04-26T21:58:18.867Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:58:28.231Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:58:37.885Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:58:47.344Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:58:56.711Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:59:06.009Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:59:15.709Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 0,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:59:25.884Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 1
+    },
+    {
+      "time": "2026-04-26T21:59:35.893Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:59:45.586Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T21:59:55.512Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:00:05.744Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:00:16.551Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:00:26.170Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:00:37.272Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:00:46.715Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:00:56.446Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:01:07.310Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:01:16.838Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:01:26.219Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:01:36.253Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:01:45.924Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:01:55.842Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:02:06.097Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:02:16.553Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:02:26.738Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:02:36.669Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:02:46.421Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:02:56.734Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:03:06.299Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:03:16.047Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:03:25.815Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:03:35.642Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:03:45.278Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:03:54.718Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:04:04.279Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:04:13.640Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:04:23.505Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:04:32.963Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:04:42.336Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:04:51.751Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:05:01.409Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:05:11.135Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:05:20.607Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:05:30.027Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:05:39.283Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:05:48.724Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:05:57.970Z",
+      "state": "IN_PROGRESS",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    },
+    {
+      "time": "2026-04-26T22:06:07.724Z",
+      "state": "COMPLETED",
+      "totalActivities": 1,
+      "newThisPoll": 0
+    }
+  ],
+  "result": {
+    "finalState": "COMPLETED",
+    "outputs": [],
+    "title": "[capture] nonexistent-path",
+    "url": "https://jules.google.com/session/1921324218550444153"
+  },
+  "error": null,
+  "completedAt": "2026-04-26T22:06:10.171Z",
+  "durationMs": 490305,
+  "totalActivities": 1
+}

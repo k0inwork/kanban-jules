@@ -1,0 +1,18 @@
+{
+  "scenario": "bug-fix",
+  "description": "Bug fix task — needs understanding existing code",
+  "repo": "k0inwork/kanban-jules",
+  "branch": "main",
+  "prompt": "In the JulesNegotiator, when a session is deleted after timeout, the local DB record is cleaned up. Check if there are any edge cases where the local record could be orphaned (not cleaned up). Report your findings.",
+  "successCriteria": "Analysis of edge cases in session cleanup",
+  "startedAt": "2026-04-26T21:02:30.219Z",
+  "session": null,
+  "stateTransitions": [],
+  "allActivities": [],
+  "pollingLog": [],
+  "result": null,
+  "error": "request to https://jules.googleapis.com/v1alpha/sessions failed, reason: ",
+  "completedAt": "2026-04-26T21:02:30.230Z",
+  "durationMs": 11,
+  "totalActivities": 0
+}
