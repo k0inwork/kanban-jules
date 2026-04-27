@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { loadFixture } from './fixtureReplay';
 
 // Mock dependencies before imports
 vi.mock('../../lib/julesApi', () => ({
@@ -45,8 +46,6 @@ function setupWhereChain(firstValue: any = undefined) {
   return { where, equals, first, delete: del };
 }
 
-const mockTask = { id: 'task-1', title: 'Test Task', description: 'Do something' };
-
 describe('JulesSessionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,50 +53,38 @@ describe('JulesSessionManager', () => {
   });
 
   describe('findOrCreateSession', () => {
-    it('creates new session when no existing session in DB', async () => {
-      mockCreateSession.mockResolvedValue({
-        name: 'sessions/new-123',
-        state: 'IN_PROGRESS',
-      });
-      mockGetSession.mockResolvedValue({
-        name: 'sessions/new-123',
-        state: 'IN_PROGRESS',
-      });
+    it('creates new session with fixture-shaped response', async () => {
+      const fixture = loadFixture('simple-task');
+      const sessionShape = fixture.session;
+
+      mockCreateSession.mockResolvedValue(sessionShape);
+      mockGetSession.mockResolvedValue({ ...sessionShape, state: 'IN_PROGRESS' });
 
       const result = await JulesSessionManager.findOrCreateSession(
-        'api-key', mockTask, 'owner/repo', 'main', 'sources/github/owner/repo',
+        'api-key', { id: 'task-1', title: 'Test Task', description: 'Do something' }, 'k0inwork/kanban-jules', 'main', 'sources/github/k0inwork/kanban-jules',
       );
 
       expect(result).toBeTruthy();
-      expect(result!.name).toBe('sessions/new-123');
+      expect(result!.name).toBe(sessionShape.name);
       expect(mockCreateSession).toHaveBeenCalledWith('api-key', expect.objectContaining({
         title: 'Test Task',
         sourceContext: {
-          source: 'sources/github/owner/repo',
+          source: 'sources/github/k0inwork/kanban-jules',
           githubRepoContext: { startingBranch: 'main' },
         },
         requirePlanApproval: true,
       }));
       expect(db.julesSessions.put).toHaveBeenCalledWith(expect.objectContaining({
-        name: 'sessions/new-123',
-        taskId: 'task-1',
-        repoUrl: 'owner/repo',
-        branchName: 'main',
+        name: sessionShape.name,
       }));
     });
 
     it('creates session without sourceContext when sourceName is empty', async () => {
-      mockCreateSession.mockResolvedValue({
-        name: 'sessions/new-456',
-        state: 'IN_PROGRESS',
-      });
-      mockGetSession.mockResolvedValue({
-        name: 'sessions/new-456',
-        state: 'IN_PROGRESS',
-      });
+      mockCreateSession.mockResolvedValue({ name: 'sessions/new-456', state: 'IN_PROGRESS' });
+      mockGetSession.mockResolvedValue({ name: 'sessions/new-456', state: 'IN_PROGRESS' });
 
       await JulesSessionManager.findOrCreateSession(
-        'api-key', mockTask, 'owner/repo', 'main', '',
+        'api-key', { id: 'task-1', title: 'Test' }, 'owner/repo', 'main', '',
       );
 
       expect(mockCreateSession).toHaveBeenCalledWith('api-key', expect.objectContaining({
@@ -106,17 +93,11 @@ describe('JulesSessionManager', () => {
     });
 
     it('emits event on session creation', async () => {
-      mockCreateSession.mockResolvedValue({
-        name: 'sessions/evt-123',
-        state: 'IN_PROGRESS',
-      });
-      mockGetSession.mockResolvedValue({
-        name: 'sessions/evt-123',
-        state: 'IN_PROGRESS',
-      });
+      mockCreateSession.mockResolvedValue({ name: 'sessions/evt-123', state: 'IN_PROGRESS' });
+      mockGetSession.mockResolvedValue({ name: 'sessions/evt-123', state: 'IN_PROGRESS' });
 
       await JulesSessionManager.findOrCreateSession(
-        'api-key', mockTask, 'owner/repo', 'main', 'sources/github/owner/repo',
+        'api-key', { id: 'task-1', title: 'Test' }, 'owner/repo', 'main', 'sources/github/owner/repo',
       );
 
       const { eventBus } = await import('../../core/event-bus');
@@ -129,35 +110,25 @@ describe('JulesSessionManager', () => {
 
   describe('createSession', () => {
     it('returns immediately when session is not QUEUED', async () => {
-      mockCreateSession.mockResolvedValue({
-        name: 'sessions/direct-123',
-        state: 'IN_PROGRESS',
-      });
-      mockGetSession.mockResolvedValue({
-        name: 'sessions/direct-123',
-        state: 'IN_PROGRESS',
-      });
+      mockCreateSession.mockResolvedValue({ name: 'sessions/direct-123', state: 'IN_PROGRESS' });
+      mockGetSession.mockResolvedValue({ name: 'sessions/direct-123', state: 'IN_PROGRESS' });
 
-      const result = await JulesSessionManager.createSession('api-key', mockTask, {
+      const result = await JulesSessionManager.createSession('api-key', { id: 'task-1', title: 'Test' }, {
         source: 'sources/github/owner/repo',
       });
 
       expect(result.state).toBe('IN_PROGRESS');
-      // getSession called once in the polling loop to verify state
       expect(mockGetSession).toHaveBeenCalledTimes(1);
     });
 
     it('polls until session leaves QUEUED state', async () => {
-      mockCreateSession.mockResolvedValue({
-        name: 'sessions/poll-123',
-        state: 'QUEUED',
-      });
+      mockCreateSession.mockResolvedValue({ name: 'sessions/poll-123', state: 'QUEUED' });
       mockGetSession
         .mockResolvedValueOnce({ name: 'sessions/poll-123', state: 'QUEUED' })
         .mockResolvedValueOnce({ name: 'sessions/poll-123', state: 'IN_PROGRESS' });
 
       vi.useFakeTimers();
-      const promise = JulesSessionManager.createSession('api-key', mockTask, {
+      const promise = JulesSessionManager.createSession('api-key', { id: 'task-1', title: 'Test' }, {
         source: 'sources/github/owner/repo',
       });
       await vi.advanceTimersByTimeAsync(2000);
@@ -175,7 +146,7 @@ describe('JulesSessionManager', () => {
         .mockResolvedValueOnce({ name: 'sessions/fallback-123', state: 'IN_PROGRESS' });
       mockGetSession.mockResolvedValue({ name: 'sessions/fallback-123', state: 'IN_PROGRESS' });
 
-      const result = await JulesSessionManager.createSession('api-key', mockTask, {
+      const result = await JulesSessionManager.createSession('api-key', { id: 'task-1', title: 'Test' }, {
         source: 'sources/github/nonexistent/repo',
       });
 
