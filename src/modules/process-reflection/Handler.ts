@@ -2,6 +2,8 @@ import { db, SELF_PROJECT_ID } from '../../services/db';
 import { RequestContext } from '../../core/types';
 import { applyRules } from './rules';
 
+const SELF_TASK_THRESHOLD = 3;
+
 export class ReflectionHandler {
   static async handleRequest(toolName: string, args: any[], context: RequestContext): Promise<any> {
     if (toolName === 'process-reflection.reclassify') {
@@ -36,8 +38,6 @@ export class ReflectionHandler {
       if (!result.match) continue;
 
       if (result.ruleName === 'KNOWN-GAP') {
-        // Don't reclassify — just tag (use update, not bulkPut, to avoid
-        // overwriting prior rule mutations like project='self')
         for (const id of result.entryIds) {
           const entry = await db.kbLog.get(id);
           if (entry) {
@@ -47,7 +47,7 @@ export class ReflectionHandler {
         continue;
       }
 
-      // Reclassify to project='self'
+      // Reclassify to self-project
       for (const id of result.entryIds) {
         await db.kbLog.update(id, { projectId: SELF_PROJECT_ID });
         if (!reclassifiedIds.includes(id)) {
@@ -68,17 +68,51 @@ export class ReflectionHandler {
         projectId: SELF_PROJECT_ID
       });
 
-      // Create self-task if flagged
+      // Send mail to self-project instead of creating task immediately
       if (result.createSelfTask && result.taskTitle) {
-        await db.tasks.add({
-          id: `self-${Date.now()}`,
-          title: result.taskTitle,
-          description: result.taskDescription || result.diagnosis,
-          workflowStatus: 'TODO',
-          agentState: 'IDLE',
-          createdAt: Date.now(),
-          projectId: SELF_PROJECT_ID
+        await db.messages.add({
+          sender: 'reflection',
+          type: 'alert',
+          category: 'SIGNAL',
+          content: `[${result.ruleName}] ${result.diagnosis}`,
+          proposedTask: {
+            title: result.taskTitle,
+            description: result.taskDescription || result.diagnosis,
+          },
+          projectId: SELF_PROJECT_ID,
+          status: 'unread',
+          timestamp: Date.now(),
         });
+
+        // Check if enough mails accumulated for this rule to create a self-task
+        const unreadAlerts = await db.messages
+          .where('projectId').equals(SELF_PROJECT_ID)
+          .filter(m => m.status === 'unread' && m.type === 'alert' && m.sender === 'reflection')
+          .toArray();
+
+        // Group by similarity of proposedTask title prefix
+        const titlePrefix = result.taskTitle.substring(0, 30);
+        const matchingAlerts = unreadAlerts.filter(m =>
+          m.proposedTask?.title?.substring(0, 30) === titlePrefix
+        );
+
+        if (matchingAlerts.length >= SELF_TASK_THRESHOLD) {
+          // Create self-task from the accumulated mails
+          await db.tasks.add({
+            id: `self-${Date.now()}`,
+            title: result.taskTitle,
+            description: result.taskDescription || result.diagnosis,
+            workflowStatus: 'TODO',
+            agentState: 'IDLE',
+            createdAt: Date.now(),
+            projectId: SELF_PROJECT_ID
+          });
+
+          // Mark the mails as read now that a task exists
+          for (const mail of matchingAlerts) {
+            await db.messages.update(mail.id!, { status: 'read' });
+          }
+        }
       }
     }
 

@@ -68,6 +68,15 @@ export async function microDream(taskId: string, context: RequestContext): Promi
     projectId: entries[0]?.projectId || context.projectId,
   });
 
+  // Run reflection after consolidation — detects recurring errors across tasks
+  // and creates self-tasks when agent-level issues are found
+  try {
+    const { ReflectionHandler } = await import('../process-reflection/Handler');
+    await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], context);
+  } catch {
+    // Reflection failure should not block microDream
+  }
+
   return `Micro-dream: consolidated ${entries.length} entries, verified ${verifiedCount} decisions for task ${taskId}.`;
 }
 
