@@ -23,6 +23,7 @@ import { ProjectorHandler } from '../knowledge-projector/Handler';
 
 const ctx = {
   taskId: 't1',
+  projectId: 'test-project-id',
   repoUrl: 'owner/repo',
   repoBranch: 'main',
   llmCall: vi.fn(),

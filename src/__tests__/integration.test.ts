@@ -643,7 +643,7 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
       { path: 'src/checkout.ts' },
       { path: 'src/payment.tsx' },
     ];
-    const scanResult = await scanRepo(files);
+    const scanResult = await scanRepo(files, 'test-project-id');
     expect(scanResult.docs).toBeGreaterThanOrEqual(1); // README doc created
     expect(scanResult.entries).toBe(1); // tech stack observation
 
@@ -844,8 +844,8 @@ describe('Integration: full project lifecycle — e-commerce checkout', () => {
 
     // 6e: KB has entries across multiple projects
     const projects = [...new Set(allActive.map(e => e.projectId))];
-    expect(projects).toContain('self');
-    expect(projects).toContain('target');
+    expect(projects).toContain(SELF_PROJECT_ID);
+    expect(projects).toContain('test-project-id');
 
     // 6f: Repo scanner docs still intact
     const docs = await db.kbDocs.filter(d => d.active).toArray();

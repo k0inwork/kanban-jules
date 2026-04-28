@@ -257,15 +257,15 @@ describe('vfs — headFile', () => {
 import { RepositoryTool } from '../modules/knowledge-repo-browser/RepositoryTool';
 
 describe('RepositoryTool — vfs-backed', () => {
-  const fakeCtx = { taskId: 'test-task', repoUrl: 'owner/repo', repoBranch: 'main', githubToken: '' } as any;
+  const fakeCtx = { taskId: 'test-task', repoUrl: 'owner/repo', repoBranch: 'main', githubToken: '', projectId: '_default' } as any;
 
   beforeEach(async () => {
     await seedIDB([
-      { path: 'tmp/repo-root/package.json', data: '{"name":"test-repo"}', isDir: false, mode: 0o644, modTime: Date.now() },
-      { path: 'tmp/repo-root/src/App.tsx', data: 'import React from "react";', isDir: false, mode: 0o644, modTime: Date.now() },
-      { path: 'tmp/repo-root/src/index.ts', data: 'export { App } from "./App";', isDir: false, mode: 0o644, modTime: Date.now() },
-      { path: 'tmp/repo-root/src/utils', isDir: true, mode: 0o755, modTime: Date.now() },
-      { path: 'tmp/repo-root/README.md', data: '# Test Repo\nLine 2\nLine 3\nLine 4', isDir: false, mode: 0o644, modTime: Date.now() },
+      { path: 'tmp/repo-root/_default/package.json', data: '{"name":"test-repo"}', isDir: false, mode: 0o644, modTime: Date.now() },
+      { path: 'tmp/repo-root/_default/src/App.tsx', data: 'import React from "react";', isDir: false, mode: 0o644, modTime: Date.now() },
+      { path: 'tmp/repo-root/_default/src/index.ts', data: 'export { App } from "./App";', isDir: false, mode: 0o644, modTime: Date.now() },
+      { path: 'tmp/repo-root/_default/src/utils', isDir: true, mode: 0o755, modTime: Date.now() },
+      { path: 'tmp/repo-root/_default/README.md', data: '# Test Repo\nLine 2\nLine 3\nLine 4', isDir: false, mode: 0o644, modTime: Date.now() },
     ]);
   });
 

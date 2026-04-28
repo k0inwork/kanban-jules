@@ -35,6 +35,7 @@ function makeEntry(overrides: Partial<KBEntry> & { text: string }): KBEntry {
 function mockContext(llmResponse: string = 'mock response'): any {
   return {
     taskId: 'test-task',
+    projectId: 'test-project-id',
     repoUrl: '',
     repoBranch: 'main',
     llmCall: vi.fn().mockResolvedValue(llmResponse),
@@ -724,7 +725,7 @@ describe('DreamHandler', () => {
       'No amendments needed',
     ]);
     const result = await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
-    expect(result).toContain('Deep-dream');
+    expect(result.dream).toContain('Deep-dream');
 
     // Verify strategic insight was added
     const entries = await db.kbLog.toArray();
@@ -863,6 +864,7 @@ describe('KBHandler', () => {
       layer: ['L0'],
       tags: ['test'],
       source: 'execution',
+      projectId: 'test-project-id',
     }], ctx);
     expect(id).toBeGreaterThan(0);
 
@@ -1242,7 +1244,7 @@ describe('KBHandler', () => {
 // ─── KB Writer Convenience Functions ───────────────────────────
 describe('KBHandler convenience writers', () => {
   it('recordExecution — creates entry with correct defaults', async () => {
-    const id = await KBHandler.recordExecution('Built feature X', ['task-1']);
+    const id = await KBHandler.recordExecution('Built feature X', ['task-1'], 'test-project-id');
     expect(id).toBeGreaterThan(0);
     const entries = await db.kbLog.toArray();
     expect(entries).toHaveLength(1);
@@ -1256,7 +1258,7 @@ describe('KBHandler convenience writers', () => {
   });
 
   it('recordExecution — respects explicit project', async () => {
-    await KBHandler.recordExecution('Self-healing ran', ['self'], 'self');
+    await KBHandler.recordExecution('Self-healing ran', ['self'], SELF_PROJECT_ID);
     const entries = await db.kbLog.toArray();
     expect(entries[0].projectId).toBe(SELF_PROJECT_ID);
   });
@@ -2831,7 +2833,7 @@ describe('Phase 1h: Deep Decision Log', () => {
     ]);
 
     const result = await DreamHandler.handleRequest('process-dream.deepDream', [], ctx);
-    expect(result).toContain('No decisions for log');
+    expect(result.dream).toContain('No decisions for log');
 
     const docs = await db.kbDocs.filter(d => d.type === 'decision-log').toArray();
     expect(docs).toHaveLength(0);

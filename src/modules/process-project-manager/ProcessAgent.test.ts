@@ -18,6 +18,7 @@ vi.mock('../../services/db', () => ({
     },
     messages: { add: vi.fn() },
     projectConfigs: { get: vi.fn() },
+    moduleKnowledge: { get: vi.fn().mockResolvedValue(undefined), put: vi.fn() },
   },
   ArtifactStatus: { draft: 'draft', in_review: 'in_review', revised: 'revised', approved: 'approved' },
 }));

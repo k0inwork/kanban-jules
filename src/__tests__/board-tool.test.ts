@@ -138,11 +138,12 @@ describe('board.createTask', () => {
   });
 
   it('creates a task with description and project', async () => {
+    const selfCtx = { ...ctx, projectId: SELF_PROJECT_ID };
     await BoardTool.handleRequest('knowledge-board.createTask', [{
       title: 'Self improvement',
       description: 'Make the system better',
       projectId: SELF_PROJECT_ID,
-    }], ctx);
+    }], selfCtx);
 
     const task = Array.from(tasksMap.values())[0];
     expect(task.description).toBe('Make the system better');

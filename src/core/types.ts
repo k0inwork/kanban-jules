@@ -82,6 +82,14 @@ export interface RequestContext {
   abortSignal?: AbortSignal;
 }
 
+export type ModelTier = 't1' | 't2' | 't3';
+
+export interface TierModelConfig {
+  apiProvider?: string;
+  openaiModel?: string;
+  geminiModel?: string;
+}
+
 export interface HostConfig {
   apiProvider: string;
   geminiModel: string;
@@ -97,6 +105,7 @@ export interface HostConfig {
   julesSourceId: string;
   moduleConfigs: Record<string, any>;
   projectId?: string;
+  tierModels?: Partial<Record<ModelTier, TierModelConfig>>;
 }
 
 // --- askUserFor types ---

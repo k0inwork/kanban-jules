@@ -23,7 +23,6 @@ import (
 	"tractor.dev/wanix/fs/tarfs"
 	"tractor.dev/wanix/vfs/pipe"
 	"tractor.dev/wanix/vfs/ramfs"
-	"tractor.dev/wanix/vfs/session"
 	"tractor.dev/wanix/vm"
 	"tractor.dev/wanix/vm/v86/virtio9p"
 	"tractor.dev/wanix/web"
@@ -59,19 +58,10 @@ func main() {
 	k.AddModule("#commands", &pipe.Allocator{})
 	k.AddModule("#|", &pipe.Allocator{})
 	k.AddModule("#ramfs", &ramfs.Allocator{})
-	sessionAlloc := session.NewAllocator()
-	k.AddModule("#sessions", sessionAlloc)
 
 	root, err := k.NewRoot()
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	// Pre-create session 0 pipe pair so session-mux can open it on boot
-	if _, err := sessionAlloc.FS().Create(0); err != nil {
-		log.Printf("warning: could not pre-create session 0: %v", err)
-	} else {
-		log.Println("session 0 pipe pair created")
 	}
 
 	debug9p := inst.Get("config").Get("debug9p")
@@ -218,7 +208,6 @@ func main() {
 		{"#console/data1", fmt.Sprintf("vm/%s/ttyS0", vmID)},
 		{"#ramfs", fmt.Sprintf("vm/%s/fsys/#ramfs", vmID)},
 		{"#pipe", fmt.Sprintf("vm/%s/fsys/#pipe", vmID)},
-		{"#sessions", fmt.Sprintf("vm/%s/fsys/#sessions", vmID)},
 		{"#|", fmt.Sprintf("vm/%s/fsys/#|", vmID)},
 		{".", fmt.Sprintf("vm/%s/fsys", vmID)},
 		{"#llm", fmt.Sprintf("vm/%s/fsys/#llm", vmID)},

@@ -121,6 +121,28 @@ async function startServer() {
     }
   });
 
+  // Jules session capture logging endpoint
+  app.post("/api/log", async (req, res) => {
+    const { type, data } = req.body;
+    if (!type || !data) {
+      return res.status(400).json({ error: "type and data are required" });
+    }
+
+    try {
+      const logDir = path.join(process.cwd(), "fixtures", "jules-captures");
+      await fs.mkdir(logDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `${type}-${timestamp}.json`;
+      const filepath = path.join(logDir, filename);
+      await fs.writeFile(filepath, JSON.stringify(data, null, 2));
+      console.log(`[log] Saved ${type} capture: ${filename}`);
+      res.json({ ok: true, filename });
+    } catch (error: any) {
+      console.error("[log] Failed to save:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // HTTP proxy for v86 VM network relay
   // v86's fetch adapter calls this with cors_proxy prefix, e.g.:
   //   GET /proxy?url=http%3A%2F%2Fexample.com%2Fpath
