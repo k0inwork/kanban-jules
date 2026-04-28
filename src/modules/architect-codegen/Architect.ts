@@ -9,7 +9,7 @@ export class Architect {
 
     const prompt = composeArchitectPrompt(registry.getEnabled(), projectedKnowledge) + `\n\nTask Title: ${title}\nTask Description: ${description}`;
 
-    const responseText = await context.llmCall(prompt, true);
+    const responseText = await context.llmCall(prompt, true, 'global');
     return JSON.parse(responseText || '{}');
   }
 }

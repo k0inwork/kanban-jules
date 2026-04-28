@@ -36,7 +36,7 @@ import { TerminalPanel } from './modules/channel-wasm-terminal/TerminalPanel';
 import { BoardVMProvider } from './bridge/BoardVMContext';
 import YuanChatPanel from './bridge/YuanChatPanel';
 import PreviewPane from './components/PreviewPane';
-import { Artifact, db, AgentMessage, Project } from './services/db';
+import { Artifact, db, AgentMessage, Project, SELF_PROJECT_ID } from './services/db';
 import ProjectDropdown from './components/ProjectDropdown';
 import { BUILD } from './modules/channel-wasm-terminal/TerminalPanel';
 import { BashExecutorHandler } from './modules/bash-executor/BashExecutorHandler';

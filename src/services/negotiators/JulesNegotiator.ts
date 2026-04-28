@@ -23,7 +23,7 @@ export class JulesNegotiator {
     branch: string,
     prompt: string,
     successCriteria: string,
-    llmCall: (prompt: string, jsonMode?: boolean) => Promise<string>,
+    llmCall: (prompt: string, jsonMode?: boolean, level?: 'static' | 'dynamic' | 'global') => Promise<string>,
     abortSignal?: AbortSignal
   ): Promise<string> {
     
@@ -32,10 +32,10 @@ export class JulesNegotiator {
       throw new Error("Jules API Key is not configured.");
     }
 
-    const safeLlmCall = async (promptText: string, jsonMode?: boolean, retries = 5): Promise<string> => {
+    const safeLlmCall = async (promptText: string, jsonMode?: boolean, level?: 'static' | 'dynamic' | 'global', retries = 5): Promise<string> => {
       for (let i = 0; i < retries; i++) {
         try {
-          return await llmCall(promptText, jsonMode);
+          return await llmCall(promptText, jsonMode, level);
         } catch (e: any) {
           const isRateLimit = e?.message?.includes('429') || e?.message?.includes('1302') || e?.message?.includes('rate limit') || e?.message?.includes('速率限制');
           if (i === retries - 1 || !isRateLimit) {
@@ -185,7 +185,7 @@ export class JulesNegotiator {
               Return only "true" or "false".`;
               
               try {
-                const verifyResult = await safeLlmCall(verifyPrompt);
+                const verifyResult = await safeLlmCall(verifyPrompt, false, 'dynamic');
                 if (verifyResult.trim().toLowerCase() === 'true') {
                   appendJnaLog(`Progress update meets success criteria. Treating as final result.`);
                   julesResponse = progressMsg;
@@ -288,7 +288,7 @@ Return a JSON object with this exact structure:
 }`;
 
           try {
-            const analysisStr = await safeLlmCall(analysisPrompt, true);
+            const analysisStr = await safeLlmCall(analysisPrompt, true, 'dynamic');
             const analysis = JSON.parse(analysisStr);
             appendJnaLog(`Context Analysis: ${analysis.reasoning}`);
             
@@ -346,7 +346,7 @@ Return a JSON object with this exact structure:
       
       Return only "true" or "false".`;
       
-      const verifyResult = await safeLlmCall(verifyPrompt);
+      const verifyResult = await safeLlmCall(verifyPrompt, false, 'dynamic');
       const isSuccess = verifyResult.trim().toLowerCase() === 'true';
 
       if (isSuccess) {

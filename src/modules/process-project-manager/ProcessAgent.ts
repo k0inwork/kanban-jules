@@ -123,7 +123,7 @@ export class ProcessAgent {
         description: 'Use LLM to analyze data. Args: { prompt, data }',
         execute: async (args: { prompt: string; data: any }) => {
           const fullPrompt = `${args.prompt}\n\nData:\n${typeof args.data === 'string' ? args.data : JSON.stringify(args.data, null, 2)}`;
-          const result = await this.context.llmCall(fullPrompt);
+          const result = await this.context.llmCall(fullPrompt, false, 'global');
           return { success: true, data: result };
         }
       },
@@ -298,7 +298,7 @@ Set "done": true when you have no more actions to take.`;
         : prompt;
 
       try {
-        const responseText = await context.llmCall(cappedPrompt, true);
+        const responseText = await context.llmCall(cappedPrompt, true, 'global');
         const result = JSON.parse(responseText || '{}');
 
         // Track approximate token usage (chars ÷ 4 ≈ tokens)

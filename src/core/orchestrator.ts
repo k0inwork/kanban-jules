@@ -90,7 +90,7 @@ export class Orchestrator {
         `;
         
         try {
-          summary = await this.config.llmCall(analysisPrompt, format === 'json');
+          summary = await this.config.llmCall(analysisPrompt, format === 'json', 'global');
           this.appendActionLog(taskId, `Analysis completed (${format}) and added to context.`);
         } catch (e: any) {
           this.appendActionLog(taskId, `Analysis failed: ${e.message}`);
@@ -211,7 +211,7 @@ export class Orchestrator {
         } else {
           // Live Mode: Generate new code
           try {
-            code = await this.config.llmCall(prompt);
+            code = await this.config.llmCall(prompt, false, 'global');
           } catch (llmError: any) {
             // If the LLM call itself fails (e.g. network error), don't count it as a code execution attempt.
             // The host.ts llmCall already retries 3 times, but if it still fails, we should pause or wait.

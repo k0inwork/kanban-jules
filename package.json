@@ -17,6 +17,7 @@
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@isomorphic-git/lightning-fs": "^4.6.2",
+    "@mlc-ai/web-llm": "^0.2.82",
     "@programasweights/web": "^0.3.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/uuid": "^10.0.0",

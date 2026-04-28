@@ -20,6 +20,15 @@ export async function microDream(taskId: string, context: RequestContext): Promi
   // Phase 1d: Decision verification — classify + verify harvested decisions
   const verifiedCount = await verifyDecisions(taskId, context);
 
+  // Run reflection before early return — detects recurring errors across tasks
+  // and sends mails to self-project (creates self-task when 3 mails accumulate)
+  try {
+    const { ReflectionHandler } = await import('../process-reflection/Handler');
+    await ReflectionHandler.handleRequest('process-reflection.reclassify', [{}], context);
+  } catch {
+    // Reflection failure should not block microDream
+  }
+
   if (entries.length < 3) {
     // Not enough to consolidate — just record executor outcome
     return `Micro-dream: only ${entries.length} raw entries for task ${taskId}, skipping consolidation. Verified ${verifiedCount} decisions.`;

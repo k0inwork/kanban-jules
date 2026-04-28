@@ -79,6 +79,7 @@ describe('ArchitectTool', () => {
     expect(ctx.llmCall).toHaveBeenCalledWith(
       expect.stringContaining('Fix auth'),
       true,
+      'global',
     );
     expect(result.steps[0].name).toBe('s1');
   });

@@ -29,6 +29,9 @@ import { action as kbRecorderAction } from '../modules/action-kb-recorder/action
 import { action as branchTrackerAction } from '../modules/action-branch-tracker/action';
 import { action as testRunnerAction } from '../modules/action-test-runner/action';
 import { AskUserForHandler } from '../modules/channel-ask-user/AskUserForHandler';
+import { llmRouter } from './llm-router';
+import { LlmLevel } from './llm-levels';
+import { webllmRuntime } from './webllm-runtime';
 
 
 export class ModuleHost {
@@ -136,17 +139,23 @@ export class ModuleHost {
     });
   }
 
-  async llmCall(prompt: string, jsonMode?: boolean): Promise<string> {
+  async llmCall(prompt: string, jsonMode?: boolean, level?: LlmLevel): Promise<string> {
     if (!this.config) throw new Error("Host not initialized");
-    
+
+    const preferredLevel = level ?? 'global';
+    return llmRouter.route(preferredLevel, prompt, jsonMode);
+  }
+
+  /** Raw API call (used as the global tier by the router) */
+  private async apiCall(prompt: string, jsonMode?: boolean): Promise<string> {
     const maxRetries = 3;
     let lastError: any;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort('LLM call timed out after 60 seconds'), 60000); // 60s timeout
-        
+        const timeoutId = setTimeout(() => controller.abort('LLM call timed out after 60 seconds'), 60000);
+
         try {
           const llmPromise = (async () => {
             if (this.config!.apiProvider === 'gemini') {
@@ -194,13 +203,13 @@ export class ModuleHost {
         lastError = error;
         const isNetworkError = error.message?.includes('NetworkError') || error.message?.includes('fetch') || error.message?.includes('ECONNREFUSED');
         const isRateLimit = error.message?.includes('429') || error.message?.includes('1302') || error.message?.includes('rate limit') || error.message?.includes('速率限制');
-        
+
         if (!isNetworkError && !isRateLimit) {
-          throw error; // Don't retry other errors like 400 Bad Request
+          throw error;
         }
-        
+
         if (attempt < maxRetries - 1) {
-          const delay = 5000 * (attempt + 1); // 5s, 10s
+          const delay = 5000 * (attempt + 1);
           const msg = `[Host] LLM call failed (attempt ${attempt + 1}/${maxRetries}). Retrying in ${delay}ms... Error: ${error.message}`;
           console.warn(msg);
           eventBus.emit('module:log', { taskId: 'system', moduleId: 'orchestrator', message: msg });
@@ -215,6 +224,12 @@ export class ModuleHost {
     this.config = config;
     const modules = registry.getEnabled();
     console.log(`Host initialized with ${modules.length} enabled modules.`);
+
+    // Wire LLM router: register API caller as the global tier
+    llmRouter.setApiCaller(this.apiCall.bind(this));
+
+    // Register WebLLM as dynamic tier (opt-in, starts unavailable)
+    llmRouter.registerRuntime(webllmRuntime);
 
     // Initialize modules
     for (const module of modules) {

@@ -1,10 +1,10 @@
-import { GoogleGenAI } from '@google/genai';
 import { db } from '../../services/db';
 import { julesApi } from '../../lib/julesApi';
 import { JulesSessionManager } from './JulesSessionManager';
-import { JulesConfig } from './types';
 import { eventBus } from '../../core/event-bus';
-import { OrchestratorConfig, HostConfig } from '../../core/types';
+import { HostConfig } from '../../core/types';
+import { llmRouter } from '../../core/llm-router';
+import { PAW_PROGRAMS, buildPawPrompt } from '../../core/paw-programs';
 
 export class JulesPostman {
   private static instance: JulesPostman | null = null;
@@ -88,44 +88,19 @@ export class JulesPostman {
             
             content = rawContent;
             type = 'chat';
-            
-            // Classify agent message
-            if (this.config.apiProvider === 'gemini') {
-              const ai = new GoogleGenAI({ apiKey: this.config.geminiApiKey || process.env.GEMINI_API_KEY || '' });
-              const classification = await ai.models.generateContent({
-                model: this.config.geminiModel,
-                contents: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
-                SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-                
-                Message: "${content}"
-                
-                Return only "SIGNAL" or "NOISE".`,
-              });
-              category = (classification.text?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
-            } else {
-              const response = await fetch(`${this.config.openaiUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${this.config.openaiKey}`
-                },
-                body: JSON.stringify({
-                  model: this.config.openaiModel,
-                  messages: [{ role: 'user', content: `Classify this message from a remote coding agent as SIGNAL or NOISE. 
-                SIGNAL: The agent is asking a question, requesting feedback on a plan, or has finished the task.
-                NOISE: The agent is just reporting progress or internal thoughts that don't require immediate user/supervisor attention.
-                
-                Message: "${content}"
-                
-                Return only "SIGNAL" or "NOISE".` }],
-                  temperature: 0.1
-                })
-              });
-              if (response.ok) {
-                const data = await response.json();
-                category = (data.choices[0].message.content?.trim().toUpperCase() === 'SIGNAL') ? 'SIGNAL' : 'NOISE';
-              }
+
+            // Classify agent message via level router (static → PAW, fallback → API)
+            try {
+              const prompt = buildPawPrompt(PAW_PROGRAMS['signal-noise'], content);
+              const classification = await llmRouter.route(
+                'static',
+                prompt,
+                false,
+                'signal-noise'
+              );
+              category = classification.trim().toUpperCase() === 'SIGNAL' ? 'SIGNAL' : 'NOISE';
+            } catch {
+              category = 'SIGNAL'; // Default to SIGNAL on classification failure so we don't miss important messages
             }
           } else if (activity.progressUpdated) {
             content = `Progress: ${activity.progressUpdated.title}`;
