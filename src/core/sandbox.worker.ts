@@ -2,13 +2,14 @@ import Sval from 'sval';
 
 // Handle messages from main thread
 self.onmessage = async (event) => {
-  const { type, code, requestId, permissions, sandboxBindings, globals, executionHistory, seed } = event.data as {
+  const { type, code, requestId, permissions, sandboxBindings, globals, injectedAPIs, executionHistory, seed } = event.data as {
     type: string;
     code: string;
     requestId: string;
     permissions: string[];
     sandboxBindings: Record<string, string>;
     globals?: Record<string, any>;
+    injectedAPIs?: Record<string, string[]>;
     executionHistory?: any[];
     seed?: number;
   };
@@ -117,6 +118,17 @@ self.onmessage = async (event) => {
       // 2. Inject allowed tools based on sandboxBindings
       for (const [bindingName, toolName] of Object.entries(sandboxBindings)) {
         interpreter.import(bindingName, createToolHandler(toolName, permissions));
+      }
+
+      // 2.1 Inject proxy objects for injected APIs
+      if (injectedAPIs) {
+        for (const [apiName, methods] of Object.entries(injectedAPIs)) {
+          const apiProxy: Record<string, any> = {};
+          for (const methodName of methods) {
+            apiProxy[methodName] = createToolHandler(`${apiName}.${methodName}`, permissions);
+          }
+          interpreter.import(apiName, apiProxy);
+        }
       }
 
       // 3. Define AgentContext using tool bindings
